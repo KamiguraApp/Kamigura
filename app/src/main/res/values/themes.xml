@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.Kamigura" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:colorAccent">#97D8BE</item>
+        <item name="android:windowBackground">#161A18</item>
+        <item name="android:statusBarColor">#161A18</item>
+        <item name="android:navigationBarColor">#161A18</item>
+    </style>
+</resources>

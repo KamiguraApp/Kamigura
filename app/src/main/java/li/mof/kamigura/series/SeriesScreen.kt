@@ -1,0 +1,965 @@
+package li.mof.kamigura.series
+
+import android.graphics.Color as AndroidColor
+import android.net.Uri
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import li.mof.kamigura.ChapterDto
+import li.mof.kamigura.KavitaClient
+import li.mof.kamigura.KavitaSession
+import li.mof.kamigura.KavitaSessionStore
+import li.mof.kamigura.normalizeKavitaBaseUrl
+import li.mof.kamigura.SeriesDto
+import li.mof.kamigura.SeriesFilterStatementDto
+import li.mof.kamigura.SeriesFilterV2Dto
+import li.mof.kamigura.SeriesMetadataDto
+import li.mof.kamigura.VolumeDto
+import li.mof.kamigura.ui.DarkLoadingState
+import li.mof.kamigura.ui.DarkMessageState
+import li.mof.kamigura.ui.seriesCoverUrl
+import li.mof.kamigura.ui.seriesInitial
+import li.mof.kamigura.ui.theme.ReadingProgressInProgress
+import li.mof.kamigura.ui.theme.ReadingProgressRead
+import li.mof.kamigura.ui.theme.ReadingProgressTrack
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlin.math.roundToInt
+
+private fun chapterCoverUrl(session: KavitaSession, chapterId: Int): String {
+    val root = normalizeKavitaBaseUrl(session.baseUrl)
+    val apiKey = session.apiKey.takeIf { it.isNotBlank() }?.let { "&apiKey=${Uri.encode(it)}" }.orEmpty()
+    return "$root/api/Image/chapter-cover?chapterId=$chapterId$apiKey"
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SeriesScreen(
+    sessionStore: KavitaSessionStore,
+    libraryId: Int,
+    libraryName: String,
+    onSelect: (SeriesDto) -> Unit
+) {
+    val ctx = LocalContext.current
+
+    var series by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var session by remember { mutableStateOf(KavitaSession()) }
+
+    LaunchedEffect(libraryId) {
+        loading = true
+        error = null
+        try {
+            session = sessionStore.load()
+            val client = KavitaClient(ctx, sessionStore)
+            val (api, _) = client.buildApi()
+            val all = api.allSeriesV2(
+                body = SeriesFilterV2Dto(
+                    statements = listOf(
+                        SeriesFilterStatementDto(
+                            comparison = 0,
+                            field = 19,
+                            value = libraryId.toString()
+                        )
+                    )
+                ),
+                pageNumber = 0,
+                pageSize = 300
+            )
+            series = all.filter { it.libraryId == null || it.libraryId == libraryId }
+                .sortedBy { it.name }
+        } catch (t: Throwable) {
+            error = t.message ?: t.toString()
+        } finally {
+            loading = false
+        }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .background(Color(0xFF202222))
+    ) {
+        TopAppBar(title = { Text(libraryName) })
+        when {
+            loading -> DarkLoadingState()
+            error != null -> DarkMessageState("Could not load series", error ?: "Unknown error")
+            series.isEmpty() -> DarkMessageState("No series", "This library did not return any visible series.")
+            else -> LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 150.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                gridItems(series, key = { it.id }) { item ->
+                    SeriesGridCard(
+                        series = item,
+                        session = session,
+                        onClick = { onSelect(item) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesGridCard(series: SeriesDto, session: KavitaSession, onClick: () -> Unit) {
+    val progress = series.readingProgress()
+    val read = series.isRead()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(0.68f)
+                    .background(Color(0xFF111111)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (session.baseUrl.isNotBlank() && session.apiKey.isNotBlank()) {
+                    AsyncImage(
+                        model = seriesCoverUrl(session, series.id),
+                        contentDescription = series.name,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(seriesInitial(series.name), color = Color(0xFFB9BDBD), style = MaterialTheme.typography.headlineMedium)
+                }
+            }
+            Box(Modifier.fillMaxWidth()) {
+                ReadingProgressBar(
+                    progress = progress,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                )
+                Text(
+                    text = series.name,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 8.dp, top = 8.dp, end = 48.dp, bottom = 8.dp)
+                )
+                ReadingStateText(
+                    progress = progress,
+                    read = read,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 8.dp, end = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChapterPickScreen(
+    sessionStore: KavitaSessionStore,
+    libraryId: Int,
+    seriesId: Int,
+    seriesName: String,
+    onPick: (chapterId: Int, volumeId: Int) -> Unit
+) {
+    val ctx = LocalContext.current
+    var series by remember { mutableStateOf<SeriesDto?>(null) }
+    var metadata by remember { mutableStateOf<SeriesMetadataDto?>(null) }
+    var continueChapter by remember { mutableStateOf<ChapterDto?>(null) }
+    var volumes by remember { mutableStateOf<List<VolumeDto>>(emptyList()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var loading by remember { mutableStateOf(true) }
+    var session by remember { mutableStateOf(KavitaSession()) }
+
+    LaunchedEffect(seriesId) {
+        loading = true
+        error = null
+        try {
+            session = sessionStore.load()
+            val client = KavitaClient(ctx, sessionStore)
+            val (api, _) = client.buildApi()
+            series = api.series(seriesId)
+            metadata = runCatching { api.seriesMetadata(seriesId) }.getOrNull()
+            continueChapter = runCatching { api.continuePoint(seriesId) }.getOrNull()
+            volumes = api.volumes(seriesId)
+        } catch (t: Throwable) {
+            error = t.message ?: t.toString()
+        } finally {
+            loading = false
+        }
+    }
+
+    val chapterCards = volumes.flatMap { volume ->
+        volume.chapters.map { chapter ->
+            ChapterCardItem(volume = volume, chapter = chapter)
+        }
+    }
+    val displaySeries = series ?: SeriesDto(id = seriesId, name = seriesName, libraryId = libraryId)
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .background(Color(0xFF202222))
+    ) {
+        when {
+            loading -> DarkLoadingState()
+            error != null -> DarkMessageState("Could not load series details", error ?: "Unknown error")
+            else -> SeriesDetailContent(
+                series = displaySeries,
+                metadata = metadata,
+                continueChapter = continueChapter,
+                chapterCards = chapterCards,
+                volumeCount = volumes.size,
+                session = session,
+                onPick = onPick
+            )
+        }
+    }
+}
+
+@Composable
+private fun SeriesDetailContent(
+    series: SeriesDto,
+    metadata: SeriesMetadataDto?,
+    continueChapter: ChapterDto?,
+    chapterCards: List<ChapterCardItem>,
+    volumeCount: Int,
+    session: KavitaSession,
+    onPick: (chapterId: Int, volumeId: Int) -> Unit
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= 840.dp && maxWidth > maxHeight
+        if (wide) {
+            val summaryWidth = if (maxWidth >= 1100.dp) 420.dp else 340.dp
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                LazyColumn(
+                    modifier = Modifier
+                        .width(summaryWidth)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    item {
+                        SeriesDetailSummary(
+                            series = series,
+                            metadata = metadata,
+                            continueChapter = continueChapter,
+                            chapterCards = chapterCards,
+                            volumeCount = volumeCount,
+                            session = session,
+                            onPick = onPick
+                        )
+                    }
+                }
+                ChapterIssueGrid(
+                    chapterCards = chapterCards,
+                    session = session,
+                    onPick = onPick,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 160.dp),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SeriesDetailSummary(
+                        series = series,
+                        metadata = metadata,
+                        continueChapter = continueChapter,
+                        chapterCards = chapterCards,
+                        volumeCount = volumeCount,
+                        session = session,
+                        onPick = onPick
+                    )
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    ChapterGridHeader(chapterCards.size)
+                }
+                gridItems(chapterCards, key = { "${it.volume.id}-${it.chapter.id}" }) { item ->
+                    ChapterGridCard(
+                        item = item,
+                        session = session,
+                        onClick = { onPick(item.chapter.id, item.volume.id) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChapterIssueGrid(
+    chapterCards: List<ChapterCardItem>,
+    session: KavitaSession,
+    onPick: (chapterId: Int, volumeId: Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 160.dp),
+        modifier = modifier.fillMaxHeight(),
+        contentPadding = PaddingValues(bottom = 18.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            ChapterGridHeader(chapterCards.size)
+        }
+        gridItems(chapterCards, key = { "${it.volume.id}-${it.chapter.id}" }) { item ->
+            ChapterGridCard(
+                item = item,
+                session = session,
+                onClick = { onPick(item.chapter.id, item.volume.id) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChapterGridHeader(count: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "Issues",
+            color = Color.White,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Surface(
+            color = Color(0xFF596061),
+            shape = MaterialTheme.shapes.small
+        ) {
+            Text(
+                text = count.toString(),
+                color = Color.White,
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SeriesDetailSummary(
+    series: SeriesDto,
+    metadata: SeriesMetadataDto?,
+    continueChapter: ChapterDto?,
+    chapterCards: List<ChapterCardItem>,
+    volumeCount: Int,
+    session: KavitaSession,
+    onPick: (chapterId: Int, volumeId: Int) -> Unit
+) {
+    val summary = metadata?.summary?.takeIf { it.isNotBlank() }
+    val genres = metadata?.genres?.mapNotNull { it.title }.orEmpty()
+    val continueItem = continueChapter?.let { chapter ->
+        chapterCards.firstOrNull { it.chapter.id == chapter.id }
+    } ?: chapterCards.firstOrNull()
+    val continueButtonText = if (series.isRead()) "Re-Read" else "Continue Reading"
+    val continueButtonColor = series.coverActionColor()
+    var summaryExpanded by remember(summary) { mutableStateOf(false) }
+    var summaryCanExpand by remember(summary) { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        SeriesDetailHero(
+            series = series,
+            metadata = metadata,
+            issueCount = chapterCards.size,
+            volumeCount = volumeCount,
+            session = session
+        )
+
+        continueItem?.let { item ->
+            Button(
+                onClick = { onPick(item.chapter.id, item.volume.id) },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = continueButtonColor,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(continueButtonText)
+            }
+        }
+
+        summary?.let {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = it,
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = if (summaryExpanded) Int.MAX_VALUE else 8,
+                    overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { layoutResult ->
+                        if (!summaryExpanded && layoutResult.hasVisualOverflow) {
+                            summaryCanExpand = true
+                        }
+                    }
+                )
+                if (summaryCanExpand || summaryExpanded) {
+                    TextButton(
+                        onClick = { summaryExpanded = !summaryExpanded },
+                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
+                    ) {
+                        Text(if (summaryExpanded) "Show less" else "Show more")
+                    }
+                }
+            }
+        }
+
+        DetailFactBlock("Genres", genres)
+    }
+}
+
+@Composable
+private fun SeriesDetailHero(
+    series: SeriesDto,
+    metadata: SeriesMetadataDto?,
+    issueCount: Int,
+    volumeCount: Int,
+    session: KavitaSession
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val compact = maxWidth < 420.dp
+        val coverWidth = if (compact) 180.dp else 150.dp
+        if (compact) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                SeriesCover(series, session, Modifier.width(coverWidth))
+                SeriesDetailHeroInfo(
+                    series = series,
+                    metadata = metadata,
+                    issueCount = issueCount,
+                    volumeCount = volumeCount,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                SeriesCover(series, session, Modifier.width(coverWidth))
+                SeriesDetailHeroInfo(
+                    series = series,
+                    metadata = metadata,
+                    issueCount = issueCount,
+                    volumeCount = volumeCount,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesCover(series: SeriesDto, session: KavitaSession, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .aspectRatio(0.68f)
+            .background(Color(0xFF111111)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (session.baseUrl.isNotBlank() && session.apiKey.isNotBlank()) {
+            AsyncImage(
+                model = seriesCoverUrl(session, series.id),
+                contentDescription = series.name,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Text(seriesInitial(series.name), color = Color(0xFFB9BDBD), style = MaterialTheme.typography.headlineMedium)
+        }
+    }
+}
+
+@Composable
+private fun SeriesDetailHeroInfo(
+    series: SeriesDto,
+    metadata: SeriesMetadataDto?,
+    issueCount: Int,
+    volumeCount: Int,
+    modifier: Modifier = Modifier
+) {
+    BoxWithConstraints(modifier) {
+        val creatorMaxChars = when {
+            maxWidth < 220.dp -> 18
+            maxWidth < 320.dp -> 28
+            else -> 42
+        }
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = series.name,
+                color = Color.White,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+            series.detailMetaLines(metadata, creatorMaxChars, issueCount, volumeCount).forEach { line ->
+                Text(
+                    text = line,
+                    color = Color(0xFFE6EAEA),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailFactBlock(title: String, values: List<String>) {
+    if (values.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = title,
+            color = Color(0xFFB9BDBD),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = values.joinToString(", "),
+            color = Color.White,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+private data class ChapterCardItem(
+    val volume: VolumeDto,
+    val chapter: ChapterDto
+)
+
+@Composable
+private fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onClick: () -> Unit) {
+    val chapter = item.chapter
+    val title = chapter.displayTitle()
+    val volumeName = item.volume.displayName()
+    val metaLine = listOfNotNull(
+        volumeName,
+        chapter.releaseDateText(),
+        chapter.pages?.let { "$it pages" }
+    ).joinToString(" • ")
+    val progress = chapter.readingProgress()
+    val read = chapter.isRead()
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(0.72f)
+                    .background(Color(0xFF111111)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (session.baseUrl.isNotBlank() && session.apiKey.isNotBlank()) {
+                    AsyncImage(
+                        model = chapterCoverUrl(session, chapter.id),
+                        contentDescription = title,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text("CH", color = Color(0xFFB9BDBD), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                }
+            }
+            Box(Modifier.fillMaxWidth()) {
+                ReadingProgressBar(
+                    progress = progress,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .height(3.dp)
+                )
+                Column(Modifier.padding(start = 10.dp, top = 10.dp, end = 54.dp, bottom = 10.dp)) {
+                    Text(
+                        text = title,
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = metaLine,
+                        color = Color(0xFFB9BDBD),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                ReadingStateText(
+                    progress = progress,
+                    read = read,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 10.dp, end = 10.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadingProgressBar(progress: Float?, modifier: Modifier = Modifier) {
+    val boundedProgress = (progress ?: 0f).coerceIn(0f, 1f)
+    val fillColor = if (boundedProgress >= 1f) ReadingProgressRead else ReadingProgressInProgress
+    Box(modifier = modifier.background(ReadingProgressTrack)) {
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(boundedProgress)
+                .background(fillColor)
+        )
+    }
+}
+
+@Composable
+private fun ReadingStateText(progress: Float?, read: Boolean, modifier: Modifier = Modifier) {
+    val boundedProgress = (progress ?: 0f).coerceIn(0f, 1f)
+    when {
+        read || boundedProgress >= 1f -> Text(
+            text = "✓",
+            color = Color(0xFF8FB7A8),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = modifier
+        )
+        boundedProgress > 0f -> Text(
+            text = "${(boundedProgress * 100f).roundToInt().coerceIn(1, 99)}%",
+            color = ReadingProgressInProgress,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            modifier = modifier
+        )
+    }
+}
+
+private fun ChapterDto.displayTitle(): String {
+    title?.takeIf { it.isDisplayableChapterLabel() }?.let { return it }
+    number.displayText()?.takeIf { it.isDisplayableChapterLabel() }?.let { return it }
+    return id.toString()
+}
+
+private fun VolumeDto.displayName(): String? {
+    name?.takeIf { it.isDisplayableVolumeLabel() }?.let { return it }
+    val numberText = number.displayText()
+    return numberText
+        ?.takeIf { it.isDisplayableVolumeLabel() }
+        ?.let { "Volume $it" }
+}
+
+private fun ChapterDto.releaseDateText(): String? {
+    return releaseDate
+        ?.trim()
+        ?.takeIf { it.isNotBlank() && !it.startsWith("0001-01-01") }
+        ?.substringBefore("T")
+        ?.takeIf { it.isNotBlank() }
+}
+
+private fun String?.isDisplayableChapterLabel(): Boolean {
+    return !isNullOrBlank() && this != "-100000"
+}
+
+private fun String?.isDisplayableVolumeLabel(): Boolean {
+    return !isNullOrBlank() && this != "-100000" && this != "0"
+}
+
+private fun SeriesDto.readingProgress(): Float? {
+    val total = pages ?: return null
+    if (total <= 0) return null
+    val read = (pagesRead ?: 0).coerceIn(0, total)
+    return read.toFloat() / total.toFloat()
+}
+
+private fun ChapterDto.readingProgress(): Float? {
+    val total = pages ?: return null
+    if (total <= 0) return null
+    val read = (pagesRead ?: 0).coerceIn(0, total)
+    return read.toFloat() / total.toFloat()
+}
+
+private fun ChapterDto.isUnread(): Boolean {
+    val total = pages ?: return false
+    return total > 0 && (pagesRead ?: 0) <= 0
+}
+
+private fun ChapterDto.isRead(): Boolean {
+    val total = pages ?: return false
+    return total > 0 && (pagesRead ?: 0) >= total
+}
+
+private fun SeriesDto.isUnread(): Boolean {
+    val total = pages ?: return false
+    return total > 0 && (pagesRead ?: 0) <= 0
+}
+
+private fun SeriesDto.isRead(): Boolean {
+    val total = pages ?: return false
+    return total > 0 && (pagesRead ?: 0) >= total
+}
+
+private fun SeriesDto.coverActionColor(): Color {
+    val primary = primaryColor.parseKavitaRgb()
+    val secondary = secondaryColor.parseKavitaRgb()
+    val seed = when {
+        primary == null -> secondary
+        secondary == null -> primary
+        primary.hsvSaturation() < 0.12f && secondary.hsvSaturation() > primary.hsvSaturation() + 0.12f -> secondary
+        else -> primary
+    } ?: return Color(0xFF6A5BB7)
+
+    val hsv = FloatArray(3)
+    AndroidColor.RGBToHSV(
+        (seed shr 16) and 0xFF,
+        (seed shr 8) and 0xFF,
+        seed and 0xFF,
+        hsv
+    )
+    hsv[1] = hsv[1].coerceIn(0.38f, 0.72f)
+    hsv[2] = hsv[2].coerceIn(0.42f, 0.68f)
+    return Color(AndroidColor.HSVToColor(hsv))
+}
+
+private fun String?.parseKavitaRgb(): Int? {
+    val raw = this
+        ?.trim()
+        ?.removePrefix("#")
+        ?.takeIf { it.length == 6 || it.length == 8 }
+        ?: return null
+    val rgb = if (raw.length == 8) raw.takeLast(6) else raw
+    return rgb.toLongOrNull(16)?.toInt()
+}
+
+private fun Int.hsvSaturation(): Float {
+    val hsv = FloatArray(3)
+    AndroidColor.RGBToHSV(
+        (this shr 16) and 0xFF,
+        (this shr 8) and 0xFF,
+        this and 0xFF,
+        hsv
+    )
+    return hsv[1]
+}
+
+private fun SeriesDto.detailMetaLines(
+    metadata: SeriesMetadataDto?,
+    creatorMaxChars: Int,
+    issueCount: Int,
+    volumeCount: Int
+): List<String> {
+    val peopleLine = metadata?.creatorMetaLine(creatorMaxChars)
+    val publisherLine = listOfNotNull(
+        metadata?.imprints?.mapNotNull { it.name }.orEmpty().compactNameList(maxItems = 2),
+        metadata?.publishers?.mapNotNull { it.name }.orEmpty().compactNameList(maxItems = 2)
+    ).joinMetaLine()
+    val publicationLine = listOfNotNull(
+        metadata?.releaseYear?.takeIf { it > 0 }?.toString(),
+        metadata?.publicationStatus.publicationStatusText(),
+        issueOrVolumeCountText(issueCount, volumeCount)
+    ).joinMetaLine()
+    val lengthLine = listOfNotNull(
+        pages?.let { "${it.compactCount()} pages" },
+        readingHoursText(),
+        readingStateText()
+    ).joinMetaLine()
+    return listOfNotNull(
+        peopleLine,
+        publisherLine,
+        publicationLine,
+        lengthLine
+    )
+}
+
+private fun SeriesDto.issueOrVolumeCountText(issueCount: Int, volumeCount: Int): String? {
+    return when {
+        issueCount > 0 -> "$issueCount ${if (issueCount == 1) "issue" else "issues"}"
+        volumeCount > 0 -> "$volumeCount ${if (volumeCount == 1) "volume" else "volumes"}"
+        else -> null
+    }
+}
+
+private fun SeriesDto.readingStateText(): String? {
+    val total = pages ?: return null
+    if (total <= 0) return null
+    val read = (pagesRead ?: 0).coerceAtLeast(0)
+    return when {
+        read <= 0 -> "Unread"
+        read >= total -> "All read"
+        else -> "In progress"
+    }
+}
+
+private fun SeriesDto.readingHoursText(): String? {
+    val min = minHoursToRead
+    val max = maxHoursToRead
+    return when {
+        min != null && max != null && min > 0 && max > 0 && min != max -> "$min-$max hours"
+        min != null && min > 0 -> "$min hours"
+        max != null && max > 0 -> "$max hours"
+        avgHoursToRead != null && avgHoursToRead > 0f -> "${avgHoursToRead.roundToInt()} hours"
+        else -> null
+    }
+}
+
+private fun Int.compactCount(): String {
+    if (this < 1000) return toString()
+    val tenths = (this / 100f).roundToInt()
+    val whole = tenths / 10
+    val decimal = tenths % 10
+    return if (decimal == 0) "${whole}K" else "$whole.${decimal}K"
+}
+
+private fun SeriesMetadataDto.creatorMetaLine(maxChars: Int): String? {
+    return listOf(
+        writers,
+        coverArtists,
+        pencillers,
+        inkers,
+        colorists,
+        letterers,
+        editors,
+        translators
+    )
+        .flatten()
+        .mapNotNull { it.name?.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .compactNameLine(maxChars)
+}
+
+private fun List<String>.joinMetaLine(): String? {
+    return joinToString("  •  ").takeIf { it.isNotBlank() }
+}
+
+private fun List<String>.compactNameList(maxItems: Int = 2): String? {
+    val names = map { it.trim() }.filter { it.isNotBlank() }.distinct()
+    if (names.isEmpty()) return null
+    return if (names.size <= maxItems) {
+        names.joinToString(", ")
+    } else {
+        names.take(maxItems).joinToString(", ") + " +${names.size - maxItems}"
+    }
+}
+
+private fun List<String>.compactNameLine(maxChars: Int): String? {
+    val names = map { it.trim() }.filter { it.isNotBlank() }.distinct()
+    if (names.isEmpty()) return null
+    val visible = mutableListOf<String>()
+    for (name in names) {
+        val candidate = (visible + name).joinToString("  •  ")
+        if (visible.isNotEmpty() && candidate.length > maxChars) break
+        visible += name
+        if (candidate.length >= maxChars) break
+    }
+    if (visible.isEmpty()) visible += names.first()
+    val hidden = names.size - visible.size
+    return visible.joinToString("  •  ") + if (hidden > 0) " +$hidden" else ""
+}
+
+private fun Int?.publicationStatusText(): String? {
+    return when (this) {
+        0 -> "Ongoing"
+        1 -> "Hiatus"
+        2 -> "Completed"
+        3 -> "Cancelled"
+        4 -> "Ended"
+        else -> null
+    }
+}
+
+private fun kotlinx.serialization.json.JsonElement?.displayText(): String? {
+    return when (this) {
+        is JsonPrimitive -> contentOrNull ?: toString()
+        null -> null
+        else -> toString()
+    }?.trim('"')
+}

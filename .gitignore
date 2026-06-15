@@ -1,0 +1,40 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+# Local IDE state (machine-specific: device selection, paths, UI state)
+/.idea/deploymentTargetSelector.xml
+/.idea/deviceManager.xml
+/.idea/planningMode.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.kotlin
+
+# Build artifacts / signing secrets (never commit)
+*.apk
+*.aab
+*.jks
+*.keystore
+keystore.properties
+
+# Tooling / agent artifacts
+/.claude
+
+# Local working scratch (third-party Kavita source, XML dumps, etc.)
+/work
+
+# Development screenshots
+kamigura_*.png
+
+# Only README.md is published; keep other Markdown (notes, spec, etc.) local
+*.md
+!README.md
