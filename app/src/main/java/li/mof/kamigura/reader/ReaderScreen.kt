@@ -686,6 +686,15 @@ private fun ReaderTapLayer(
     onDoubleTap: (Offset) -> Unit = {},
     onTransform: (Float, Offset) -> Unit = { _, _ -> }
 ) {
+    val latestOnNextSpread by rememberUpdatedState(onNextSpread)
+    val latestOnPreviousSpread by rememberUpdatedState(onPreviousSpread)
+    val latestOnNextDoublePageTurn by rememberUpdatedState(onNextDoublePageTurn)
+    val latestOnPreviousDoublePageTurn by rememberUpdatedState(onPreviousDoublePageTurn)
+    val latestOnNextSingle by rememberUpdatedState(onNextSingle)
+    val latestOnPreviousSingle by rememberUpdatedState(onPreviousSingle)
+    val latestOnCenterTap by rememberUpdatedState(onCenterTap)
+    val latestOnDoubleTap by rememberUpdatedState(onDoubleTap)
+
     Row(Modifier.fillMaxSize()) {
         Box(
             Modifier
@@ -694,8 +703,8 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    onNextSpread = onNextSpread,
-                    onPreviousSpread = onPreviousSpread,
+                    onNextSpread = latestOnNextSpread,
+                    onPreviousSpread = latestOnPreviousSpread,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
@@ -707,20 +716,20 @@ private fun ReaderTapLayer(
                     detectTapGestures(
                         onDoubleTap = {
                             if (edgeDoubleTapAction == EdgeDoubleTapAction.ZoomToggle) {
-                                onDoubleTap(it)
+                                latestOnDoubleTap(it)
                             } else if (rightToLeft) {
-                                onNextDoublePageTurn()
+                                latestOnNextDoublePageTurn()
                             } else {
-                                onPreviousDoublePageTurn()
+                                latestOnPreviousDoublePageTurn()
                             }
                         },
                         onTap = {
                             if (zoomPanEnabled) return@detectTapGestures
-                            if (rightToLeft) onNextSpread() else onPreviousSpread()
+                            if (rightToLeft) latestOnNextSpread() else latestOnPreviousSpread()
                         },
                         onLongPress = {
                             if (zoomPanEnabled) return@detectTapGestures
-                            if (rightToLeft) onNextSingle() else onPreviousSingle()
+                            if (rightToLeft) latestOnNextSingle() else latestOnPreviousSingle()
                         }
                     )
                 }
@@ -732,8 +741,8 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    onNextSpread = onNextSpread,
-                    onPreviousSpread = onPreviousSpread,
+                    onNextSpread = latestOnNextSpread,
+                    onPreviousSpread = latestOnPreviousSpread,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
@@ -743,8 +752,8 @@ private fun ReaderTapLayer(
                 )
                 .pointerInput(Unit) {
                     detectTapGestures(
-                        onDoubleTap = { onDoubleTap(it) },
-                        onTap = { onCenterTap() }
+                        onDoubleTap = { latestOnDoubleTap(it) },
+                        onTap = { latestOnCenterTap() }
                     )
                 }
         )
@@ -755,8 +764,8 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    onNextSpread = onNextSpread,
-                    onPreviousSpread = onPreviousSpread,
+                    onNextSpread = latestOnNextSpread,
+                    onPreviousSpread = latestOnPreviousSpread,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
@@ -768,20 +777,20 @@ private fun ReaderTapLayer(
                     detectTapGestures(
                         onDoubleTap = {
                             if (edgeDoubleTapAction == EdgeDoubleTapAction.ZoomToggle) {
-                                onDoubleTap(it)
+                                latestOnDoubleTap(it)
                             } else if (rightToLeft) {
-                                onPreviousDoublePageTurn()
+                                latestOnPreviousDoublePageTurn()
                             } else {
-                                onNextDoublePageTurn()
+                                latestOnNextDoublePageTurn()
                             }
                         },
                         onTap = {
                             if (zoomPanEnabled) return@detectTapGestures
-                            if (rightToLeft) onPreviousSpread() else onNextSpread()
+                            if (rightToLeft) latestOnPreviousSpread() else latestOnNextSpread()
                         },
                         onLongPress = {
                             if (zoomPanEnabled) return@detectTapGestures
-                            if (rightToLeft) onPreviousSingle() else onNextSingle()
+                            if (rightToLeft) latestOnPreviousSingle() else latestOnNextSingle()
                         }
                     )
                 }
@@ -849,6 +858,8 @@ private fun Modifier.readerDrag(
     panMaxY: Float = 0f,
     onPan: (Float, Float) -> Unit = { _, _ -> }
 ): Modifier {
+    val latestOnNextSpread by rememberUpdatedState(onNextSpread)
+    val latestOnPreviousSpread by rememberUpdatedState(onPreviousSpread)
     val latestPanOffsetX by rememberUpdatedState(panOffsetX)
     val latestPanOffsetY by rememberUpdatedState(panOffsetY)
     return pointerInput(rightToLeft, zoomPanEnabled, panMaxX, panMaxY) {
@@ -900,9 +911,9 @@ private fun Modifier.readerDrag(
 
                     handled = true
                     if (totalDragX > 0f) {
-                        if (rightToLeft) onNextSpread() else onPreviousSpread()
+                        if (rightToLeft) latestOnNextSpread() else latestOnPreviousSpread()
                     } else {
-                        if (rightToLeft) onPreviousSpread() else onNextSpread()
+                        if (rightToLeft) latestOnPreviousSpread() else latestOnNextSpread()
                     }
                     change.consume()
                     return@detectDragGestures
@@ -913,9 +924,9 @@ private fun Modifier.readerDrag(
 
                 handled = true
                 if (totalDragX > 0f) {
-                    if (rightToLeft) onNextSpread() else onPreviousSpread()
+                    if (rightToLeft) latestOnNextSpread() else latestOnPreviousSpread()
                 } else {
-                    if (rightToLeft) onPreviousSpread() else onNextSpread()
+                    if (rightToLeft) latestOnPreviousSpread() else latestOnNextSpread()
                 }
             }
         )
