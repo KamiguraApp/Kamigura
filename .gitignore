@@ -35,6 +35,7 @@ keystore.properties
 
 # Development screenshots
 kamigura_*.png
+/screenshots/
 
 # Only README.md is published; keep other Markdown (notes, spec, etc.) local
 *.md

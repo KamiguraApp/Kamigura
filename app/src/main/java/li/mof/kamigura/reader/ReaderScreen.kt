@@ -22,7 +22,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -69,6 +68,7 @@ import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.MarkChapterReadDto
 import li.mof.kamigura.ProgressDto
+import li.mof.kamigura.ui.ValueBubbleSlider
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.max
@@ -101,7 +101,6 @@ private const val KavitaReadingDirectionRtl = 1
 // ReadingProfileKind.Default = the user's global default (no per-series direction).
 private const val KavitaReadingProfileKindDefault = 0
 
-private const val WidePortraitZoomScale = 2.35f
 private const val ReaderDoubleTapUserZoomScale = 2f
 private const val ReaderMaxZoomScale = 5f
 private const val ReaderZoomEpsilon = 0.01f
@@ -115,13 +114,8 @@ private data class ReaderPageLayout(
     val singlePage: Boolean,
     val nextStep: Int,
     val previousStep: Int,
-    val widePortrait: Boolean,
-    val singleAlignment: Alignment,
-    val widePanLimitPx: Float
-) {
-    val singleZoomScale: Float?
-        get() = if (widePortrait) WidePortraitZoomScale else null
-}
+    val singleAlignment: Alignment
+)
 
 private data class ReaderZoomPanState(
     val userScale: Float = 1f,
@@ -163,36 +157,31 @@ private fun readerPageLayout(
     page: Int,
     pageCount: Int,
     portrait: Boolean,
-    rightToLeft: Boolean,
-    pageDimensions: Map<Int, FileDimensionDto>,
-    viewportWidthPx: Float
+    pageDimensions: Map<Int, FileDimensionDto>
 ): ReaderPageLayout {
+    if (portrait) {
+        return ReaderPageLayout(
+            singlePage = true,
+            nextStep = 1,
+            previousStep = 1,
+            singleAlignment = Alignment.Center
+        )
+    }
+
     val currentPageIsWide = pageDimensions.pageIsWide(page)
     val pairedPageIsWide = pageDimensions.pageIsWide(page + 1)
     // The cover (page 0) is always shown alone, matching Kavita's pairing, so the
     // first spread starts at page 1. Foldout/wide misalignment beyond this is still
     // corrected manually with the Shift +1/-1 buttons.
     val isCover = page == 0
-    val singlePage = isCover || portrait || currentPageIsWide || pairedPageIsWide || page + 1 >= pageCount
-    val widePortrait = portrait && currentPageIsWide
-    val singleAlignment = when {
-        widePortrait && rightToLeft -> Alignment.CenterEnd
-        widePortrait -> Alignment.CenterStart
-        else -> Alignment.Center
-    }
+    val singlePage = isCover || currentPageIsWide || pairedPageIsWide || page + 1 >= pageCount
 
     return ReaderPageLayout(
         singlePage = singlePage,
         nextStep = if (singlePage) 1 else 2,
-        previousStep = if (portrait || currentPageIsWide || pageDimensions.pageIsWide(page - 1) || page - 1 == 0) 1 else 2,
-        widePortrait = widePortrait,
-        singleAlignment = singleAlignment,
-        widePanLimitPx = if (widePortrait) widePortraitPanLimitPx(viewportWidthPx) else 0f
+        previousStep = if (currentPageIsWide || pageDimensions.pageIsWide(page - 1) || page - 1 == 0) 1 else 2,
+        singleAlignment = Alignment.Center
     )
-}
-
-private fun widePortraitPanLimitPx(viewportWidthPx: Float): Float {
-    return viewportWidthPx * (WidePortraitZoomScale - 1f) / 2f
 }
 
 private fun readerPanBoundsPx(
@@ -204,35 +193,6 @@ private fun readerPanBoundsPx(
     return ReaderPanBounds(
         maxX = viewportWidthPx * overflowScale / 2f,
         maxY = viewportHeightPx * overflowScale / 2f
-    )
-}
-
-private fun initialWidePortraitPanPx(
-    lastPageMove: Int,
-    rightToLeft: Boolean,
-    panLimitPx: Float
-): Float {
-    return when {
-        lastPageMove < 0 -> panLimitPx
-        rightToLeft -> -panLimitPx
-        else -> panLimitPx
-    }
-}
-
-private fun initialReaderZoomPanState(
-    widePortrait: Boolean,
-    lastPageMove: Int,
-    rightToLeft: Boolean,
-    panLimitPx: Float
-): ReaderZoomPanState {
-    return ReaderZoomPanState(
-        userScale = 1f,
-        offsetX = if (widePortrait) {
-            initialWidePortraitPanPx(lastPageMove, rightToLeft, panLimitPx)
-        } else {
-            0f
-        },
-        offsetY = 0f
     )
 }
 
@@ -308,7 +268,6 @@ fun ReaderScreen(
     var showReaderMenu by remember { mutableStateOf(false) }
     var rightToLeft by remember { mutableStateOf(settings.reader.rightToLeft) }
     var zoomPan by remember { mutableStateOf(ReaderZoomPanState()) }
-    var lastPageMove by remember { mutableIntStateOf(0) }
     var completingRead by remember { mutableStateOf(false) }
 
     fun clampPage(value: Int): Int = value.coerceIn(0, (pages - 1).coerceAtLeast(0))
@@ -350,21 +309,18 @@ fun ReaderScreen(
             if (completeWhenPastEnd) {
                 completeChapter()
             } else if (page != pages - 1) {
-                lastPageMove = 1
                 page = pages - 1
             }
             return
         }
         val nextPage = clampPage(targetPage)
         if (nextPage != page) {
-            lastPageMove = (nextPage - page).coerceIn(-1, 1)
             page = nextPage
         }
     }
     fun jumpToPage(targetPage: Int) {
         val nextPage = clampPage(targetPage)
         if (nextPage != page) {
-            lastPageMove = (nextPage - page).coerceIn(-1, 1)
             page = nextPage
         }
     }
@@ -397,7 +353,6 @@ fun ReaderScreen(
             pageDimensions = info.pageDimensions.toPageDimensionMap()
             val savedPage = loadedApi.getProgress(chapterId).pageNum
             page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
-            lastPageMove = 0
             readerReady = true
         } catch (t: Throwable) {
             error = t.message ?: t.toString()
@@ -441,9 +396,7 @@ fun ReaderScreen(
             page = page,
             pageCount = pages,
             portrait = portrait,
-            rightToLeft = rtl,
-            pageDimensions = pageDimensions,
-            viewportWidthPx = viewportWidthPx
+            pageDimensions = pageDimensions
         )
         val showingFinalPage = if (layout.singlePage) {
             page >= pages - 1
@@ -455,18 +408,13 @@ fun ReaderScreen(
         // the page before a spread is not skipped when paging backwards.
         val nextPageTurnStep = layout.nextStep
         val previousPageTurnStep = layout.previousStep
-        val baseZoomScale = layout.singleZoomScale ?: 1f
+        val baseZoomScale = 1f
         val totalZoomScale = baseZoomScale * zoomPan.userScale
         val panBounds = readerPanBoundsPx(viewportWidthPx, viewportHeightPx, totalZoomScale)
         val zoomPanEnabled = totalZoomScale > 1f + ReaderZoomEpsilon
-        val initialZoomPanState = initialReaderZoomPanState(
-            widePortrait = layout.widePortrait,
-            lastPageMove = lastPageMove,
-            rightToLeft = rtl,
-            panLimitPx = layout.widePanLimitPx
-        )
+        val initialZoomPanState = ReaderZoomPanState()
 
-        LaunchedEffect(page, layout.widePortrait, rtl, layout.widePanLimitPx, lastPageMove) {
+        LaunchedEffect(page) {
             zoomPan = initialZoomPanState
         }
 
@@ -1019,7 +967,7 @@ private fun ReaderMenuOverlay(
                     text = if (rightToLeft) "$safePageCount" else "1",
                     color = Color.White
                 )
-                Slider(
+                ValueBubbleSlider(
                     value = sliderValue,
                     onValueChange = { value ->
                         jumpPage = sliderValueToPage(value)
@@ -1028,7 +976,10 @@ private fun ReaderMenuOverlay(
                         onJumpToPage(jumpPage)
                     },
                     valueRange = 0f..sliderMax,
+                    valueLabel = { value -> "${sliderValueToPage(value) + 1}" },
                     enabled = safePageCount > 1,
+                    reverseTrackColors = rightToLeft,
+                    showStopIndicator = false,
                     modifier = Modifier.weight(1f)
                 )
                 Text(

@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -19,7 +20,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import li.mof.kamigura.ui.ValueBubbleSlider
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import retrofit2.HttpException
@@ -76,6 +77,13 @@ fun SettingsHubScreen(
                 Button(onClick = onServer, modifier = Modifier.fillMaxWidth()) { Text("Server (Kavita)") }
                 Button(onClick = onReader, modifier = Modifier.fillMaxWidth()) { Text("Reader") }
                 Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "Kamigura v0.11",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                )
             }
         }
     }
@@ -493,13 +501,14 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
-                Slider(
+                ValueBubbleSlider(
                     value = thresholdDraft,
                     onValueChange = { thresholdDraft = it },
                     onValueChangeFinished = {
                         scope.launch { settingsStore.setInvertWhiteThreshold(thresholdDraft) }
                     },
-                    valueRange = 0.2f..0.9f
+                    valueRange = 0.2f..0.9f,
+                    valueLabel = { value -> "${(value * 100f).roundToInt()}%" }
                 )
             }
 

@@ -14,6 +14,9 @@ interface KavitaApi {
     @POST("api/Account/login")
     suspend fun login(@Body body: LoginDto): UserDto
 
+    @GET("api/Account")
+    suspend fun currentUser(): UserDto
+
     @GET("api/Library/libraries")
     suspend fun userLibraries(): List<LibraryDto>
 
@@ -78,4 +81,34 @@ interface KavitaApi {
 
     @POST("api/Reader/mark-chapter-read")
     suspend fun markChapterRead(@Body dto: MarkChapterReadDto)
+
+    @POST("api/want-to-read/add-series")
+    suspend fun addSeriesToWantToRead(@Body dto: UpdateWantToReadDto)
+
+    @POST("api/want-to-read/v2")
+    suspend fun wantToRead(
+        @Body body: SeriesFilterV2Dto = SeriesFilterV2Dto(),
+        @Query("PageNumber") pageNumber: Int? = 0,
+        @Query("PageSize") pageSize: Int? = 200
+    ): List<SeriesDto>
+
+    @POST("api/ReadingList/lists")
+    suspend fun readingLists(
+        @Query("PageNumber") pageNumber: Int? = 0,
+        @Query("PageSize") pageSize: Int? = 200,
+        @Query("includePromoted") includePromoted: Boolean = false,
+        @Query("sortByLastModified") sortByLastModified: Boolean = false
+    ): List<ReadingListDto>
+
+    @POST("api/ReadingList/update-by-series")
+    suspend fun addSeriesToReadingList(@Body dto: UpdateReadingListBySeriesDto)
+
+    @POST("api/Series/scan")
+    suspend fun scanSeries(@Body dto: RefreshSeriesDto)
+
+    @POST("api/Series/analyze")
+    suspend fun analyzeSeries(@Body dto: RefreshSeriesDto)
+
+    @POST("api/Series/refresh-metadata")
+    suspend fun refreshSeriesMetadata(@Body dto: RefreshSeriesDto)
 }

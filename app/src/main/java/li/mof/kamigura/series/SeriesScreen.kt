@@ -2,6 +2,8 @@ package li.mof.kamigura.series
 
 import android.graphics.Color as AndroidColor
 import android.net.Uri
+import android.widget.Toast
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,12 +28,21 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuGroup
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuDefaults
+import androidx.compose.material3.SplitButtonDefaults
+import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,25 +52,36 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import li.mof.kamigura.ChapterDto
+import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
+import li.mof.kamigura.ReadingListDto
+import li.mof.kamigura.RefreshSeriesDto
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.SeriesFilterStatementDto
 import li.mof.kamigura.SeriesFilterV2Dto
 import li.mof.kamigura.SeriesMetadataDto
+import li.mof.kamigura.UpdateReadingListBySeriesDto
+import li.mof.kamigura.UpdateWantToReadDto
 import li.mof.kamigura.VolumeDto
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
@@ -69,6 +92,7 @@ import li.mof.kamigura.ui.theme.ReadingProgressRead
 import li.mof.kamigura.ui.theme.ReadingProgressTrack
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 private fun chapterCoverUrl(session: KavitaSession, chapterId: Int): String {
@@ -155,7 +179,6 @@ fun SeriesScreen(
 @Composable
 private fun SeriesGridCard(series: SeriesDto, session: KavitaSession, onClick: () -> Unit) {
     val progress = series.readingProgress()
-    val read = series.isRead()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -196,14 +219,7 @@ private fun SeriesGridCard(series: SeriesDto, session: KavitaSession, onClick: (
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 8.dp, top = 8.dp, end = 48.dp, bottom = 8.dp)
-                )
-                ReadingStateText(
-                    progress = progress,
-                    read = read,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 8.dp, end = 8.dp)
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
                 )
             }
         }
@@ -227,18 +243,26 @@ fun ChapterPickScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var session by remember { mutableStateOf(KavitaSession()) }
+    var api by remember { mutableStateOf<KavitaApi?>(null) }
+    var isAdmin by remember { mutableStateOf(false) }
 
     LaunchedEffect(seriesId) {
         loading = true
         error = null
+        api = null
+        isAdmin = false
         try {
             session = sessionStore.load()
             val client = KavitaClient(ctx, sessionStore)
-            val (api, _) = client.buildApi()
-            series = api.series(seriesId)
-            metadata = runCatching { api.seriesMetadata(seriesId) }.getOrNull()
-            continueChapter = runCatching { api.continuePoint(seriesId) }.getOrNull()
-            volumes = api.volumes(seriesId)
+            val (loadedApi, _) = client.buildApi()
+            api = loadedApi
+            isAdmin = runCatching {
+                loadedApi.currentUser().roles.orEmpty().any { it.equals("Admin", ignoreCase = true) }
+            }.getOrDefault(false)
+            series = loadedApi.series(seriesId)
+            metadata = runCatching { loadedApi.seriesMetadata(seriesId) }.getOrNull()
+            continueChapter = runCatching { loadedApi.continuePoint(seriesId) }.getOrNull()
+            volumes = loadedApi.volumes(seriesId)
         } catch (t: Throwable) {
             error = t.message ?: t.toString()
         } finally {
@@ -252,6 +276,7 @@ fun ChapterPickScreen(
         }
     }
     val displaySeries = series ?: SeriesDto(id = seriesId, name = seriesName, libraryId = libraryId)
+    val loadedApi = api
 
     Box(
         Modifier
@@ -263,6 +288,7 @@ fun ChapterPickScreen(
         when {
             loading -> DarkLoadingState()
             error != null -> DarkMessageState("Could not load series details", error ?: "Unknown error")
+            loadedApi == null -> DarkMessageState("Could not load series details", "API unavailable")
             else -> SeriesDetailContent(
                 series = displaySeries,
                 metadata = metadata,
@@ -270,6 +296,8 @@ fun ChapterPickScreen(
                 chapterCards = chapterCards,
                 volumeCount = volumes.size,
                 session = session,
+                api = loadedApi,
+                isAdmin = isAdmin,
                 onPick = onPick
             )
         }
@@ -284,6 +312,8 @@ private fun SeriesDetailContent(
     chapterCards: List<ChapterCardItem>,
     volumeCount: Int,
     session: KavitaSession,
+    api: KavitaApi,
+    isAdmin: Boolean,
     onPick: (chapterId: Int, volumeId: Int) -> Unit
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -310,6 +340,8 @@ private fun SeriesDetailContent(
                             chapterCards = chapterCards,
                             volumeCount = volumeCount,
                             session = session,
+                            api = api,
+                            isAdmin = isAdmin,
                             onPick = onPick
                         )
                     }
@@ -337,6 +369,8 @@ private fun SeriesDetailContent(
                         chapterCards = chapterCards,
                         volumeCount = volumeCount,
                         session = session,
+                        api = api,
+                        isAdmin = isAdmin,
                         onPick = onPick
                     )
                 }
@@ -417,6 +451,8 @@ private fun SeriesDetailSummary(
     chapterCards: List<ChapterCardItem>,
     volumeCount: Int,
     session: KavitaSession,
+    api: KavitaApi,
+    isAdmin: Boolean,
     onPick: (chapterId: Int, volumeId: Int) -> Unit
 ) {
     val summary = metadata?.summary?.takeIf { it.isNotBlank() }
@@ -424,7 +460,7 @@ private fun SeriesDetailSummary(
     val continueItem = continueChapter?.let { chapter ->
         chapterCards.firstOrNull { it.chapter.id == chapter.id }
     } ?: chapterCards.firstOrNull()
-    val continueButtonText = if (series.isRead()) "Re-Read" else "Continue Reading"
+    val continueButtonText = series.primaryReadActionText()
     val continueButtonColor = series.coverActionColor()
     var summaryExpanded by remember(summary) { mutableStateOf(false) }
     var summaryCanExpand by remember(summary) { mutableStateOf(false) }
@@ -442,16 +478,15 @@ private fun SeriesDetailSummary(
         )
 
         continueItem?.let { item ->
-            Button(
-                onClick = { onPick(item.chapter.id, item.volume.id) },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = continueButtonColor,
-                    contentColor = Color.White
-                )
-            ) {
-                Text(continueButtonText)
-            }
+            SeriesReadSplitButton(
+                text = continueButtonText,
+                containerColor = continueButtonColor,
+                series = series,
+                api = api,
+                isAdmin = isAdmin,
+                onRead = { onPick(item.chapter.id, item.volume.id) },
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         summary?.let {
@@ -481,6 +516,249 @@ private fun SeriesDetailSummary(
 
         DetailFactBlock("Genres", genres)
     }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SeriesReadSplitButton(
+    text: String,
+    containerColor: Color,
+    series: SeriesDto,
+    api: KavitaApi,
+    isAdmin: Boolean,
+    onRead: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var menuExpanded by remember { mutableStateOf(false) }
+    var showingReadingLists by remember { mutableStateOf(false) }
+    var readingLists by remember { mutableStateOf<List<ReadingListDto>>(emptyList()) }
+    var actionRunning by remember { mutableStateOf(false) }
+    val colors = ButtonDefaults.buttonColors(
+        containerColor = containerColor,
+        contentColor = Color.White
+    )
+    val mainMenuItems = buildList {
+        add(SeriesMenuAction.WantToRead)
+        add(SeriesMenuAction.AddToReadingList)
+        if (isAdmin) add(SeriesMenuAction.Refresh)
+    }
+
+    BoxWithConstraints(modifier) {
+        val trailingWidth = 48.dp
+        val leadingWidth = (maxWidth - trailingWidth - SplitButtonDefaults.Spacing).coerceAtLeast(48.dp)
+
+        SplitButtonLayout(
+            leadingButton = {
+                SplitButtonDefaults.LeadingButton(
+                    onClick = onRead,
+                    modifier = Modifier.width(leadingWidth),
+                    colors = colors
+                ) {
+                    Text(
+                        text = text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            },
+            trailingButton = {
+                Box {
+                    SplitButtonDefaults.TrailingButton(
+                        checked = menuExpanded,
+                        onCheckedChange = { menuExpanded = it },
+                        modifier = Modifier
+                            .width(trailingWidth)
+                            .semantics {
+                                stateDescription = if (menuExpanded) "Expanded" else "Collapsed"
+                                contentDescription = "More reading actions"
+                            },
+                        colors = colors
+                    ) {
+                        val rotation by animateFloatAsState(
+                            targetValue = if (menuExpanded) 180f else 0f,
+                            label = "Reading actions arrow rotation"
+                        )
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(SplitButtonDefaults.TrailingIconSize)
+                                .graphicsLayer { rotationZ = rotation }
+                        )
+                    }
+
+                    DropdownMenuPopup(
+                        expanded = menuExpanded,
+                        onDismissRequest = {
+                            menuExpanded = false
+                            showingReadingLists = false
+                        },
+                        modifier = Modifier.width(240.dp),
+                        offset = DpOffset(x = trailingWidth - 240.dp, y = 0.dp)
+                    ) {
+                        DropdownMenuGroup(
+                            shapes = MenuDefaults.groupShape(index = 0, count = 1)
+                        ) {
+                            val labels = if (showingReadingLists) {
+                                listOf("Back") + readingLists.map { list ->
+                                    list.title?.takeIf { it.isNotBlank() } ?: "Reading List ${list.id}"
+                                }
+                            } else {
+                                mainMenuItems.map { it.label }
+                            }
+
+                            labels.forEachIndexed { index, label ->
+                                val itemShape = MenuDefaults.itemShape(
+                                    index = index,
+                                    count = labels.size
+                                ).shape
+
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        if (showingReadingLists) {
+                                            if (index == 0) {
+                                                showingReadingLists = false
+                                            } else {
+                                                val readingList = readingLists[index - 1]
+                                                menuExpanded = false
+                                                showingReadingLists = false
+                                                scope.launch {
+                                                    actionRunning = true
+                                                    runCatching {
+                                                        api.addSeriesToReadingList(
+                                                            UpdateReadingListBySeriesDto(
+                                                                seriesId = series.id,
+                                                                readingListId = readingList.id
+                                                            )
+                                                        )
+                                                    }.onSuccess {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Added to ${readingList.title ?: "reading list"}",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    }.onFailure {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Could not update reading list",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    }
+                                                    actionRunning = false
+                                                }
+                                            }
+                                        } else {
+                                            when (mainMenuItems[index]) {
+                                                SeriesMenuAction.WantToRead -> {
+                                                    menuExpanded = false
+                                                    scope.launch {
+                                                        actionRunning = true
+                                                        runCatching {
+                                                            api.addSeriesToWantToRead(
+                                                                UpdateWantToReadDto(listOf(series.id))
+                                                            )
+                                                        }.onSuccess {
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Added to Want to Read",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        }.onFailure {
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Could not update Want to Read",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        }
+                                                        actionRunning = false
+                                                    }
+                                                }
+                                                SeriesMenuAction.AddToReadingList -> scope.launch {
+                                                    actionRunning = true
+                                                    runCatching { api.readingLists() }
+                                                        .onSuccess { lists ->
+                                                            readingLists = lists
+                                                            if (lists.isEmpty()) {
+                                                                menuExpanded = false
+                                                                Toast.makeText(
+                                                                    context,
+                                                                    "No reading lists available",
+                                                                    Toast.LENGTH_SHORT
+                                                                ).show()
+                                                            } else {
+                                                                showingReadingLists = true
+                                                            }
+                                                        }
+                                                        .onFailure {
+                                                            menuExpanded = false
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Could not load reading lists",
+                                                                Toast.LENGTH_SHORT
+                                                            ).show()
+                                                        }
+                                                    actionRunning = false
+                                                }
+                                                SeriesMenuAction.Refresh -> {
+                                                    menuExpanded = false
+                                                    val libraryId = series.libraryId
+                                                    if (libraryId == null) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Library information is unavailable",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    } else {
+                                                        scope.launch {
+                                                            actionRunning = true
+                                                            val request = RefreshSeriesDto(
+                                                                libraryId = libraryId,
+                                                                seriesId = series.id
+                                                            )
+                                                            runCatching {
+                                                                api.scanSeries(request)
+                                                                api.analyzeSeries(request)
+                                                                api.refreshSeriesMetadata(request)
+                                                            }.onSuccess {
+                                                                Toast.makeText(
+                                                                    context,
+                                                                    "Series refresh requested",
+                                                                    Toast.LENGTH_SHORT
+                                                                ).show()
+                                                            }.onFailure {
+                                                                Toast.makeText(
+                                                                    context,
+                                                                    "Could not refresh series",
+                                                                    Toast.LENGTH_SHORT
+                                                                ).show()
+                                                            }
+                                                            actionRunning = false
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    shape = itemShape,
+                                    enabled = !actionRunning
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+private enum class SeriesMenuAction(val label: String) {
+    WantToRead("Want to Read"),
+    AddToReadingList("Add to Reading List"),
+    Refresh("Refresh")
 }
 
 @Composable
@@ -624,7 +902,6 @@ private fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCli
         chapter.pages?.let { "$it pages" }
     ).joinToString(" • ")
     val progress = chapter.readingProgress()
-    val read = chapter.isRead()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -658,7 +935,7 @@ private fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCli
                         .fillMaxWidth()
                         .height(3.dp)
                 )
-                Column(Modifier.padding(start = 10.dp, top = 10.dp, end = 54.dp, bottom = 10.dp)) {
+                Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
                     Text(
                         text = title,
                         color = Color.White,
@@ -676,13 +953,6 @@ private fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCli
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                ReadingStateText(
-                    progress = progress,
-                    read = read,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 10.dp, end = 10.dp)
-                )
             }
         }
     }
@@ -698,27 +968,6 @@ private fun ReadingProgressBar(progress: Float?, modifier: Modifier = Modifier) 
                 .fillMaxHeight()
                 .fillMaxWidth(boundedProgress)
                 .background(fillColor)
-        )
-    }
-}
-
-@Composable
-private fun ReadingStateText(progress: Float?, read: Boolean, modifier: Modifier = Modifier) {
-    val boundedProgress = (progress ?: 0f).coerceIn(0f, 1f)
-    when {
-        read || boundedProgress >= 1f -> Text(
-            text = "✓",
-            color = Color(0xFF8FB7A8),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = modifier
-        )
-        boundedProgress > 0f -> Text(
-            text = "${(boundedProgress * 100f).roundToInt().coerceIn(1, 99)}%",
-            color = ReadingProgressInProgress,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            modifier = modifier
         )
     }
 }
@@ -767,24 +1016,21 @@ private fun ChapterDto.readingProgress(): Float? {
     return read.toFloat() / total.toFloat()
 }
 
-private fun ChapterDto.isUnread(): Boolean {
-    val total = pages ?: return false
-    return total > 0 && (pagesRead ?: 0) <= 0
-}
-
-private fun ChapterDto.isRead(): Boolean {
-    val total = pages ?: return false
-    return total > 0 && (pagesRead ?: 0) >= total
-}
-
-private fun SeriesDto.isUnread(): Boolean {
-    val total = pages ?: return false
-    return total > 0 && (pagesRead ?: 0) <= 0
+private fun SeriesDto.primaryReadActionText(): String {
+    val total = pages ?: return "Start Reading"
+    if (total <= 0) return "Start Reading"
+    val read = (pagesRead ?: 0).coerceIn(0, total)
+    return when {
+        read <= 0 -> "Start Reading"
+        read >= total -> "Re-Read"
+        else -> "Continue Reading"
+    }
 }
 
 private fun SeriesDto.isRead(): Boolean {
     val total = pages ?: return false
-    return total > 0 && (pagesRead ?: 0) >= total
+    if (total <= 0) return false
+    return (pagesRead ?: 0) >= total
 }
 
 private fun SeriesDto.coverActionColor(): Color {

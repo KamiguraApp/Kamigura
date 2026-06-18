@@ -26,6 +26,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -103,6 +106,8 @@ fun LibraryScreen(
     var onDeck by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var recentlyUpdated by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var newlyAdded by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
+    var wantToRead by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
+    var wantToReadError by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var serverName by remember { mutableStateOf("No server selected") }
@@ -113,6 +118,8 @@ fun LibraryScreen(
         onDeck = emptyList()
         recentlyUpdated = emptyList()
         newlyAdded = emptyList()
+        wantToRead = emptyList()
+        wantToReadError = null
         error = null
         loading = true
         try {
@@ -126,6 +133,9 @@ fun LibraryScreen(
                 .map { it.toSeriesDto() }
                 .distinctBy { it.id }
             newlyAdded = api.recentlyAdded(pageSize = 18)
+            runCatching { api.wantToRead(pageSize = 200) }
+                .onSuccess { wantToRead = it }
+                .onFailure { wantToReadError = it.message ?: it.toString() }
         } catch (t: Throwable) {
             error = t.message ?: t.toString()
         } finally {
@@ -142,6 +152,8 @@ fun LibraryScreen(
         onDeck = onDeck,
         recentlyUpdated = recentlyUpdated,
         newlyAdded = newlyAdded,
+        wantToRead = wantToRead,
+        wantToReadError = wantToReadError,
         onOpenSettings = onOpenSettings,
         onSelectLibrary = onSelectLibrary,
         onSelectSeries = onSelectSeries
@@ -158,6 +170,8 @@ private fun HomeShell(
     onDeck: List<SeriesDto>,
     recentlyUpdated: List<SeriesDto>,
     newlyAdded: List<SeriesDto>,
+    wantToRead: List<SeriesDto>,
+    wantToReadError: String?,
     onOpenSettings: () -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit
@@ -194,6 +208,8 @@ private fun HomeShell(
                         onDeck = onDeck,
                         recentlyUpdated = recentlyUpdated,
                         newlyAdded = newlyAdded,
+                        wantToRead = wantToRead,
+                        wantToReadError = wantToReadError,
                         onSelectLibrary = onSelectLibrary,
                         onSelectSeries = onSelectSeries,
                         modifier = Modifier.weight(1f)
@@ -212,6 +228,8 @@ private fun HomeShell(
                     onDeck = onDeck,
                     recentlyUpdated = recentlyUpdated,
                     newlyAdded = newlyAdded,
+                    wantToRead = wantToRead,
+                    wantToReadError = wantToReadError,
                     onSelectLibrary = onSelectLibrary,
                     onSelectSeries = onSelectSeries,
                     modifier = Modifier.weight(1f)
@@ -443,6 +461,8 @@ private fun HomeContent(
     onDeck: List<SeriesDto>,
     recentlyUpdated: List<SeriesDto>,
     newlyAdded: List<SeriesDto>,
+    wantToRead: List<SeriesDto>,
+    wantToReadError: String?,
     onSelectLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
     modifier: Modifier = Modifier
@@ -490,11 +510,58 @@ private fun HomeContent(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-            HomeDestination.WantToRead,
+            HomeDestination.WantToRead -> {
+                if (wantToReadError != null) {
+                    DarkMessageState(
+                        title = "Could not load Want to Read",
+                        body = wantToReadError
+                    )
+                } else {
+                    WantToReadGrid(
+                        series = wantToRead,
+                        session = session,
+                        onSelectSeries = onSelectSeries,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
             HomeDestination.Browse,
             HomeDestination.Search -> {
                 HomePlaceholder(destination, Modifier.fillMaxSize())
             }
+        }
+    }
+}
+
+@Composable
+private fun WantToReadGrid(
+    series: List<SeriesDto>,
+    session: KavitaSession,
+    onSelectSeries: (SeriesDto) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (series.isEmpty()) {
+        DarkMessageState(
+            title = "Want to Read",
+            body = "No series added yet."
+        )
+        return
+    }
+
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 150.dp),
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        items(series, key = { it.id }) { item ->
+            SeriesPosterCard(
+                series = item,
+                session = session,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = { onSelectSeries(item) }
+            )
         }
     }
 }
@@ -520,7 +587,7 @@ private fun HomeShelf(
                     SeriesPosterCard(
                         series = item,
                         session = session,
-                        width = 160.dp,
+                        modifier = Modifier.width(160.dp),
                         onClick = { onSelectSeries(item) }
                     )
                 }
@@ -533,12 +600,11 @@ private fun HomeShelf(
 private fun SeriesPosterCard(
     series: SeriesDto,
     session: KavitaSession,
-    width: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Card(
-        modifier = Modifier
-            .width(width)
+        modifier = modifier
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
     ) {

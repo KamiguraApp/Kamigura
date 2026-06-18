@@ -14,7 +14,33 @@ data class LoginDto(
 @Serializable
 data class UserDto(
     val username: String? = null,
+    val roles: List<String>? = null,
     @SerialName("token") val token: String? = null
+)
+
+@Serializable
+data class UpdateWantToReadDto(
+    val seriesIds: List<Int>
+)
+
+@Serializable
+data class ReadingListDto(
+    val id: Int,
+    val title: String? = null
+)
+
+@Serializable
+data class UpdateReadingListBySeriesDto(
+    val seriesId: Int,
+    val readingListId: Int
+)
+
+@Serializable
+data class RefreshSeriesDto(
+    val libraryId: Int,
+    val seriesId: Int,
+    val forceUpdate: Boolean = true,
+    val forceColorscape: Boolean = false
 )
 
 @Serializable
