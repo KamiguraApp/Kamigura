@@ -5,15 +5,13 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="file" path="offline/" />
+        <exclude domain="file" path="datastore/offline_issues.preferences_pb" />
+        <exclude domain="external" path="Download/" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="file" path="offline/" />
+        <exclude domain="file" path="datastore/offline_issues.preferences_pb" />
+        <exclude domain="external" path="Download/" />
     </device-transfer>
-    -->
 </data-extraction-rules>

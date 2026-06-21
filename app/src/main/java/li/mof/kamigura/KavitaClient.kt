@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import coil.ImageLoader
 import coil.decode.SvgDecoder
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.Authenticator
@@ -17,6 +19,9 @@ import okhttp3.Response
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.create
+
+private const val CoverImageDiskCacheBytes = 256L * 1024L * 1024L
+private const val ReaderPageDiskCacheBytes = 256L * 1024L * 1024L
 
 class KavitaClient(
     private val context: Context,
@@ -120,24 +125,51 @@ class KavitaClient(
     fun buildImageLoader(okHttp: OkHttpClient): ImageLoader {
         return ImageLoader.Builder(context)
             .okHttpClient(okHttp)
+            .memoryCache {
+                MemoryCache.Builder(context)
+                    .maxSizePercent(0.10)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(context.cacheDir.resolve("cover_image_cache"))
+                    .maxSizeBytes(CoverImageDiskCacheBytes)
+                    .build()
+            }
             .components { add(SvgDecoder.Factory()) }
             .build()
     }
 
-    fun pageImageUrl(baseUrl: String, apiKey: String, chapterId: Int, page: Int): String {
-        val root = normalizeBaseUrl(baseUrl)
-        val apiKeyQuery = apiKeyQuery(apiKey)
-        return "$root/api/reader/image?chapterId=$chapterId$apiKeyQuery&page=$page"
+    fun buildReaderImageLoader(okHttp: OkHttpClient): ImageLoader {
+        return ImageLoader.Builder(context)
+            .okHttpClient(okHttp)
+            .memoryCache {
+                MemoryCache.Builder(context)
+                    .maxSizePercent(0.20)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(context.cacheDir.resolve("reader_page_cache"))
+                    .maxSizeBytes(ReaderPageDiskCacheBytes)
+                    .build()
+            }
+            .build()
     }
 
-    fun seriesCoverUrl(baseUrl: String, apiKey: String, seriesId: Int): String {
+    fun pageImageUrl(baseUrl: String, chapterId: Int, page: Int): String {
         val root = normalizeBaseUrl(baseUrl)
-        return "$root/api/Image/series-cover?seriesId=$seriesId${apiKeyQuery(apiKey)}"
+        return "$root/api/reader/image?chapterId=$chapterId&page=$page"
     }
 
-    fun chapterCoverUrl(baseUrl: String, apiKey: String, chapterId: Int): String {
+    fun seriesCoverUrl(baseUrl: String, seriesId: Int): String {
         val root = normalizeBaseUrl(baseUrl)
-        return "$root/api/Image/chapter-cover?chapterId=$chapterId${apiKeyQuery(apiKey)}"
+        return "$root/api/Image/series-cover?seriesId=$seriesId"
+    }
+
+    fun chapterCoverUrl(baseUrl: String, chapterId: Int): String {
+        val root = normalizeBaseUrl(baseUrl)
+        return "$root/api/Image/chapter-cover?chapterId=$chapterId"
     }
 
     fun loginUrl(baseUrl: String): String {
@@ -146,9 +178,6 @@ class KavitaClient(
 
     private fun normalizeBaseUrl(baseUrl: String): String = normalizeKavitaBaseUrl(baseUrl)
 
-    private fun apiKeyQuery(apiKey: String): String {
-        return apiKey.takeIf { it.isNotBlank() }?.let { "&apiKey=${Uri.encode(it)}" }.orEmpty()
-    }
 }
 
 private val Ipv4Regex = Regex("""\d{1,3}(\.\d{1,3}){3}""")

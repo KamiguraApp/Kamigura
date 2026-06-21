@@ -2,6 +2,7 @@
 
 import android.os.Bundle
 import android.content.pm.ApplicationInfo
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -38,7 +39,9 @@ import coil.ImageLoader
 import coil.compose.LocalImageLoader
 import li.mof.kamigura.ui.theme.KamiguraTheme
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import li.mof.kamigura.library.LibraryScreen
+import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.ReaderScreen
 import li.mof.kamigura.series.ChapterPickScreen
 import li.mof.kamigura.series.SeriesScreen
@@ -55,7 +58,10 @@ class MainActivity : ComponentActivity() {
             apiKey = if (allowIntentLogin) intent.getStringExtra("apiKey").orEmpty() else "",
             username = if (allowIntentLogin) intent.getStringExtra("username").orEmpty() else "",
             password = if (allowIntentLogin) intent.getStringExtra("password").orEmpty() else "",
-            autoLogin = allowIntentLogin && intent.getBooleanExtra("autoLogin", false)
+            autoLogin = allowIntentLogin && intent.getBooleanExtra("autoLogin", false),
+            debugLibraryId = if (allowIntentLogin) intent.getIntExtra("debugLibraryId", 0) else 0,
+            debugSeriesId = if (allowIntentLogin) intent.getIntExtra("debugSeriesId", 0) else 0,
+            debugSeriesName = if (allowIntentLogin) intent.getStringExtra("debugSeriesName").orEmpty() else ""
         )
 
         setContent {
@@ -77,6 +83,17 @@ fun AppRoot(
 
     var imageLoader by remember { mutableStateOf<ImageLoader?>(null) }
     var sessionRevision by remember { mutableIntStateOf(0) }
+    val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+
+    LaunchedEffect(sessionRevision) {
+        runCatching {
+            val session = sessionStore.load()
+            if (session.baseUrl.isNotBlank() && (session.jwt.isNotBlank() || session.apiKey.isNotBlank())) {
+                val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
+                offlineRepository.syncPending(session, api)
+            }
+        }
+    }
 
     suspend fun refreshActiveServer() {
         sessionRevision += 1
@@ -107,11 +124,32 @@ fun AppRoot(
                         val (_, okHttp) = client.buildApi()
                         imageLoader = client.buildImageLoader(okHttp)
                         sessionRevision += 1
+                        val destination = if (
+                            loginDefaults.debugLibraryId > 0 && loginDefaults.debugSeriesId > 0
+                        ) {
+                            "chapters/${loginDefaults.debugLibraryId}/${loginDefaults.debugSeriesId}/" +
+                                Uri.encode(loginDefaults.debugSeriesName)
+                        } else {
+                            "libraries"
+                        }
+                        nav.navigate(destination) {
+                            popUpTo("login") { inclusive = true }
+                        }
+                    },
+                    hasOfflineDownloads = {
+                        val saved = sessionStore.loadDefault()
+                        saved.baseUrl.isNotBlank() &&
+                            offlineRepository.observeDownloaded(saved).first().isNotEmpty()
+                    },
+                    onOpenOffline = {
+                        val saved = sessionStore.loadDefault()
+                        sessionStore.useTransient(saved)
+                        imageLoader = null
+                        sessionRevision += 1
                         nav.navigate("libraries") {
                             popUpTo("login") { inclusive = true }
                         }
                     },
-                    onOpenSettings = { nav.navigate("settings") },
                     onOpenServerSettings = { nav.navigate("settings/server") }
                 )
             }
@@ -125,6 +163,9 @@ fun AppRoot(
                     onSelectSeries = { series ->
                         val libraryId = series.libraryId ?: 0
                         nav.navigate("chapters/$libraryId/${series.id}/${series.name}")
+                    },
+                    onPickIssue = { libraryId, seriesId, volumeId, chapterId, incognito ->
+                        nav.navigate("reader/$libraryId/$seriesId/$volumeId/$chapterId?incognito=$incognito")
                     }
                 )
             }
@@ -154,24 +195,29 @@ fun AppRoot(
                 val libraryId = backStack.arguments!!.getInt("libraryId")
                 val seriesId = backStack.arguments!!.getInt("seriesId")
                 val seriesName = backStack.arguments!!.getString("seriesName") ?: ""
-                ChapterPickScreen(sessionStore, libraryId, seriesId, seriesName) { chapterId, volumeId ->
-                    nav.navigate("reader/$libraryId/$seriesId/$volumeId/$chapterId")
+                ChapterPickScreen(sessionStore, libraryId, seriesId, seriesName) { chapterId, volumeId, incognito ->
+                    nav.navigate("reader/$libraryId/$seriesId/$volumeId/$chapterId?incognito=$incognito")
                 }
             }
 
             composable(
-                route = "reader/{libraryId}/{seriesId}/{volumeId}/{chapterId}",
+                route = "reader/{libraryId}/{seriesId}/{volumeId}/{chapterId}?incognito={incognito}",
                 arguments = listOf(
                     navArgument("libraryId") { type = NavType.IntType },
                     navArgument("seriesId") { type = NavType.IntType },
                     navArgument("volumeId") { type = NavType.IntType },
-                    navArgument("chapterId") { type = NavType.IntType }
+                    navArgument("chapterId") { type = NavType.IntType },
+                    navArgument("incognito") {
+                        type = NavType.BoolType
+                        defaultValue = false
+                    }
                 )
             ) { backStack ->
                 val libraryId = backStack.arguments!!.getInt("libraryId")
                 val seriesId = backStack.arguments!!.getInt("seriesId")
                 val volumeId = backStack.arguments!!.getInt("volumeId")
                 val chapterId = backStack.arguments!!.getInt("chapterId")
+                val incognito = backStack.arguments!!.getBoolean("incognito")
                 ReaderScreen(
                     sessionStore,
                     settingsStore,
@@ -179,6 +225,7 @@ fun AppRoot(
                     seriesId,
                     volumeId,
                     chapterId,
+                    incognito = incognito,
                     onBack = { nav.popBackStack() }
                 )
             }
@@ -210,7 +257,10 @@ data class LoginDefaults(
     val apiKey: String = "",
     val username: String = "",
     val password: String = "",
-    val autoLogin: Boolean = false
+    val autoLogin: Boolean = false,
+    val debugLibraryId: Int = 0,
+    val debugSeriesId: Int = 0,
+    val debugSeriesName: String = ""
 )
 
 @Composable
@@ -218,7 +268,8 @@ fun LoginScreen(
     sessionStore: KavitaSessionStore,
     defaults: LoginDefaults = LoginDefaults(),
     onLoggedIn: suspend () -> Unit,
-    onOpenSettings: () -> Unit,
+    hasOfflineDownloads: suspend () -> Boolean,
+    onOpenOffline: suspend () -> Unit,
     onOpenServerSettings: () -> Unit
 ) {
     val ctx = LocalContext.current
@@ -226,6 +277,7 @@ fun LoginScreen(
 
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var offlineAvailable by remember { mutableStateOf(false) }
 
     suspend fun connectSaved(showMissingAuthError: Boolean = true) {
         busy = true
@@ -282,6 +334,7 @@ fun LoginScreen(
     }
 
     LaunchedEffect(defaults.autoLogin) {
+        offlineAvailable = runCatching { hasOfflineDownloads() }.getOrDefault(false)
         if (defaults.autoLogin && !busy) {
             attemptDebugLogin()
         } else if (!busy) {
@@ -316,7 +369,14 @@ fun LoginScreen(
                     }
                 ) { Text(if (busy) "Connecting..." else "Connect") }
 
-                Button(onClick = onOpenSettings) { Text("Settings") }
+                Button(onClick = onOpenServerSettings) { Text("Servers") }
+
+                if (offlineAvailable) {
+                    Button(
+                        enabled = !busy,
+                        onClick = { scope.launch { onOpenOffline() } }
+                    ) { Text("Offline Downloads") }
+                }
             }
         }
     }

@@ -56,6 +56,12 @@ interface KavitaApi {
     @GET("api/Series/volumes")
     suspend fun volumes(@Query("seriesId") seriesId: Int): List<VolumeDto>
 
+    @GET("api/Series/chapter")
+    suspend fun seriesChapter(@Query("chapterId") chapterId: Int): ChapterDto
+
+    @GET("api/Download/chapter-size")
+    suspend fun chapterSize(@Query("chapterId") chapterId: Int): Long
+
     @GET("api/reading-profile/{libraryId}/{seriesId}")
     suspend fun readingProfile(
         @Path("libraryId") libraryId: Int,
@@ -82,8 +88,14 @@ interface KavitaApi {
     @POST("api/Reader/mark-chapter-read")
     suspend fun markChapterRead(@Body dto: MarkChapterReadDto)
 
+    @POST("api/Reader/mark-multiple-unread")
+    suspend fun markChaptersUnread(@Body dto: MarkVolumesReadDto)
+
     @POST("api/want-to-read/add-series")
     suspend fun addSeriesToWantToRead(@Body dto: UpdateWantToReadDto)
+
+    @POST("api/want-to-read/remove-series")
+    suspend fun removeSeriesFromWantToRead(@Body dto: UpdateWantToReadDto)
 
     @POST("api/want-to-read/v2")
     suspend fun wantToRead(

@@ -114,11 +114,22 @@ data class ChapterDto(
     val totalReads: Int? = null,
     val volumeId: Int? = null,
     val titleName: String? = null,
+    val volumeTitle: String? = null,
     val summary: String? = null,
     val releaseDate: String? = null,
     val minHoursToRead: Int? = null,
     val maxHoursToRead: Int? = null,
-    val avgHoursToRead: Float? = null
+    val avgHoursToRead: Float? = null,
+    val primaryColor: String? = null,
+    val secondaryColor: String? = null,
+    val writers: List<PersonDto>? = null,
+    val coverArtists: List<PersonDto>? = null,
+    val pencillers: List<PersonDto>? = null,
+    val inkers: List<PersonDto>? = null,
+    val colorists: List<PersonDto>? = null,
+    val letterers: List<PersonDto>? = null,
+    val editors: List<PersonDto>? = null,
+    val translators: List<PersonDto>? = null
 )
 
 @Serializable
@@ -197,4 +208,12 @@ data class MarkChapterReadDto(
     val seriesId: Int,
     val chapterId: Int,
     val generateReadingSession: Boolean
+)
+
+@Serializable
+data class MarkVolumesReadDto(
+    val seriesId: Int,
+    val volumeIds: List<Int> = emptyList(),
+    val chapterIds: List<Int> = emptyList(),
+    val generateReadingSession: Boolean = false
 )

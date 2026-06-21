@@ -79,7 +79,7 @@ fun SettingsHubScreen(
                 Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "Kamigura v0.11",
+                    text = "Kamigura v0.12",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -468,13 +468,37 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
             .navigationBarsPadding()
     ) {
         TopAppBar(title = { Text("Reader Settings") })
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
             SettingRow(
                 title = "Right-to-left",
                 desc = "Fallback page-turn direction, used only when a series has no reading " +
                     "direction of its own on the Kavita server. Series with their own setting follow that.",
                 checked = settings.reader.rightToLeft,
                 onToggle = { v -> scope.launch { settingsStore.setRightToLeft(v) } }
+            )
+
+            Text("Page preloading", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "One turn is one page turn. A two-page spread can preload two page images per turn.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+            PrefetchTurnsSetting(
+                title = "Wi-Fi / unmetered",
+                turns = settings.reader.unmeteredPrefetchTurns,
+                onTurnsChanged = { turns ->
+                    scope.launch { settingsStore.setUnmeteredPrefetchTurns(turns) }
+                }
+            )
+            PrefetchTurnsSetting(
+                title = "Mobile / metered",
+                turns = settings.reader.meteredPrefetchTurns,
+                onTurnsChanged = { turns ->
+                    scope.launch { settingsStore.setMeteredPrefetchTurns(turns) }
+                }
             )
 
             Text("Invert (night)", style = MaterialTheme.typography.titleMedium)
@@ -544,6 +568,40 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
         }
     }
+    }
+}
+
+@Composable
+private fun PrefetchTurnsSetting(
+    title: String,
+    turns: Int,
+    onTurnsChanged: (Int) -> Unit
+) {
+    var draft by remember(turns) { mutableStateOf(turns.toFloat()) }
+    val draftTurns = draft.roundToInt().coerceIn(0, MaxReaderPrefetchTurns)
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = "$title: ${prefetchTurnsSummary(draftTurns)}",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        ValueBubbleSlider(
+            value = draft,
+            onValueChange = { draft = it },
+            onValueChangeFinished = { onTurnsChanged(draftTurns) },
+            valueRange = 0f..MaxReaderPrefetchTurns.toFloat(),
+            steps = MaxReaderPrefetchTurns - 1,
+            valueLabel = { value ->
+                value.roundToInt().let { if (it == 0) "Off" else it.toString() }
+            }
+        )
+    }
+}
+
+private fun prefetchTurnsSummary(turns: Int): String {
+    return if (turns == 0) {
+        "Off"
+    } else {
+        "$turns turns (up to ${turns * 2} pages)"
     }
 }
 

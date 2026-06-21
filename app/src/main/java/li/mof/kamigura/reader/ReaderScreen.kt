@@ -3,6 +3,7 @@ package li.mof.kamigura.reader
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.ConnectivityManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -53,8 +54,10 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.compose.LocalImageLoader
+import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import li.mof.kamigura.AppSettings
@@ -67,9 +70,18 @@ import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.MarkChapterReadDto
+import li.mof.kamigura.MarkVolumesReadDto
 import li.mof.kamigura.ProgressDto
+import li.mof.kamigura.download.OfflineChapter
+import li.mof.kamigura.download.OfflineIssueRepository
+import li.mof.kamigura.download.OfflinePage
+import li.mof.kamigura.download.decodeOfflinePage
 import li.mof.kamigura.ui.ValueBubbleSlider
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -104,6 +116,7 @@ private const val KavitaReadingProfileKindDefault = 0
 private const val ReaderDoubleTapUserZoomScale = 2f
 private const val ReaderMaxZoomScale = 5f
 private const val ReaderZoomEpsilon = 0.01f
+private const val ReaderPrefetchConcurrency = 2
 
 private data class ReaderSpreadPages(
     val leftPage: Int,
@@ -184,6 +197,30 @@ private fun readerPageLayout(
     )
 }
 
+internal fun readerPrefetchPageIndices(
+    page: Int,
+    pageCount: Int,
+    portrait: Boolean,
+    pageDimensions: Map<Int, FileDimensionDto>,
+    turns: Int
+): List<Int> {
+    if (pageCount <= 0 || page !in 0 until pageCount || turns <= 0) return emptyList()
+    val result = LinkedHashSet<Int>()
+    var cursor = page
+    var remainingTurns = turns
+    while (remainingTurns > 0) {
+        val currentLayout = readerPageLayout(cursor, pageCount, portrait, pageDimensions)
+        val next = cursor + currentLayout.nextStep
+        if (next !in 0 until pageCount) break
+        val nextLayout = readerPageLayout(next, pageCount, portrait, pageDimensions)
+        result += next
+        if (!nextLayout.singlePage && next + 1 < pageCount) result += next + 1
+        cursor = next
+        remainingTurns--
+    }
+    return result.toList()
+}
+
 private fun readerPanBoundsPx(
     viewportWidthPx: Float,
     viewportHeightPx: Float,
@@ -250,10 +287,12 @@ fun ReaderScreen(
     seriesId: Int,
     volumeId: Int,
     chapterId: Int,
+    incognito: Boolean = false,
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
     val density = LocalDensity.current
+    val fallbackImageLoader = LocalImageLoader.current
     val scope = rememberCoroutineScope()
     val settings by settingsStore.flow.collectAsState(initial = AppSettings())
     ReaderFullscreenEffect()
@@ -269,18 +308,36 @@ fun ReaderScreen(
     var rightToLeft by remember { mutableStateOf(settings.reader.rightToLeft) }
     var zoomPan by remember { mutableStateOf(ReaderZoomPanState()) }
     var completingRead by remember { mutableStateOf(false) }
+    var offlineChapter by remember { mutableStateOf<OfflineChapter?>(null) }
+    var readerImageLoader by remember { mutableStateOf<ImageLoader?>(null) }
+    val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+
+    DisposableEffect(readerImageLoader) {
+        val activeLoader = readerImageLoader
+        onDispose { activeLoader?.shutdown() }
+    }
 
     fun clampPage(value: Int): Int = value.coerceIn(0, (pages - 1).coerceAtLeast(0))
     fun completeChapter() {
-        val loadedApi = api ?: return
         if (completingRead || pages <= 0) return
         completingRead = true
         showReaderMenu = false
+        if (incognito) {
+            onBack()
+            return
+        }
         scope.launch {
-            // Best-effort: record final progress and mark the chapter read, but
-            // always return to the series page afterwards so a slow or failed
-            // network call can never trap the reader on the last page.
-            runCatching {
+            val loadedSession = session
+            if (offlineChapter != null && loadedSession != null) {
+                offlineRepository.saveLocalProgress(
+                    session = loadedSession,
+                    chapterId = chapterId,
+                    page = pages - 1,
+                    markRead = true
+                )
+            }
+            val loadedApi = api
+            val progressSaved = loadedApi != null && runCatching {
                 loadedApi.saveProgress(
                     ProgressDto(
                         libraryId = libraryId,
@@ -290,8 +347,8 @@ fun ReaderScreen(
                         pageNum = pages - 1
                     )
                 )
-            }
-            runCatching {
+            }.isSuccess
+            val readMarked = loadedApi != null && runCatching {
                 loadedApi.markChapterRead(
                     MarkChapterReadDto(
                         seriesId = seriesId,
@@ -299,11 +356,56 @@ fun ReaderScreen(
                         generateReadingSession = false
                     )
                 )
+            }.isSuccess
+            if (offlineChapter != null && loadedSession != null && progressSaved) {
+                offlineRepository.markProgressSynced(
+                    session = loadedSession,
+                    chapterId = chapterId,
+                    expectedPage = pages - 1,
+                    markedRead = readMarked
+                )
+            }
+            onBack()
+        }
+    }
+    fun resetChapterAndExit() {
+        if (completingRead) return
+        completingRead = true
+        showReaderMenu = false
+        if (incognito) {
+            onBack()
+            return
+        }
+        scope.launch {
+            val loadedSession = session
+            if (offlineChapter != null && loadedSession != null) {
+                offlineRepository.markLocalUnread(loadedSession, chapterId)
+            }
+            val loadedApi = api
+            val unreadMarked = loadedApi != null && runCatching {
+                loadedApi.markChaptersUnread(
+                    MarkVolumesReadDto(
+                        seriesId = seriesId,
+                        chapterIds = listOf(chapterId)
+                    )
+                )
+            }.isSuccess
+            if (offlineChapter != null && loadedSession != null && unreadMarked) {
+                offlineRepository.markProgressSynced(
+                    session = loadedSession,
+                    chapterId = chapterId,
+                    expectedPage = 0,
+                    markedUnread = true
+                )
             }
             onBack()
         }
     }
     fun movePageBy(delta: Int, completeWhenPastEnd: Boolean = false) {
+        if (delta < 0 && page == 0) {
+            resetChapterAndExit()
+            return
+        }
         val targetPage = page + delta
         if (delta > 0 && pages > 0 && targetPage >= pages) {
             if (completeWhenPastEnd) {
@@ -328,11 +430,25 @@ fun ReaderScreen(
     fun prevSingle() { movePageBy(-1) }
 
     LaunchedEffect(Unit) {
-        session = sessionStore.load()
+        val loadedSession = sessionStore.load()
+        session = loadedSession
+        val local = runCatching {
+            offlineRepository.localChapter(loadedSession, chapterId)
+        }.getOrNull()
+        offlineChapter = local
+        if (local != null) {
+            pages = local.pages.size
+            pageDimensions = local.dimensions
+            page = local.record.localPage.coerceIn(0, (pages - 1).coerceAtLeast(0))
+            readerReady = pages > 0
+        }
+
         try {
             val client = KavitaClient(ctx, sessionStore)
-            val (loadedApi, _) = client.buildApi()
+            val (loadedApi, okHttp) = client.buildApi()
             api = loadedApi
+            readerImageLoader = client.buildReaderImageLoader(okHttp)
+            runCatching { offlineRepository.syncPending(loadedSession, loadedApi) }
             rightToLeft = try {
                 // A series-specific direction on the server (User/Implicit profile)
                 // wins. When only the global Default profile applies, the series has
@@ -347,22 +463,34 @@ fun ReaderScreen(
             } catch (_: Throwable) {
                 settings.reader.rightToLeft
             }
-            val info = loadedApi.chapterInfo(chapterId, includeDimensions = true)
-            val pageCount = info.pages ?: 0
-            pages = pageCount
-            pageDimensions = info.pageDimensions.toPageDimensionMap()
-            val savedPage = loadedApi.getProgress(chapterId).pageNum
-            page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
+            if (local == null) {
+                val info = loadedApi.chapterInfo(chapterId, includeDimensions = true)
+                val pageCount = info.pages ?: 0
+                pages = pageCount
+                pageDimensions = info.pageDimensions.toPageDimensionMap()
+                val savedPage = loadedApi.getProgress(chapterId).pageNum
+                page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
+            } else if (!local.record.progressPending) {
+                val savedPage = runCatching { loadedApi.getProgress(chapterId).pageNum }.getOrNull()
+                if (savedPage != null) page = savedPage.coerceIn(0, pages - 1)
+            }
             readerReady = true
         } catch (t: Throwable) {
-            error = t.message ?: t.toString()
+            if (local == null) {
+                error = t.message ?: t.toString()
+            }
         }
     }
 
-    LaunchedEffect(api, readerReady, pages, page) {
-        val loadedApi = api ?: return@LaunchedEffect
+    LaunchedEffect(api, readerReady, pages, page, incognito) {
         if (!readerReady) return@LaunchedEffect
+        if (incognito) return@LaunchedEffect
         if (pages <= 0 || page !in 0 until pages) return@LaunchedEffect
+        val loadedSession = session ?: return@LaunchedEffect
+        if (offlineChapter != null) {
+            offlineRepository.saveLocalProgress(loadedSession, chapterId, page)
+        }
+        val loadedApi = api ?: return@LaunchedEffect
         try {
             loadedApi.saveProgress(
                 ProgressDto(
@@ -373,8 +501,17 @@ fun ReaderScreen(
                     pageNum = page
                 )
             )
+            if (offlineChapter != null) {
+                offlineRepository.markProgressSynced(
+                    session = loadedSession,
+                    chapterId = chapterId,
+                    expectedPage = page
+                )
+            }
         } catch (t: Throwable) {
-            error = "Progress save failed: ${t.message ?: t.toString()}"
+            if (offlineChapter == null) {
+                error = "Progress save failed: ${t.message ?: t.toString()}"
+            }
         }
     }
 
@@ -385,6 +522,9 @@ fun ReaderScreen(
     }
 
     val client = remember { KavitaClient(ctx, sessionStore) }
+    val activeImageLoader = readerImageLoader ?: fallbackImageLoader
+    fun pageModel(index: Int): Any? = offlineChapter?.pages?.getOrNull(index)
+        ?: if (index in 0 until pages) client.pageImageUrl(s.baseUrl, chapterId, index) else null
     val rtl = rightToLeft
     val spreadPages = spreadPagesFor(page, rtl)
 
@@ -398,6 +538,39 @@ fun ReaderScreen(
             portrait = portrait,
             pageDimensions = pageDimensions
         )
+        LaunchedEffect(
+            page,
+            pages,
+            portrait,
+            pageDimensions,
+            offlineChapter,
+            activeImageLoader,
+            s.baseUrl,
+            s.apiKey,
+            settings.reader.meteredPrefetchTurns,
+            settings.reader.unmeteredPrefetchTurns
+        ) {
+            if (offlineChapter != null || pages <= 0) return@LaunchedEffect
+            val turns = if (ctx.isActiveNetworkMetered()) {
+                settings.reader.meteredPrefetchTurns
+            } else {
+                settings.reader.unmeteredPrefetchTurns
+            }
+            val indices = readerPrefetchPageIndices(
+                page = page,
+                pageCount = pages,
+                portrait = portrait,
+                pageDimensions = pageDimensions,
+                turns = turns
+            )
+            prefetchReaderPages(
+                context = ctx,
+                imageLoader = activeImageLoader,
+                models = indices.mapNotNull { index -> pageModel(index) as? String },
+                targetWidth = viewportWidthPx.toInt().coerceAtLeast(1),
+                targetHeight = viewportHeightPx.toInt().coerceAtLeast(1)
+            )
+        }
         val showingFinalPage = if (layout.singlePage) {
             page >= pages - 1
         } else {
@@ -434,7 +607,8 @@ fun ReaderScreen(
         ) {
             if (layout.singlePage) {
                 PageImage(
-                    url = if (page in 0 until pages) client.pageImageUrl(s.baseUrl, s.apiKey, chapterId, page) else null,
+                    model = pageModel(page),
+                    imageLoader = activeImageLoader,
                     label = "Page $page",
                     alignment = layout.singleAlignment,
                     invertMode = settings.reader.invertMode,
@@ -442,22 +616,16 @@ fun ReaderScreen(
                 )
             } else {
                 PageImage(
-                    url = if (spreadPages.leftPage in 0 until pages) {
-                        client.pageImageUrl(s.baseUrl, s.apiKey, chapterId, spreadPages.leftPage)
-                    } else {
-                        null
-                    },
+                    model = pageModel(spreadPages.leftPage),
+                    imageLoader = activeImageLoader,
                     label = "Left ${spreadPages.leftPage}",
                     alignment = Alignment.CenterEnd,
                     invertMode = settings.reader.invertMode,
                     whiteThreshold = settings.reader.invertWhiteThreshold
                 )
                 PageImage(
-                    url = if (spreadPages.rightPage in 0 until pages) {
-                        client.pageImageUrl(s.baseUrl, s.apiKey, chapterId, spreadPages.rightPage)
-                    } else {
-                        null
-                    },
+                    model = pageModel(spreadPages.rightPage),
+                    imageLoader = activeImageLoader,
                     label = "Right ${spreadPages.rightPage}",
                     alignment = Alignment.CenterStart,
                     invertMode = settings.reader.invertMode,
@@ -527,7 +695,8 @@ fun ReaderScreen(
 
 @Composable
 private fun RowScope.PageImage(
-    url: String?,
+    model: Any?,
+    imageLoader: ImageLoader,
     label: String,
     alignment: Alignment,
     contentScale: ContentScale = ContentScale.Fit,
@@ -535,14 +704,7 @@ private fun RowScope.PageImage(
     whiteThreshold: Float = 0.5f
 ) {
     val ctx = LocalContext.current
-    val imageLoader = LocalImageLoader.current
-    val shouldInvert by produceState(initialValue = false, url, invertMode, whiteThreshold, imageLoader) {
-        value = when (invertMode) {
-            InvertMode.Off -> false
-            InvertMode.Always -> true
-            InvertMode.Smart -> url != null && analyzeShouldInvert(ctx, imageLoader, url, whiteThreshold)
-        }
-    }
+    val density = LocalDensity.current
 
     BoxWithConstraints(
         modifier = Modifier
@@ -552,11 +714,40 @@ private fun RowScope.PageImage(
             .clipToBounds(),
         contentAlignment = Alignment.Center
     ) {
-        if (url == null) {
+        val targetWidth = with(density) { maxWidth.toPx().toInt() }
+        val targetHeight = with(density) { maxHeight.toPx().toInt() }
+        val resolvedModel by produceState<Any?>(
+            initialValue = model.takeUnless { it is OfflinePage },
+            model,
+            targetWidth,
+            targetHeight
+        ) {
+            value = when (model) {
+                is OfflinePage -> decodeOfflinePage(model, targetWidth, targetHeight)
+                else -> model
+            }
+        }
+        val shouldInvert by produceState(
+            initialValue = false,
+            resolvedModel,
+            invertMode,
+            whiteThreshold,
+            imageLoader
+        ) {
+            value = when (invertMode) {
+                InvertMode.Off -> false
+                InvertMode.Always -> true
+                InvertMode.Smart -> resolvedModel != null &&
+                    analyzeShouldInvert(ctx, imageLoader, resolvedModel!!, whiteThreshold)
+            }
+        }
+
+        if (resolvedModel == null) {
             Text("-", color = Color.Gray)
         } else {
             AsyncImage(
-                model = url,
+                model = resolvedModel,
+                imageLoader = imageLoader,
                 contentDescription = label,
                 modifier = Modifier.fillMaxSize(),
                 alignment = alignment,
@@ -567,19 +758,56 @@ private fun RowScope.PageImage(
     }
 }
 
+private fun Context.isActiveNetworkMetered(): Boolean {
+    return runCatching {
+        val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        connectivity.isActiveNetworkMetered
+    }.getOrDefault(true)
+}
+
+private suspend fun prefetchReaderPages(
+    context: Context,
+    imageLoader: ImageLoader,
+    models: List<String>,
+    targetWidth: Int,
+    targetHeight: Int
+) = coroutineScope {
+    val semaphore = Semaphore(ReaderPrefetchConcurrency)
+    models.map { model ->
+        launch {
+            semaphore.withPermit {
+                val request = ImageRequest.Builder(context)
+                    .data(model)
+                    .size(targetWidth, targetHeight)
+                    .memoryCachePolicy(CachePolicy.DISABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .networkCachePolicy(CachePolicy.ENABLED)
+                    .build()
+                try {
+                    imageLoader.execute(request)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    // Prefetch is opportunistic; the visible page reports its own error.
+                }
+            }
+        }
+    }.forEach { it.join() }
+}
+
 /**
- * Loads a small downscaled copy of [url] and decides whether the page looks like
+ * Loads a small downscaled copy of [model] and decides whether the page looks like
  * a text page (mostly white, low color) that should be inverted for night reading.
  * Illustration / color pages return false so they are shown normally.
  */
 private suspend fun analyzeShouldInvert(
     ctx: Context,
     imageLoader: coil.ImageLoader,
-    url: String,
+    model: Any,
     whiteThreshold: Float
 ): Boolean {
     val request = ImageRequest.Builder(ctx)
-        .data(url)
+        .data(model)
         .size(SmartInvertSampleSize)
         .allowHardware(false)
         .build()

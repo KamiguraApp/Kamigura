@@ -1,7 +1,6 @@
 package li.mof.kamigura.series
 
 import android.graphics.Color as AndroidColor
-import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -49,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +58,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -73,6 +75,8 @@ import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
+import li.mof.kamigura.MarkChapterReadDto
+import li.mof.kamigura.MarkVolumesReadDto
 import li.mof.kamigura.ReadingListDto
 import li.mof.kamigura.RefreshSeriesDto
 import li.mof.kamigura.normalizeKavitaBaseUrl
@@ -83,6 +87,8 @@ import li.mof.kamigura.SeriesMetadataDto
 import li.mof.kamigura.UpdateReadingListBySeriesDto
 import li.mof.kamigura.UpdateWantToReadDto
 import li.mof.kamigura.VolumeDto
+import li.mof.kamigura.download.OfflineDownloadStatus
+import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.seriesCoverUrl
@@ -92,13 +98,14 @@ import li.mof.kamigura.ui.theme.ReadingProgressRead
 import li.mof.kamigura.ui.theme.ReadingProgressTrack
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.flowOf
 import kotlin.math.roundToInt
 
-private fun chapterCoverUrl(session: KavitaSession, chapterId: Int): String {
+internal fun chapterCoverUrl(session: KavitaSession, chapterId: Int): String {
     val root = normalizeKavitaBaseUrl(session.baseUrl)
-    val apiKey = session.apiKey.takeIf { it.isNotBlank() }?.let { "&apiKey=${Uri.encode(it)}" }.orEmpty()
-    return "$root/api/Image/chapter-cover?chapterId=$chapterId$apiKey"
+    return "$root/api/Image/chapter-cover?chapterId=$chapterId"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -233,9 +240,10 @@ fun ChapterPickScreen(
     libraryId: Int,
     seriesId: Int,
     seriesName: String,
-    onPick: (chapterId: Int, volumeId: Int) -> Unit
+    onPick: (chapterId: Int, volumeId: Int, incognito: Boolean) -> Unit
 ) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var series by remember { mutableStateOf<SeriesDto?>(null) }
     var metadata by remember { mutableStateOf<SeriesMetadataDto?>(null) }
     var continueChapter by remember { mutableStateOf<ChapterDto?>(null) }
@@ -245,6 +253,12 @@ fun ChapterPickScreen(
     var session by remember { mutableStateOf(KavitaSession()) }
     var api by remember { mutableStateOf<KavitaApi?>(null) }
     var isAdmin by remember { mutableStateOf(false) }
+    var selectedIssue by remember { mutableStateOf<ChapterCardItem?>(null) }
+    var selectedIssueDetail by remember { mutableStateOf<ChapterDto?>(null) }
+    var selectedIssueSize by remember { mutableStateOf<Long?>(null) }
+    var issueLoading by remember { mutableStateOf(false) }
+    var issueActionBusy by remember { mutableStateOf(false) }
+    val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
 
     LaunchedEffect(seriesId) {
         loading = true
@@ -252,10 +266,12 @@ fun ChapterPickScreen(
         api = null
         isAdmin = false
         try {
-            session = sessionStore.load()
+            val loadedSession = sessionStore.load()
+            session = loadedSession
             val client = KavitaClient(ctx, sessionStore)
             val (loadedApi, _) = client.buildApi()
             api = loadedApi
+            runCatching { offlineRepository.syncPending(loadedSession, loadedApi) }
             isAdmin = runCatching {
                 loadedApi.currentUser().roles.orEmpty().any { it.equals("Admin", ignoreCase = true) }
             }.getOrDefault(false)
@@ -277,6 +293,110 @@ fun ChapterPickScreen(
     }
     val displaySeries = series ?: SeriesDto(id = seriesId, name = seriesName, libraryId = libraryId)
     val loadedApi = api
+    val selectedChapterId = selectedIssue?.chapter?.id
+    val downloadFlow = remember(session.baseUrl, selectedChapterId) {
+        selectedChapterId?.let { offlineRepository.observe(session, it) } ?: flowOf(null)
+    }
+    val downloadRecord by downloadFlow.collectAsState(initial = null)
+
+    LaunchedEffect(session.baseUrl, selectedChapterId, downloadRecord?.status) {
+        val chapterId = selectedChapterId ?: return@LaunchedEffect
+        if (offlineRepository.cleanupUnavailableDownload(session, chapterId)) {
+            return@LaunchedEffect
+        }
+        while (downloadRecord?.status in setOf(
+                OfflineDownloadStatus.Queued,
+                OfflineDownloadStatus.Downloading
+            )) {
+            offlineRepository.reconcile(session, chapterId)
+            delay(750)
+        }
+    }
+
+    fun updateChapter(updated: ChapterDto) {
+        volumes = volumes.map { volume ->
+            if (volume.chapters.none { it.id == updated.id }) {
+                volume
+            } else {
+                volume.copy(
+                    chapters = volume.chapters.map { chapter ->
+                        if (chapter.id == updated.id) updated else chapter
+                    }
+                )
+            }
+        }
+        selectedIssue = selectedIssue?.let { item ->
+            if (item.chapter.id == updated.id) item.copy(chapter = updated) else item
+        }
+        selectedIssueDetail = updated
+    }
+
+    fun openIssue(item: ChapterCardItem) {
+        val currentApi = loadedApi ?: return
+        selectedIssue = item
+        selectedIssueDetail = item.chapter
+        selectedIssueSize = null
+        issueLoading = true
+        scope.launch {
+            val chapterId = item.chapter.id
+            val detail = runCatching { currentApi.seriesChapter(chapterId) }.getOrNull()
+            val size = runCatching { currentApi.chapterSize(chapterId) }.getOrNull()
+            if (selectedIssue?.chapter?.id == chapterId) {
+                detail?.let(::updateChapter)
+                selectedIssueSize = size
+                issueLoading = false
+            }
+        }
+    }
+
+    fun markSelectedIssueRead() {
+        val currentApi = loadedApi ?: return
+        val item = selectedIssue ?: return
+        scope.launch {
+            issueActionBusy = true
+            runCatching {
+                currentApi.markChapterRead(
+                    MarkChapterReadDto(
+                        seriesId = seriesId,
+                        chapterId = item.chapter.id,
+                        generateReadingSession = false
+                    )
+                )
+            }.onSuccess {
+                val refreshed = runCatching { currentApi.seriesChapter(item.chapter.id) }
+                    .getOrElse { item.chapter.copy(pagesRead = item.chapter.pages) }
+                updateChapter(refreshed)
+                Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(ctx, "Could not mark issue as read", Toast.LENGTH_SHORT).show()
+            }
+            issueActionBusy = false
+        }
+    }
+
+    fun markSelectedIssueUnread() {
+        val currentApi = loadedApi ?: return
+        val item = selectedIssue ?: return
+        scope.launch {
+            issueActionBusy = true
+            runCatching {
+                currentApi.markChaptersUnread(
+                    MarkVolumesReadDto(
+                        seriesId = seriesId,
+                        chapterIds = listOf(item.chapter.id)
+                    )
+                )
+            }.onSuccess {
+                val refreshed = runCatching { currentApi.seriesChapter(item.chapter.id) }
+                    .getOrElse { item.chapter.copy(pagesRead = 0) }
+                updateChapter(refreshed)
+                Toast.makeText(ctx, "Marked as unread", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(ctx, "Could not mark issue as unread", Toast.LENGTH_SHORT).show()
+            }
+            issueActionBusy = false
+        }
+    }
 
     Box(
         Modifier
@@ -298,9 +418,85 @@ fun ChapterPickScreen(
                 session = session,
                 api = loadedApi,
                 isAdmin = isAdmin,
-                onPick = onPick
+                onPick = { chapterId, volumeId -> onPick(chapterId, volumeId, false) },
+                onIssueClick = ::openIssue
             )
         }
+
+        val issue = selectedIssue
+        val seriesActionColor = displaySeries.coverActionColor()
+        val issueActionColor = (selectedIssueDetail ?: issue?.chapter)
+            ?.coverActionColor(fallback = seriesActionColor)
+            ?: seriesActionColor
+        IssueDetailSideSheet(
+            visible = issue != null,
+            seriesName = displaySeries.name,
+            volume = issue?.volume,
+            chapter = selectedIssueDetail ?: issue?.chapter,
+            fileSizeBytes = selectedIssueSize,
+            downloadRecord = downloadRecord,
+            loading = issueLoading,
+            actionBusy = issueActionBusy,
+            session = session,
+            actionColor = issueActionColor,
+            onDismissRequest = {
+                selectedIssue = null
+                selectedIssueDetail = null
+                selectedIssueSize = null
+            },
+            onRead = {
+                issue?.let { onPick(it.chapter.id, it.volume.id, false) }
+            },
+            onReadIncognito = {
+                issue?.let { onPick(it.chapter.id, it.volume.id, true) }
+            },
+            onMarkRead = ::markSelectedIssueRead,
+            onMarkUnread = ::markSelectedIssueUnread,
+            onDownload = {
+                issue?.let { item ->
+                    scope.launch {
+                        issueActionBusy = true
+                        runCatching {
+                            offlineRepository.enqueue(
+                                session = session,
+                                libraryId = libraryId,
+                                seriesId = seriesId,
+                                volumeId = item.volume.id,
+                                chapterId = item.chapter.id,
+                                seriesName = displaySeries.name,
+                                issueName = item.volume.displayName() ?: item.chapter.displayTitle(),
+                                expectedBytes = selectedIssueSize,
+                                expectedPageCount = selectedIssueDetail?.pages ?: item.chapter.pages
+                            )
+                        }.onSuccess {
+                            Toast.makeText(ctx, "Download queued", Toast.LENGTH_SHORT).show()
+                        }.onFailure { error ->
+                            Toast.makeText(
+                                ctx,
+                                error.message ?: "Could not queue download",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        issueActionBusy = false
+                    }
+                }
+            },
+            onRemoveDownload = {
+                issue?.let { item ->
+                    scope.launch {
+                        issueActionBusy = true
+                        runCatching { offlineRepository.remove(session, item.chapter.id) }
+                            .onSuccess {
+                                Toast.makeText(ctx, "Download removed", Toast.LENGTH_SHORT).show()
+                            }
+                            .onFailure {
+                                Toast.makeText(ctx, "Could not remove download", Toast.LENGTH_SHORT).show()
+                            }
+                        issueActionBusy = false
+                    }
+                }
+            }
+        )
     }
 }
 
@@ -314,7 +510,8 @@ private fun SeriesDetailContent(
     session: KavitaSession,
     api: KavitaApi,
     isAdmin: Boolean,
-    onPick: (chapterId: Int, volumeId: Int) -> Unit
+    onPick: (chapterId: Int, volumeId: Int) -> Unit,
+    onIssueClick: (ChapterCardItem) -> Unit
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp && maxWidth > maxHeight
@@ -349,7 +546,7 @@ private fun SeriesDetailContent(
                 ChapterIssueGrid(
                     chapterCards = chapterCards,
                     session = session,
-                    onPick = onPick,
+                    onIssueClick = onIssueClick,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -381,7 +578,7 @@ private fun SeriesDetailContent(
                     ChapterGridCard(
                         item = item,
                         session = session,
-                        onClick = { onPick(item.chapter.id, item.volume.id) }
+                        onClick = { onIssueClick(item) }
                     )
                 }
             }
@@ -393,7 +590,7 @@ private fun SeriesDetailContent(
 private fun ChapterIssueGrid(
     chapterCards: List<ChapterCardItem>,
     session: KavitaSession,
-    onPick: (chapterId: Int, volumeId: Int) -> Unit,
+    onIssueClick: (ChapterCardItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyVerticalGrid(
@@ -410,7 +607,7 @@ private fun ChapterIssueGrid(
             ChapterGridCard(
                 item = item,
                 session = session,
-                onClick = { onPick(item.chapter.id, item.volume.id) }
+                onClick = { onIssueClick(item) }
             )
         }
     }
@@ -462,6 +659,7 @@ private fun SeriesDetailSummary(
     } ?: chapterCards.firstOrNull()
     val continueButtonText = series.primaryReadActionText()
     val continueButtonColor = series.coverActionColor()
+    val summaryActionColor = continueButtonColor.readableAccentOn(Color(0xFF202222))
     var summaryExpanded by remember(summary) { mutableStateOf(false) }
     var summaryCanExpand by remember(summary) { mutableStateOf(false) }
 
@@ -506,7 +704,8 @@ private fun SeriesDetailSummary(
                 if (summaryCanExpand || summaryExpanded) {
                     TextButton(
                         onClick = { summaryExpanded = !summaryExpanded },
-                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp)
+                        contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.textButtonColors(contentColor = summaryActionColor)
                     ) {
                         Text(if (summaryExpanded) "Show less" else "Show more")
                     }
@@ -756,7 +955,7 @@ private fun SeriesReadSplitButton(
 }
 
 private enum class SeriesMenuAction(val label: String) {
-    WantToRead("Want to Read"),
+    WantToRead("Add to Want to Read"),
     AddToReadingList("Add to Reading List"),
     Refresh("Refresh")
 }
@@ -895,11 +1094,10 @@ private data class ChapterCardItem(
 private fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onClick: () -> Unit) {
     val chapter = item.chapter
     val title = chapter.displayTitle()
-    val volumeName = item.volume.displayName()
-    val metaLine = listOfNotNull(
-        volumeName,
-        chapter.releaseDateText(),
-        chapter.pages?.let { "$it pages" }
+    val label = listOfNotNull(
+        title,
+        item.volume.displayName(),
+        chapter.releaseDateText()
     ).joinToString(" • ")
     val progress = chapter.readingProgress()
     Card(
@@ -937,18 +1135,10 @@ private fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCli
                 )
                 Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
                     Text(
-                        text = title,
+                        text = label,
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = metaLine,
-                        color = Color(0xFFB9BDBD),
-                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -978,7 +1168,7 @@ private fun ChapterDto.displayTitle(): String {
     return id.toString()
 }
 
-private fun VolumeDto.displayName(): String? {
+internal fun VolumeDto.displayName(): String? {
     name?.takeIf { it.isDisplayableVolumeLabel() }?.let { return it }
     val numberText = number.displayText()
     return numberText
@@ -1017,6 +1207,10 @@ private fun ChapterDto.readingProgress(): Float? {
 }
 
 private fun SeriesDto.primaryReadActionText(): String {
+    return primaryReadActionText(pages = pages, pagesRead = pagesRead)
+}
+
+internal fun primaryReadActionText(pages: Int?, pagesRead: Int?): String {
     val total = pages ?: return "Start Reading"
     if (total <= 0) return "Start Reading"
     val read = (pagesRead ?: 0).coerceIn(0, total)
@@ -1034,6 +1228,14 @@ private fun SeriesDto.isRead(): Boolean {
 }
 
 private fun SeriesDto.coverActionColor(): Color {
+    return coverActionColor(primaryColor, secondaryColor, Color(0xFF6A5BB7))
+}
+
+internal fun ChapterDto.coverActionColor(fallback: Color): Color {
+    return coverActionColor(primaryColor, secondaryColor, fallback)
+}
+
+private fun coverActionColor(primaryColor: String?, secondaryColor: String?, fallback: Color): Color {
     val primary = primaryColor.parseKavitaRgb()
     val secondary = secondaryColor.parseKavitaRgb()
     val seed = when {
@@ -1041,7 +1243,7 @@ private fun SeriesDto.coverActionColor(): Color {
         secondary == null -> primary
         primary.hsvSaturation() < 0.12f && secondary.hsvSaturation() > primary.hsvSaturation() + 0.12f -> secondary
         else -> primary
-    } ?: return Color(0xFF6A5BB7)
+    } ?: return fallback
 
     val hsv = FloatArray(3)
     AndroidColor.RGBToHSV(
@@ -1053,6 +1255,16 @@ private fun SeriesDto.coverActionColor(): Color {
     hsv[1] = hsv[1].coerceIn(0.38f, 0.72f)
     hsv[2] = hsv[2].coerceIn(0.42f, 0.68f)
     return Color(AndroidColor.HSVToColor(hsv))
+}
+
+private fun Color.readableAccentOn(background: Color): Color {
+    for (step in 0..10) {
+        val candidate = lerp(this, Color.White, step / 10f)
+        val lighter = maxOf(candidate.luminance(), background.luminance())
+        val darker = minOf(candidate.luminance(), background.luminance())
+        if ((lighter + 0.05f) / (darker + 0.05f) >= 4.5f) return candidate
+    }
+    return Color.White
 }
 
 private fun String?.parseKavitaRgb(): Int? {
@@ -1125,16 +1337,20 @@ private fun SeriesDto.readingStateText(): String? {
 }
 
 private fun SeriesDto.readingHoursText(): String? {
-    val min = minHoursToRead
-    val max = maxHoursToRead
+    return readingHoursText(minHoursToRead, maxHoursToRead, avgHoursToRead)
+}
+
+internal fun readingHoursText(min: Int?, max: Int?, average: Float?): String? {
     return when {
-        min != null && max != null && min > 0 && max > 0 && min != max -> "$min-$max hours"
-        min != null && min > 0 -> "$min hours"
-        max != null && max > 0 -> "$max hours"
-        avgHoursToRead != null && avgHoursToRead > 0f -> "${avgHoursToRead.roundToInt()} hours"
+        min != null && max != null && min > 0 && max > min -> "$min-$max hours"
+        min != null && min > 0 -> min.hourText()
+        max != null && max > 0 -> max.hourText()
+        average != null && average > 0f -> average.roundToInt().coerceAtLeast(1).hourText()
         else -> null
     }
 }
+
+private fun Int.hourText(): String = "$this ${if (this == 1) "hour" else "hours"}"
 
 private fun Int.compactCount(): String {
     if (this < 1000) return toString()
