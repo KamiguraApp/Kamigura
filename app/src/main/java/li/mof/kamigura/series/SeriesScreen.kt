@@ -226,6 +226,7 @@ private fun SeriesGridCard(series: SeriesDto, session: KavitaSession, onClick: (
                     color = Color.White,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
+                    minLines = 2,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
