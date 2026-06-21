@@ -524,7 +524,7 @@ fun ReaderScreen(
     val client = remember { KavitaClient(ctx, sessionStore) }
     val activeImageLoader = readerImageLoader ?: fallbackImageLoader
     fun pageModel(index: Int): Any? = offlineChapter?.pages?.getOrNull(index)
-        ?: if (index in 0 until pages) client.pageImageUrl(s.baseUrl, chapterId, index) else null
+        ?: if (index in 0 until pages) client.pageImageUrl(s.baseUrl, s.apiKey, chapterId, index) else null
     val rtl = rightToLeft
     val spreadPages = spreadPagesFor(page, rtl)
 

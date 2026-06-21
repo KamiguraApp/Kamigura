@@ -1,5 +1,6 @@
 package li.mof.kamigura.ui
 
+import android.net.Uri
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -42,7 +43,8 @@ internal fun DarkMessageState(title: String, body: String) {
 
 internal fun seriesCoverUrl(session: KavitaSession, seriesId: Int): String {
     val root = normalizeKavitaBaseUrl(session.baseUrl)
-    return "$root/api/Image/series-cover?seriesId=$seriesId"
+    val apiKey = session.apiKey.takeIf { it.isNotBlank() }?.let { "&apiKey=${Uri.encode(it)}" }.orEmpty()
+    return "$root/api/Image/series-cover?seriesId=$seriesId$apiKey"
 }
 
 internal fun seriesInitial(name: String): String {

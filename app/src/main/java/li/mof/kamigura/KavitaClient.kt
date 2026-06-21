@@ -157,19 +157,19 @@ class KavitaClient(
             .build()
     }
 
-    fun pageImageUrl(baseUrl: String, chapterId: Int, page: Int): String {
+    fun pageImageUrl(baseUrl: String, apiKey: String, chapterId: Int, page: Int): String {
         val root = normalizeBaseUrl(baseUrl)
-        return "$root/api/reader/image?chapterId=$chapterId&page=$page"
+        return "$root/api/reader/image?chapterId=$chapterId${apiKeyQuery(apiKey)}&page=$page"
     }
 
-    fun seriesCoverUrl(baseUrl: String, seriesId: Int): String {
+    fun seriesCoverUrl(baseUrl: String, apiKey: String, seriesId: Int): String {
         val root = normalizeBaseUrl(baseUrl)
-        return "$root/api/Image/series-cover?seriesId=$seriesId"
+        return "$root/api/Image/series-cover?seriesId=$seriesId${apiKeyQuery(apiKey)}"
     }
 
-    fun chapterCoverUrl(baseUrl: String, chapterId: Int): String {
+    fun chapterCoverUrl(baseUrl: String, apiKey: String, chapterId: Int): String {
         val root = normalizeBaseUrl(baseUrl)
-        return "$root/api/Image/chapter-cover?chapterId=$chapterId"
+        return "$root/api/Image/chapter-cover?chapterId=$chapterId${apiKeyQuery(apiKey)}"
     }
 
     fun loginUrl(baseUrl: String): String {
@@ -178,6 +178,9 @@ class KavitaClient(
 
     private fun normalizeBaseUrl(baseUrl: String): String = normalizeKavitaBaseUrl(baseUrl)
 
+    private fun apiKeyQuery(apiKey: String): String {
+        return apiKey.takeIf { it.isNotBlank() }?.let { "&apiKey=${Uri.encode(it)}" }.orEmpty()
+    }
 }
 
 private val Ipv4Regex = Regex("""\d{1,3}(\.\d{1,3}){3}""")

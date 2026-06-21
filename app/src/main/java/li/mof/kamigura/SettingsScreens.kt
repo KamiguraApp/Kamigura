@@ -79,7 +79,7 @@ fun SettingsHubScreen(
                 Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "Kamigura v0.12",
+                    text = "Kamigura v0.12.1",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.align(Alignment.CenterHorizontally)

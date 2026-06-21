@@ -1,5 +1,6 @@
 package li.mof.kamigura.library
 
+import android.net.Uri
 import android.widget.Toast
 
 import androidx.activity.compose.BackHandler
@@ -657,7 +658,8 @@ private fun LibraryIcon(library: LibraryDto, session: KavitaSession) {
 
 private fun libraryCoverUrl(session: KavitaSession, libraryId: Int): String {
     val root = normalizeKavitaBaseUrl(session.baseUrl)
-    return "$root/api/Image/library-cover?libraryId=$libraryId"
+    val apiKey = session.apiKey.takeIf { it.isNotBlank() }?.let { "&apiKey=${Uri.encode(it)}" }.orEmpty()
+    return "$root/api/Image/library-cover?libraryId=$libraryId$apiKey"
 }
 
 private fun LibraryDto.iconText(): String {

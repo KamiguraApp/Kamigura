@@ -1,6 +1,7 @@
 package li.mof.kamigura.series
 
 import android.graphics.Color as AndroidColor
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -105,7 +106,8 @@ import kotlin.math.roundToInt
 
 internal fun chapterCoverUrl(session: KavitaSession, chapterId: Int): String {
     val root = normalizeKavitaBaseUrl(session.baseUrl)
-    return "$root/api/Image/chapter-cover?chapterId=$chapterId"
+    val apiKey = session.apiKey.takeIf { it.isNotBlank() }?.let { "&apiKey=${Uri.encode(it)}" }.orEmpty()
+    return "$root/api/Image/chapter-cover?chapterId=$chapterId$apiKey"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
