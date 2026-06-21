@@ -633,8 +633,6 @@ fun ReaderScreen(
             rightToLeft = rtl,
             onNextSpread = { movePageBy(nextPageTurnStep, completeWhenPastEnd = showingFinalPage) },
             onPreviousSpread = { movePageBy(-previousPageTurnStep) },
-            onNextDoublePageTurn = { movePageBy(nextPageTurnStep * 2, completeWhenPastEnd = showingFinalPage) },
-            onPreviousDoublePageTurn = { movePageBy(-previousPageTurnStep * 2) },
             onNextSingle = { nextSingle() },
             onPreviousSingle = { prevSingle() },
             onCenterTap = { showReaderMenu = !showReaderMenu },
@@ -834,8 +832,6 @@ private fun ReaderTapLayer(
     rightToLeft: Boolean,
     onNextSpread: () -> Unit,
     onPreviousSpread: () -> Unit,
-    onNextDoublePageTurn: () -> Unit,
-    onPreviousDoublePageTurn: () -> Unit,
     onNextSingle: () -> Unit,
     onPreviousSingle: () -> Unit,
     onCenterTap: () -> Unit,
@@ -850,8 +846,6 @@ private fun ReaderTapLayer(
 ) {
     val latestOnNextSpread by rememberUpdatedState(onNextSpread)
     val latestOnPreviousSpread by rememberUpdatedState(onPreviousSpread)
-    val latestOnNextDoublePageTurn by rememberUpdatedState(onNextDoublePageTurn)
-    val latestOnPreviousDoublePageTurn by rememberUpdatedState(onPreviousDoublePageTurn)
     val latestOnNextSingle by rememberUpdatedState(onNextSingle)
     val latestOnPreviousSingle by rememberUpdatedState(onPreviousSingle)
     val latestOnCenterTap by rememberUpdatedState(onCenterTap)
@@ -876,13 +870,6 @@ private fun ReaderTapLayer(
                 )
                 .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
-                        onDoubleTap = {
-                            if (rightToLeft) {
-                                latestOnNextDoublePageTurn()
-                            } else {
-                                latestOnPreviousDoublePageTurn()
-                            }
-                        },
                         onTap = {
                             if (zoomPanEnabled) return@detectTapGestures
                             if (rightToLeft) latestOnNextSpread() else latestOnPreviousSpread()
@@ -935,13 +922,6 @@ private fun ReaderTapLayer(
                 )
                 .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
-                        onDoubleTap = {
-                            if (rightToLeft) {
-                                latestOnPreviousDoublePageTurn()
-                            } else {
-                                latestOnNextDoublePageTurn()
-                            }
-                        },
                         onTap = {
                             if (zoomPanEnabled) return@detectTapGestures
                             if (rightToLeft) latestOnPreviousSpread() else latestOnNextSpread()
