@@ -7,13 +7,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -359,9 +362,15 @@ fun LoginScreen(
 
             if (error != null) Text(error!!, color = Color.Red)
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Button(
                     enabled = !busy,
+                    modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         scope.launch {
                             connectSaved()
@@ -369,11 +378,15 @@ fun LoginScreen(
                     }
                 ) { Text(if (busy) "Connecting..." else "Connect") }
 
-                Button(onClick = onOpenServerSettings) { Text("Servers") }
+                FilledTonalButton(
+                    onClick = onOpenServerSettings,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Servers") }
 
                 if (offlineAvailable) {
-                    Button(
+                    OutlinedButton(
                         enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(),
                         onClick = { scope.launch { onOpenOffline() } }
                     ) { Text("Offline Downloads") }
                 }
