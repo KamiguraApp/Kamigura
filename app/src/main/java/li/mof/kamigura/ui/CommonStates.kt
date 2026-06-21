@@ -7,7 +7,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,11 +20,15 @@ import androidx.compose.ui.unit.dp
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.normalizeKavitaBaseUrl
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun DarkLoadingState() {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            CircularProgressIndicator(color = Color(0xFF86D39B))
+            ContainedLoadingIndicator(
+                containerColor = Color(0xFF24352F),
+                indicatorColor = Color(0xFF86D39B)
+            )
             Spacer(Modifier.height(12.dp))
             Text("Loading", color = Color(0xFFD1D5D5))
         }
