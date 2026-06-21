@@ -108,6 +108,11 @@ internal fun ModalSideSheet(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.48f))
+                .anchoredDraggable(
+                    state = dragState,
+                    orientation = Orientation.Horizontal,
+                    enabled = visible && !dismissPending
+                )
                 .pointerInput(Unit) {
                     detectTapGestures { requestDismiss() }
                 }
