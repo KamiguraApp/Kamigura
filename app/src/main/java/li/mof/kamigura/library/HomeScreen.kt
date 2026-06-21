@@ -30,12 +30,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material.icons.filled.Download
@@ -100,8 +97,9 @@ import li.mof.kamigura.series.chapterCoverUrl
 import li.mof.kamigura.series.coverActionColor
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
-import li.mof.kamigura.ui.seriesCoverUrl
-import li.mof.kamigura.ui.seriesInitial
+import li.mof.kamigura.ui.browse.BrowsePageScaffold
+import li.mof.kamigura.ui.browse.PosterGrid
+import li.mof.kamigura.ui.browse.SeriesPosterCard
 
 private enum class HomeDestination(
     val label: String,
@@ -567,19 +565,16 @@ private fun LibraryHub(
     onSelectLibrary: (LibraryDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(Color(0xFF202222))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text("Libraries", color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+    BrowsePageScaffold(title = "Libraries", modifier = modifier) {
         if (libraries.isEmpty()) {
-            Text("No libraries", color = Color(0xFF9FA5A5), style = MaterialTheme.typography.bodyMedium)
+            DarkMessageState(title = "Libraries", body = "No libraries")
         } else {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                libraries.forEach { library ->
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(libraries, key = { it.id }) { library ->
                     Surface(
                         color = Color(0xFF2C3030),
                         contentColor = Color.White,
@@ -795,62 +790,57 @@ private fun BrowseHub(
     onOpenDownloaded: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(Color(0xFF202222))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = "Browse",
-            color = Color.White,
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.SemiBold
-        )
-        Surface(
-            color = Color(0xFF2C3030),
-            contentColor = Color.White,
-            shape = MaterialTheme.shapes.small,
+    BrowsePageScaffold(title = "Browse", modifier = modifier) {
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpenDownloaded)
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            Surface(
+                color = Color(0xFF2C3030),
+                contentColor = Color.White,
+                shape = MaterialTheme.shapes.small,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpenDownloaded)
             ) {
-                Surface(
-                    modifier = Modifier.size(48.dp),
-                    color = Color(0xFF273A32),
-                    contentColor = Color(0xFFD3EEE3),
-                    shape = MaterialTheme.shapes.small
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Filled.Download,
-                            contentDescription = null,
-                            modifier = Modifier.size(28.dp)
+                    Surface(
+                        modifier = Modifier.size(48.dp),
+                        color = Color(0xFF273A32),
+                        contentColor = Color(0xFFD3EEE3),
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Filled.Download,
+                                contentDescription = null,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "Downloaded",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = when (downloadedCount) {
+                                0 -> "No issues available offline"
+                                1 -> "1 issue available offline"
+                                else -> "$downloadedCount issues available offline"
+                            },
+                            color = Color(0xFFB9BDBD),
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
-                }
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        text = "Downloaded",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = when (downloadedCount) {
-                            0 -> "No issues available offline"
-                            1 -> "1 issue available offline"
-                            else -> "$downloadedCount issues available offline"
-                        },
-                        color = Color(0xFFB9BDBD),
-                        style = MaterialTheme.typography.bodySmall
-                    )
                 }
             }
         }
@@ -865,28 +855,18 @@ private fun WantToReadGrid(
     onRemove: (SeriesDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (series.isEmpty()) {
-        DarkMessageState(
-            title = "Want to Read",
-            body = "No series added yet."
-        )
-        return
-    }
-
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 150.dp),
-        modifier = modifier,
-        contentPadding = PaddingValues(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        items(series, key = { it.id }) { item ->
-            SeriesPosterCardMenu(
-                series = item,
-                session = session,
-                onClick = { onSelectSeries(item) },
-                onRemove = { onRemove(item) }
-            )
+    BrowsePageScaffold(title = "Want to Read", modifier = modifier) {
+        if (series.isEmpty()) {
+            DarkMessageState(title = "Want to Read", body = "No series added yet.")
+        } else {
+            PosterGrid(items = series, key = { it.id }) { item ->
+                SeriesPosterCardMenu(
+                    series = item,
+                    session = session,
+                    onClick = { onSelectSeries(item) },
+                    onRemove = { onRemove(item) }
+                )
+            }
         }
     }
 }
@@ -909,8 +889,7 @@ private fun SeriesPosterCardMenu(
                 .combinedClickable(
                     onClick = onClick,
                     onLongClick = { menuExpanded = true }
-                ),
-            onClick = null
+                )
         )
         DropdownMenu(
             expanded = menuExpanded,
@@ -936,42 +915,11 @@ private fun DownloadedGrid(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 4.dp, top = 4.dp, end = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back to Browse",
-                    tint = Color.White
-                )
-            }
-            Text(
-                text = "Downloaded",
-                color = Color.White,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
+    BrowsePageScaffold(title = "Downloaded", modifier = modifier, onBack = onBack) {
         if (records.isEmpty()) {
-            DarkMessageState(
-                title = "Downloaded",
-                body = "No issues downloaded yet."
-            )
-            return@Column
-        }
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 150.dp),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            items(records, key = { it.chapterId }) { record ->
+            DarkMessageState(title = "Downloaded", body = "No issues downloaded yet.")
+        } else {
+            PosterGrid(items = records, key = { it.chapterId }) { record ->
                 DownloadedIssueCardMenu(
                     record = record,
                     session = session,
@@ -1068,55 +1016,12 @@ private fun HomeShelf(
                     SeriesPosterCard(
                         series = item,
                         session = session,
-                        modifier = Modifier.width(160.dp),
-                        onClick = { onSelectSeries(item) }
+                        modifier = Modifier
+                            .width(160.dp)
+                            .clickable { onSelectSeries(item) }
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun SeriesPosterCard(
-    series: SeriesDto,
-    session: KavitaSession,
-    modifier: Modifier = Modifier,
-    onClick: (() -> Unit)?
-) {
-    Card(
-        modifier = onClick?.let { modifier.clickable(onClick = it) } ?: modifier,
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
-    ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(0.68f)
-                    .background(Color(0xFF111111)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (session.baseUrl.isNotBlank() && session.apiKey.isNotBlank()) {
-                    AsyncImage(
-                        model = seriesCoverUrl(session, series.id),
-                        contentDescription = series.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text(seriesInitial(series.name), color = Color(0xFFB9BDBD), style = MaterialTheme.typography.headlineMedium)
-                }
-            }
-            Text(
-                text = series.name,
-                color = Color.White,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                minLines = 2,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
-            )
         }
     }
 }

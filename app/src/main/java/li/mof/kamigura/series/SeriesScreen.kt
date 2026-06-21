@@ -46,7 +46,6 @@ import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -92,6 +91,9 @@ import li.mof.kamigura.download.OfflineDownloadStatus
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
+import li.mof.kamigura.ui.browse.BrowsePageScaffold
+import li.mof.kamigura.ui.browse.PosterGrid
+import li.mof.kamigura.ui.browse.SeriesPosterCard
 import li.mof.kamigura.ui.seriesCoverUrl
 import li.mof.kamigura.ui.seriesInitial
 import li.mof.kamigura.ui.theme.ReadingProgressInProgress
@@ -154,83 +156,27 @@ fun SeriesScreen(
         }
     }
 
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
             .background(Color(0xFF202222))
     ) {
-        TopAppBar(title = { Text(libraryName) })
-        when {
-            loading -> DarkLoadingState()
-            error != null -> DarkMessageState("Could not load series", error ?: "Unknown error")
-            series.isEmpty() -> DarkMessageState("No series", "This library did not return any visible series.")
-            else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 150.dp),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
-            ) {
-                gridItems(series, key = { it.id }) { item ->
-                    SeriesGridCard(
+        BrowsePageScaffold(title = libraryName) {
+            when {
+                loading -> DarkLoadingState()
+                error != null -> DarkMessageState("Could not load series", error ?: "Unknown error")
+                series.isEmpty() -> DarkMessageState("No series", "This library did not return any visible series.")
+                else -> PosterGrid(items = series, key = { it.id }) { item ->
+                    SeriesPosterCard(
                         series = item,
                         session = session,
-                        onClick = { onSelect(item) }
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(item) }
                     )
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SeriesGridCard(series: SeriesDto, session: KavitaSession, onClick: () -> Unit) {
-    val progress = series.readingProgress()
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
-    ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(0.68f)
-                    .background(Color(0xFF111111)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (session.baseUrl.isNotBlank() && session.apiKey.isNotBlank()) {
-                    AsyncImage(
-                        model = seriesCoverUrl(session, series.id),
-                        contentDescription = series.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text(seriesInitial(series.name), color = Color(0xFFB9BDBD), style = MaterialTheme.typography.headlineMedium)
-                }
-            }
-            Box(Modifier.fillMaxWidth()) {
-                ReadingProgressBar(
-                    progress = progress,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxWidth()
-                        .height(3.dp)
-                )
-                Text(
-                    text = series.name,
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    minLines = 2,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
-                )
             }
         }
     }
