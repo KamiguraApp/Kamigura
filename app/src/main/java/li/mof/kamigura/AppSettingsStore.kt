@@ -12,28 +12,20 @@ import kotlinx.coroutines.flow.map
 
 private val Context.settingsDataStore by preferencesDataStore("kamigura_settings")
 
-enum class EdgeDoubleTapAction {
-    ZoomToggle,
-    PageTurnTwo
-}
-
 enum class InvertMode {
     Off,
     Smart,
     Always
 }
 
-internal const val DefaultMeteredPrefetchTurns = 2
-internal const val DefaultUnmeteredPrefetchTurns = 4
+internal const val DefaultReaderPrefetchTurns = 4
 internal const val MaxReaderPrefetchTurns = 8
 
 data class ReaderSettings(
     val rightToLeft: Boolean = true,
-    val edgeDoubleTapAction: EdgeDoubleTapAction = EdgeDoubleTapAction.PageTurnTwo,
     val invertMode: InvertMode = InvertMode.Off,
     val invertWhiteThreshold: Float = 0.5f,
-    val meteredPrefetchTurns: Int = DefaultMeteredPrefetchTurns,
-    val unmeteredPrefetchTurns: Int = DefaultUnmeteredPrefetchTurns
+    val prefetchTurns: Int = DefaultReaderPrefetchTurns
 )
 
 data class AppSettings(
@@ -42,28 +34,22 @@ data class AppSettings(
 
 class AppSettingsStore(private val context: Context) {
     private val KEY_RTL = booleanPreferencesKey("reader_rtl")
-    private val KEY_EDGE_DOUBLE_TAP_ACTION = stringPreferencesKey("reader_edge_double_tap_action")
     private val KEY_INVERT_MODE = stringPreferencesKey("reader_invert_mode")
     private val KEY_INVERT_WHITE_THRESHOLD = floatPreferencesKey("reader_invert_white_threshold")
-    private val KEY_METERED_PREFETCH_TURNS = intPreferencesKey("reader_metered_prefetch_turns")
-    private val KEY_UNMETERED_PREFETCH_TURNS = intPreferencesKey("reader_unmetered_prefetch_turns")
+    private val KEY_PREFETCH_TURNS = intPreferencesKey("reader_prefetch_turns")
+    private val KEY_LEGACY_UNMETERED_PREFETCH_TURNS = intPreferencesKey("reader_unmetered_prefetch_turns")
 
     val flow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         AppSettings(
             reader = ReaderSettings(
                 rightToLeft = prefs[KEY_RTL] ?: true,
-                edgeDoubleTapAction = prefs[KEY_EDGE_DOUBLE_TAP_ACTION]
-                    ?.let { runCatching { EdgeDoubleTapAction.valueOf(it) }.getOrNull() }
-                    ?: EdgeDoubleTapAction.PageTurnTwo,
                 invertMode = prefs[KEY_INVERT_MODE]
                     ?.let { runCatching { InvertMode.valueOf(it) }.getOrNull() }
                     ?: InvertMode.Off,
                 invertWhiteThreshold = prefs[KEY_INVERT_WHITE_THRESHOLD] ?: 0.5f,
-                meteredPrefetchTurns = (prefs[KEY_METERED_PREFETCH_TURNS]
-                    ?: DefaultMeteredPrefetchTurns)
-                    .coerceIn(0, MaxReaderPrefetchTurns),
-                unmeteredPrefetchTurns = (prefs[KEY_UNMETERED_PREFETCH_TURNS]
-                    ?: DefaultUnmeteredPrefetchTurns)
+                prefetchTurns = (prefs[KEY_PREFETCH_TURNS]
+                    ?: prefs[KEY_LEGACY_UNMETERED_PREFETCH_TURNS]
+                    ?: DefaultReaderPrefetchTurns)
                     .coerceIn(0, MaxReaderPrefetchTurns)
             )
         )
@@ -71,10 +57,6 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setRightToLeft(value: Boolean) {
         context.settingsDataStore.edit { it[KEY_RTL] = value }
-    }
-
-    suspend fun setEdgeDoubleTapAction(value: EdgeDoubleTapAction) {
-        context.settingsDataStore.edit { it[KEY_EDGE_DOUBLE_TAP_ACTION] = value.name }
     }
 
     suspend fun setInvertMode(value: InvertMode) {
@@ -85,11 +67,7 @@ class AppSettingsStore(private val context: Context) {
         context.settingsDataStore.edit { it[KEY_INVERT_WHITE_THRESHOLD] = value }
     }
 
-    suspend fun setMeteredPrefetchTurns(value: Int) {
-        context.settingsDataStore.edit { it[KEY_METERED_PREFETCH_TURNS] = value.coerceIn(0, MaxReaderPrefetchTurns) }
-    }
-
-    suspend fun setUnmeteredPrefetchTurns(value: Int) {
-        context.settingsDataStore.edit { it[KEY_UNMETERED_PREFETCH_TURNS] = value.coerceIn(0, MaxReaderPrefetchTurns) }
+    suspend fun setPrefetchTurns(value: Int) {
+        context.settingsDataStore.edit { it[KEY_PREFETCH_TURNS] = value.coerceIn(0, MaxReaderPrefetchTurns) }
     }
 }

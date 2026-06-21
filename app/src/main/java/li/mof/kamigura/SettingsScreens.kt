@@ -524,17 +524,9 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
                 color = Color.Gray
             )
             PrefetchTurnsSetting(
-                title = "Wi-Fi / unmetered",
-                turns = settings.reader.unmeteredPrefetchTurns,
+                turns = settings.reader.prefetchTurns,
                 onTurnsChanged = { turns ->
-                    scope.launch { settingsStore.setUnmeteredPrefetchTurns(turns) }
-                }
-            )
-            PrefetchTurnsSetting(
-                title = "Mobile / metered",
-                turns = settings.reader.meteredPrefetchTurns,
-                onTurnsChanged = { turns ->
-                    scope.launch { settingsStore.setMeteredPrefetchTurns(turns) }
+                    scope.launch { settingsStore.setPrefetchTurns(turns) }
                 }
             )
 
@@ -583,42 +575,6 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
                 )
             }
 
-            Text("Edge double tap", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "Choose what happens when double-tapping the left or right edge.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color.Gray
-            )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                ToggleButton(
-                    checked = settings.reader.edgeDoubleTapAction == EdgeDoubleTapAction.PageTurnTwo,
-                    onCheckedChange = {
-                        scope.launch {
-                            settingsStore.setEdgeDoubleTapAction(EdgeDoubleTapAction.PageTurnTwo)
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics { role = Role.RadioButton },
-                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes()
-                ) { Text("2-page turn") }
-                ToggleButton(
-                    checked = settings.reader.edgeDoubleTapAction == EdgeDoubleTapAction.ZoomToggle,
-                    onCheckedChange = {
-                        scope.launch {
-                            settingsStore.setEdgeDoubleTapAction(EdgeDoubleTapAction.ZoomToggle)
-                        }
-                    },
-                    modifier = Modifier
-                        .weight(1f)
-                        .semantics { role = Role.RadioButton },
-                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes()
-                ) { Text("Zoom toggle") }
-            }
-
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
         }
     }
@@ -627,7 +583,6 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
 
 @Composable
 private fun PrefetchTurnsSetting(
-    title: String,
     turns: Int,
     onTurnsChanged: (Int) -> Unit
 ) {
@@ -635,7 +590,7 @@ private fun PrefetchTurnsSetting(
     val draftTurns = draft.roundToInt().coerceIn(0, MaxReaderPrefetchTurns)
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-            text = "$title: ${prefetchTurnsSummary(draftTurns)}",
+            text = "Preload ahead: ${prefetchTurnsSummary(draftTurns)}",
             style = MaterialTheme.typography.bodyMedium
         )
         ValueBubbleSlider(

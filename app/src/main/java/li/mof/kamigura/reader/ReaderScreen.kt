@@ -3,7 +3,6 @@ package li.mof.kamigura.reader
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import android.net.ConnectivityManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -65,7 +64,6 @@ import coil.request.ImageRequest
 import coil.request.SuccessResult
 import li.mof.kamigura.AppSettings
 import li.mof.kamigura.AppSettingsStore
-import li.mof.kamigura.EdgeDoubleTapAction
 import li.mof.kamigura.FileDimensionDto
 import li.mof.kamigura.InvertMode
 import li.mof.kamigura.KavitaApi
@@ -550,21 +548,15 @@ fun ReaderScreen(
             activeImageLoader,
             s.baseUrl,
             s.apiKey,
-            settings.reader.meteredPrefetchTurns,
-            settings.reader.unmeteredPrefetchTurns
+            settings.reader.prefetchTurns
         ) {
             if (offlineChapter != null || pages <= 0) return@LaunchedEffect
-            val turns = if (ctx.isActiveNetworkMetered()) {
-                settings.reader.meteredPrefetchTurns
-            } else {
-                settings.reader.unmeteredPrefetchTurns
-            }
             val indices = readerPrefetchPageIndices(
                 page = page,
                 pageCount = pages,
                 portrait = portrait,
                 pageDimensions = pageDimensions,
-                turns = turns
+                turns = settings.reader.prefetchTurns
             )
             prefetchReaderPages(
                 context = ctx,
@@ -646,7 +638,6 @@ fun ReaderScreen(
             onNextSingle = { nextSingle() },
             onPreviousSingle = { prevSingle() },
             onCenterTap = { showReaderMenu = !showReaderMenu },
-            edgeDoubleTapAction = settings.reader.edgeDoubleTapAction,
             zoomPanEnabled = zoomPanEnabled,
             panOffsetX = zoomPan.offsetX,
             panOffsetY = zoomPan.offsetY,
@@ -761,13 +752,6 @@ private fun RowScope.PageImage(
     }
 }
 
-private fun Context.isActiveNetworkMetered(): Boolean {
-    return runCatching {
-        val connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        connectivity.isActiveNetworkMetered
-    }.getOrDefault(true)
-}
-
 private suspend fun prefetchReaderPages(
     context: Context,
     imageLoader: ImageLoader,
@@ -855,7 +839,6 @@ private fun ReaderTapLayer(
     onNextSingle: () -> Unit,
     onPreviousSingle: () -> Unit,
     onCenterTap: () -> Unit,
-    edgeDoubleTapAction: EdgeDoubleTapAction,
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
@@ -891,12 +874,10 @@ private fun ReaderTapLayer(
                     panMaxY = panMaxY,
                     onPan = onPan
                 )
-                .pointerInput(rightToLeft, zoomPanEnabled, edgeDoubleTapAction) {
+                .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
                         onDoubleTap = {
-                            if (edgeDoubleTapAction == EdgeDoubleTapAction.ZoomToggle) {
-                                latestOnDoubleTap(it)
-                            } else if (rightToLeft) {
+                            if (rightToLeft) {
                                 latestOnNextDoublePageTurn()
                             } else {
                                 latestOnPreviousDoublePageTurn()
@@ -952,12 +933,10 @@ private fun ReaderTapLayer(
                     panMaxY = panMaxY,
                     onPan = onPan
                 )
-                .pointerInput(rightToLeft, zoomPanEnabled, edgeDoubleTapAction) {
+                .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
                         onDoubleTap = {
-                            if (edgeDoubleTapAction == EdgeDoubleTapAction.ZoomToggle) {
-                                latestOnDoubleTap(it)
-                            } else if (rightToLeft) {
+                            if (rightToLeft) {
                                 latestOnPreviousDoublePageTurn()
                             } else {
                                 latestOnNextDoublePageTurn()
