@@ -555,27 +555,34 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                EdgeDoubleTapOptionButton(
-                    selected = settings.reader.edgeDoubleTapAction == EdgeDoubleTapAction.PageTurnTwo,
-                    label = "2-page turn",
-                    modifier = Modifier.weight(1f),
-                    onClick = {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                ToggleButton(
+                    checked = settings.reader.edgeDoubleTapAction == EdgeDoubleTapAction.PageTurnTwo,
+                    onCheckedChange = {
                         scope.launch {
                             settingsStore.setEdgeDoubleTapAction(EdgeDoubleTapAction.PageTurnTwo)
                         }
-                    }
-                )
-                EdgeDoubleTapOptionButton(
-                    selected = settings.reader.edgeDoubleTapAction == EdgeDoubleTapAction.ZoomToggle,
-                    label = "Zoom toggle",
-                    modifier = Modifier.weight(1f),
-                    onClick = {
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { role = Role.RadioButton },
+                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes()
+                ) { Text("2-page turn") }
+                ToggleButton(
+                    checked = settings.reader.edgeDoubleTapAction == EdgeDoubleTapAction.ZoomToggle,
+                    onCheckedChange = {
                         scope.launch {
                             settingsStore.setEdgeDoubleTapAction(EdgeDoubleTapAction.ZoomToggle)
                         }
-                    }
-                )
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { role = Role.RadioButton },
+                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes()
+                ) { Text("Zoom toggle") }
             }
 
             Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
@@ -615,20 +622,6 @@ private fun prefetchTurnsSummary(turns: Int): String {
         "Off"
     } else {
         "$turns turns (up to ${turns * 2} pages)"
-    }
-}
-
-@Composable
-private fun EdgeDoubleTapOptionButton(
-    selected: Boolean,
-    label: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    if (selected) {
-        Button(onClick = onClick, modifier = modifier) { Text(label) }
-    } else {
-        androidx.compose.material3.OutlinedButton(onClick = onClick, modifier = modifier) { Text(label) }
     }
 }
 
