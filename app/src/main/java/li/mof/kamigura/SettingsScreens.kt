@@ -1,6 +1,7 @@
 package li.mof.kamigura
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,13 +13,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonGroupDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -124,7 +129,6 @@ fun ServerSettingsScreen(
         profiles = loadedProfiles
         val selected = loadedProfiles.firstOrNull { it.id == selectProfileId }
         selectedProfileId = selected?.id
-        sessionStore.selectProfile(selected?.id)
         page = if (selected != null) ServerSettingsPage.ServerSelected else ServerSettingsPage.Servers
 
         val s = selected?.session ?: KavitaSession()
@@ -145,9 +149,30 @@ fun ServerSettingsScreen(
         }
     }
 
+    suspend fun restoreDefaultProfile() {
+        val loadedProfiles = sessionStore.profiles()
+        profiles = loadedProfiles
+        val defaultProfile = loadedProfiles.firstOrNull { it.openByDefault }
+        sessionStore.selectProfile(defaultProfile?.id)
+    }
+
+    fun selectDefaultProfile(profile: KavitaServerProfile) {
+        scope.launch {
+            sessionStore.setOpenByDefault(profile.id, true)
+            sessionStore.selectProfile(profile.id)
+            profiles = sessionStore.profiles()
+            selectedProfileId = profile.id
+            onActiveServerChanged()
+        }
+    }
+
     LaunchedEffect(Unit) {
+        val loadedProfiles = sessionStore.profiles()
+        val defaultProfile = loadedProfiles.firstOrNull { it.openByDefault }
+            ?: loadedProfiles.firstOrNull()?.also { sessionStore.setOpenByDefault(it.id, true) }
         profiles = sessionStore.profiles()
-        selectedProfileId = sessionStore.activeProfile()?.id
+        selectedProfileId = defaultProfile?.id
+        sessionStore.selectProfile(defaultProfile?.id)
         page = ServerSettingsPage.Servers
     }
 
@@ -189,31 +214,43 @@ fun ServerSettingsScreen(
                     Text("No saved servers", color = Color.Gray)
                 } else {
                     profiles.forEach { profile ->
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    status = null
-                                    sessionStore.selectProfile(profile.id)
-                                    refreshSessionState(profile.id)
-                                    onActiveServerChanged()
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val marker = when {
-                                profile.id == selectedProfileId && profile.openByDefault -> "Default / Selected"
-                                profile.id == selectedProfileId -> "Selected"
-                                profile.openByDefault -> "Default"
-                                else -> ""
+                            RadioButton(
+                                selected = profile.openByDefault,
+                                onClick = { selectDefaultProfile(profile) }
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectDefaultProfile(profile) }
+                                    .padding(vertical = 12.dp)
+                            ) {
+                                Text(profile.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    profile.session.baseUrl,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
-                            Text(listOf(profile.name, marker).filter { it.isNotBlank() }.joinToString(" - "))
+                            IconButton(
+                                onClick = {
+                                    scope.launch {
+                                        status = null
+                                        refreshSessionState(profile.id)
+                                    }
+                                }
+                            ) {
+                                Icon(Icons.Filled.Edit, contentDescription = "Edit ${profile.name}")
+                            }
                         }
                     }
                 }
                 Button(
                     onClick = {
                         selectedProfileId = null
-                        sessionStore.selectProfile(null)
                         page = ServerSettingsPage.ServerSelected
                         baseUrl = ""
                         username = ""
@@ -228,32 +265,11 @@ fun ServerSettingsScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("New Server") }
-                Text("Select a server or create a new one to edit connection and auth details.", color = Color.Gray)
+                Text("Choose the default server or edit its connection details.", color = Color.Gray)
                 Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
             } else {
                 Text("Connection", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(baseUrl, { baseUrl = it }, label = { Text("Server URL") }, singleLine = true)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = openByDefault,
-                        onCheckedChange = { checked ->
-                            openByDefault = checked
-                            val id = selectedProfileId
-                            if (id != null) {
-                                scope.launch {
-                                    sessionStore.setOpenByDefault(id, checked)
-                                    refreshSessionState(id)
-                                    onActiveServerChanged()
-                                }
-                            }
-                        }
-                    )
-                    Text("Open this server by default")
-                }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Button(
@@ -261,7 +277,8 @@ fun ServerSettingsScreen(
                             scope.launch {
                                 status = null
                                 try {
-                                    val prev = if (selectedProfileId == null) KavitaSession() else sessionStore.load()
+                                    val prev = profiles.firstOrNull { it.id == selectedProfileId }?.session
+                                        ?: KavitaSession()
                                     val saved = sessionStore.saveProfile(
                                         selectedProfileId,
                                         prev.copy(baseUrl = baseUrl, username = username, apiKey = apiKey),
@@ -269,10 +286,12 @@ fun ServerSettingsScreen(
                                         openByDefault = openByDefault
                                     )
                                     refreshSessionState(saved.id, clearPassword = false)
-                                    onActiveServerChanged()
                                     status = StatusMessage("Saved", isError = false)
                                 } catch (t: Throwable) {
                                     status = StatusMessage("Save failed: ${t.message ?: t.toString()}", isError = true)
+                                } finally {
+                                    restoreDefaultProfile()
+                                    onActiveServerChanged()
                                 }
                             }
                         },
@@ -284,7 +303,8 @@ fun ServerSettingsScreen(
                             scope.launch {
                                 status = null
                                 try {
-                                    val prev = if (selectedProfileId == null) KavitaSession() else sessionStore.load()
+                                    val prev = profiles.firstOrNull { it.id == selectedProfileId }?.session
+                                        ?: KavitaSession()
                                     val saved = sessionStore.saveProfile(
                                         selectedProfileId,
                                         prev.copy(baseUrl = baseUrl, username = username, apiKey = apiKey),
@@ -292,13 +312,15 @@ fun ServerSettingsScreen(
                                         openByDefault = openByDefault
                                     )
                                     refreshSessionState(saved.id, clearPassword = false)
-                                    onActiveServerChanged()
                                     val client = KavitaClient(ctx, sessionStore)
                                     val (api, _) = client.buildApi()
                                     api.health()
                                     status = StatusMessage("OK: /api/Health", isError = false)
                                 } catch (t: Throwable) {
                                     status = StatusMessage("Health failed: ${t.message ?: t.toString()}", isError = true)
+                                } finally {
+                                    restoreDefaultProfile()
+                                    onActiveServerChanged()
                                 }
                             }
                         },
@@ -380,13 +402,15 @@ fun ServerSettingsScreen(
                                     openByDefault = openByDefault
                                 )
                                 refreshSessionState(saved.id, clearPassword = false)
-                                onActiveServerChanged()
                                 status = StatusMessage("Logged in and saved", isError = false)
                             } catch (t: HttpException) {
                                 val body = t.response()?.errorBody()?.string()?.takeIf { it.isNotBlank() }
                                 status = StatusMessage("Login failed: HTTP ${t.code()}: ${body ?: t.message()}", isError = true)
                             } catch (t: Throwable) {
                                 status = StatusMessage("Login failed: ${t.message ?: t.toString()}", isError = true)
+                            } finally {
+                                restoreDefaultProfile()
+                                onActiveServerChanged()
                             }
                         }
                     },
@@ -406,11 +430,12 @@ fun ServerSettingsScreen(
                             scope.launch {
                                 status = null
                                 try {
-                                    sessionStore.clearCredentials()
+                                    sessionStore.clearCredentials(selectedProfileId)
                                     username = ""
                                     password = ""
                                     apiKey = ""
                                     refreshSessionState(selectedProfileId)
+                                    restoreDefaultProfile()
                                     onActiveServerChanged()
                                     status = StatusMessage("Saved auth cleared", isError = false)
                                 } catch (t: Throwable) {
@@ -424,14 +449,23 @@ fun ServerSettingsScreen(
                     Button(
                         onClick = {
                             scope.launch {
-                                sessionStore.clearAll()
+                                val forgottenId = selectedProfileId
+                                val wasDefault = profiles.firstOrNull { it.id == forgottenId }?.openByDefault == true
+                                sessionStore.deleteProfile(forgottenId)
+                                val remainingProfiles = sessionStore.profiles()
+                                if (wasDefault && remainingProfiles.none { it.openByDefault }) {
+                                    remainingProfiles.firstOrNull()?.let {
+                                        sessionStore.setOpenByDefault(it.id, true)
+                                    }
+                                }
                                 baseUrl = ""
                                 username = ""
                                 password = ""
                                 apiKey = ""
                                 selectedProfileId = null
                                 page = ServerSettingsPage.Servers
-                                profiles = sessionStore.profiles()
+                                restoreDefaultProfile()
+                                selectedProfileId = profiles.firstOrNull { it.openByDefault }?.id
                                 onActiveServerChanged()
                                 status = StatusMessage("Server settings cleared", isError = false)
                             }
