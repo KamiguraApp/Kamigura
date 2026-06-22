@@ -52,6 +52,10 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -100,6 +104,7 @@ import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
+import li.mof.kamigura.update.AvailableUpdate
 
 private enum class HomeDestination(
     val label: String,
@@ -117,6 +122,9 @@ private enum class HomeDestination(
 fun LibraryScreen(
     sessionStore: KavitaSessionStore,
     sessionRevision: Int,
+    availableUpdate: AvailableUpdate? = null,
+    onOpenUpdate: (String) -> Unit = {},
+    onUpdateNoticeShown: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
@@ -131,6 +139,21 @@ fun LibraryScreen(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+    val updateSnackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(availableUpdate) {
+        val update = availableUpdate ?: return@LaunchedEffect
+        onUpdateNoticeShown()
+        val result = updateSnackbarHostState.showSnackbar(
+            message = "Kamigura ${update.tagName} is available",
+            actionLabel = "View release",
+            withDismissAction = true,
+            duration = SnackbarDuration.Indefinite
+        )
+        if (result == SnackbarResult.ActionPerformed) {
+            onOpenUpdate(update.releaseUrl)
+        }
+    }
 
     var libs by remember { mutableStateOf<List<LibraryDto>>(emptyList()) }
     var onDeck by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
@@ -254,25 +277,34 @@ fun LibraryScreen(
         }
     }
 
-    HomeShell(
-        libraries = libs,
-        serverName = serverName,
-        loading = loading,
-        error = error,
-        session = session,
-        onDeck = onDeck,
-        recentlyUpdated = recentlyUpdated,
-        newlyAdded = newlyAdded,
-        wantToRead = wantToRead,
-        wantToReadError = wantToReadError,
-        downloaded = downloaded,
-        onOpenSettings = onOpenSettings,
-        onSelectLibrary = onSelectLibrary,
-        onSelectSeries = onSelectSeries,
-        onRemoveWantToRead = ::removeFromWantToRead,
-        onSelectDownloaded = ::openDownloaded,
-        onDeleteDownloaded = { deleteDownloaded(it) }
-    )
+    Box(Modifier.fillMaxSize()) {
+        HomeShell(
+            libraries = libs,
+            serverName = serverName,
+            loading = loading,
+            error = error,
+            session = session,
+            onDeck = onDeck,
+            recentlyUpdated = recentlyUpdated,
+            newlyAdded = newlyAdded,
+            wantToRead = wantToRead,
+            wantToReadError = wantToReadError,
+            downloaded = downloaded,
+            onOpenSettings = onOpenSettings,
+            onSelectLibrary = onSelectLibrary,
+            onSelectSeries = onSelectSeries,
+            onRemoveWantToRead = ::removeFromWantToRead,
+            onSelectDownloaded = ::openDownloaded,
+            onDeleteDownloaded = { deleteDownloaded(it) }
+        )
+        SnackbarHost(
+            hostState = updateSnackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(16.dp)
+        )
+    }
 
     val selectedRecord = selectedDownload
     val detail = selectedChapter

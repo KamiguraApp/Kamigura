@@ -1,6 +1,7 @@
 ﻿package li.mof.kamigura
 
 import android.os.Bundle
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.net.Uri
 import androidx.activity.ComponentActivity
@@ -27,6 +28,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +50,8 @@ import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.ReaderScreen
 import li.mof.kamigura.series.ChapterPickScreen
 import li.mof.kamigura.series.SeriesScreen
+import li.mof.kamigura.update.AvailableUpdate
+import li.mof.kamigura.update.GitHubUpdateChecker
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,7 +90,18 @@ fun AppRoot(
 
     var imageLoader by remember { mutableStateOf<ImageLoader?>(null) }
     var sessionRevision by remember { mutableIntStateOf(0) }
+    var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
+    var updateNoticeShown by rememberSaveable { mutableStateOf(false) }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+
+    LaunchedEffect(Unit) {
+        @Suppress("DEPRECATION")
+        val currentVersion = ctx.packageManager
+            .getPackageInfo(ctx.packageName, 0)
+            .versionName
+            .orEmpty()
+        availableUpdate = GitHubUpdateChecker(ctx).check(currentVersion)
+    }
 
     LaunchedEffect(sessionRevision) {
         runCatching {
@@ -161,6 +176,13 @@ fun AppRoot(
                 LibraryScreen(
                     sessionStore = sessionStore,
                     sessionRevision = sessionRevision,
+                    availableUpdate = availableUpdate?.takeUnless { updateNoticeShown },
+                    onOpenUpdate = { releaseUrl ->
+                        runCatching {
+                            ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl)))
+                        }
+                    },
+                    onUpdateNoticeShown = { updateNoticeShown = true },
                     onOpenSettings = { nav.navigate("settings") },
                     onSelectLibrary = { lib -> nav.navigate("series/${lib.id}/${lib.name}") },
                     onSelectSeries = { series ->

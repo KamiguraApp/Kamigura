@@ -3,11 +3,22 @@ package li.mof.kamigura
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.download.compareNaturalFileNames
 import li.mof.kamigura.reader.readerPrefetchPageIndices
+import li.mof.kamigura.update.isVersionNewer
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ExampleUnitTest {
+    @Test
+    fun releaseVersionComparisonHandlesVPrefixAndMissingPatch() {
+        assertTrue(isVersionNewer("v0.13", "0.12.1"))
+        assertTrue(isVersionNewer("0.12.1", "0.12"))
+        assertFalse(isVersionNewer("v0.12", "0.12.0"))
+        assertFalse(isVersionNewer("not-a-version", "0.12"))
+    }
+
     @Test
     fun portraitPrefetchesOnePagePerTurn() {
         assertEquals(
