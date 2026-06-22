@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -39,6 +40,7 @@ import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.SplitButtonDefaults
@@ -112,7 +114,7 @@ internal fun chapterCoverUrl(session: KavitaSession, chapterId: Int): String {
     return "$root/api/Image/chapter-cover?chapterId=$chapterId$apiKey"
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun SeriesScreen(
     sessionStore: KavitaSessionStore,
@@ -121,20 +123,33 @@ fun SeriesScreen(
     onSelect: (SeriesDto) -> Unit
 ) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var series by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var session by remember { mutableStateOf(KavitaSession()) }
+    var api by remember { mutableStateOf<KavitaApi?>(null) }
+    var isAdmin by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
+    var scanRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(libraryId) {
         loading = true
         error = null
+        api = null
+        isAdmin = false
+        menuExpanded = false
+        scanRunning = false
         try {
             session = sessionStore.load()
             val client = KavitaClient(ctx, sessionStore)
-            val (api, _) = client.buildApi()
-            val all = api.allSeriesV2(
+            val (loadedApi, _) = client.buildApi()
+            api = loadedApi
+            isAdmin = runCatching {
+                loadedApi.currentUser().roles.orEmpty().any { it.equals("Admin", ignoreCase = true) }
+            }.getOrDefault(false)
+            val all = loadedApi.allSeriesV2(
                 body = SeriesFilterV2Dto(
                     statements = listOf(
                         SeriesFilterStatementDto(
@@ -163,7 +178,63 @@ fun SeriesScreen(
             .navigationBarsPadding()
             .background(Color(0xFF202222))
     ) {
-        BrowsePageScaffold(title = libraryName) {
+        BrowsePageScaffold(
+            title = libraryName,
+            actions = {
+                if (isAdmin && api != null) {
+                    Box {
+                        IconButton(
+                            onClick = { menuExpanded = true },
+                            enabled = !scanRunning
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = "Library actions",
+                                tint = Color.White
+                            )
+                        }
+                        DropdownMenuPopup(
+                            expanded = menuExpanded,
+                            onDismissRequest = { menuExpanded = false },
+                            modifier = Modifier.width(220.dp),
+                            offset = DpOffset(x = (-172).dp, y = 0.dp)
+                        ) {
+                            DropdownMenuGroup(
+                                shapes = MenuDefaults.groupShape(index = 0, count = 1)
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Scan Library") },
+                                    onClick = {
+                                        menuExpanded = false
+                                        val loadedApi = api ?: return@DropdownMenuItem
+                                        scope.launch {
+                                            scanRunning = true
+                                            runCatching {
+                                                loadedApi.scanLibrary(libraryId)
+                                            }.onSuccess {
+                                                Toast.makeText(
+                                                    ctx,
+                                                    "Library scan requested",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }.onFailure {
+                                                Toast.makeText(
+                                                    ctx,
+                                                    "Could not scan library",
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                            scanRunning = false
+                                        }
+                                    },
+                                    enabled = !scanRunning
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        ) {
             when {
                 loading -> DarkLoadingState()
                 error != null -> DarkMessageState("Could not load series", error ?: "Unknown error")

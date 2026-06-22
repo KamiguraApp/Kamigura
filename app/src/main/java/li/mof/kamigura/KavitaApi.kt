@@ -20,6 +20,12 @@ interface KavitaApi {
     @GET("api/Library/libraries")
     suspend fun userLibraries(): List<LibraryDto>
 
+    @POST("api/Library/scan")
+    suspend fun scanLibrary(
+        @Query("libraryId") libraryId: Int,
+        @Query("force") force: Boolean = false
+    )
+
     @POST("api/Series/all-v2")
     suspend fun allSeriesV2(
         @Body body: SeriesFilterV2Dto,
