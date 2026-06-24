@@ -1116,7 +1116,7 @@ private fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCli
     val title = chapter.displayTitle()
     val label = listOfNotNull(
         title,
-        item.volume.displayName(),
+        item.volume.displayShortName(),
         chapter.releaseDateText()
     ).joinToString(" • ")
     val progress = chapter.readingProgress()
@@ -1189,11 +1189,17 @@ private fun ChapterDto.displayTitle(): String {
 }
 
 internal fun VolumeDto.displayName(): String? {
-    name?.takeIf { it.isDisplayableVolumeLabel() }?.let { return it }
+    name?.takeIf { it.isDisplayableVolumeLabel() }?.let {
+        return if (it.toFloatOrNull() != null) "Volume $it" else it
+    }
     val numberText = number.displayText()
     return numberText
         ?.takeIf { it.isDisplayableVolumeLabel() }
         ?.let { "Volume $it" }
+}
+
+private fun VolumeDto.displayShortName(): String? {
+    return displayName()?.replaceFirst("Volume ", "Vol ")
 }
 
 private fun ChapterDto.releaseDateText(): String? {

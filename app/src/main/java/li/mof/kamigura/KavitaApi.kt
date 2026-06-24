@@ -1,5 +1,6 @@
 package li.mof.kamigura
 
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.POST
@@ -32,6 +33,13 @@ interface KavitaApi {
         @Query("pageNumber") pageNumber: Int? = 0,
         @Query("pageSize") pageSize: Int? = 200
     ): List<SeriesDto>
+
+    @POST("api/Series/all-v2")
+    suspend fun allSeriesV2Response(
+        @Body body: SeriesFilterV2Dto,
+        @Query("pageNumber") pageNumber: Int? = 0,
+        @Query("pageSize") pageSize: Int? = 1
+    ): Response<List<SeriesDto>>
 
     @GET("api/Series/{seriesId}")
     suspend fun series(@Path("seriesId") id: Int): SeriesDto

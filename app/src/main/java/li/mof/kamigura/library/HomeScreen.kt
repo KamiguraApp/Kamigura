@@ -33,11 +33,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuOpen
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
@@ -45,13 +48,18 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.ModalWideNavigationRail
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.ShortNavigationBarItem
+import androidx.compose.material3.WideNavigationRailDefaults
+import androidx.compose.material3.WideNavigationRailItem
+import androidx.compose.material3.WideNavigationRailValue
+import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -75,11 +83,20 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.GroupedSeriesDto
 import li.mof.kamigura.KavitaApi
@@ -87,6 +104,8 @@ import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.LibraryDto
+import li.mof.kamigura.SeriesFilterStatementDto
+import li.mof.kamigura.SeriesFilterV2Dto
 import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.UpdateWantToReadDto
 import li.mof.kamigura.VolumeDto
@@ -108,14 +127,17 @@ import li.mof.kamigura.update.AvailableUpdate
 
 private enum class HomeDestination(
     val label: String,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val expandedLabel: String = label
 ) {
     Home("Home", Icons.Filled.Home),
     Libraries("Libraries", Icons.Filled.CollectionsBookmark),
-    WantToRead("Want", Icons.Filled.BookmarkBorder),
+    WantToRead("Want", Icons.Filled.BookmarkBorder, "Want to Read"),
     Browse("Browse", Icons.Filled.Explore),
     Search("Search", Icons.Filled.Search)
 }
+
+private val PaginationHeaderJson = Json { ignoreUnknownKeys = true }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,6 +178,7 @@ fun LibraryScreen(
     }
 
     var libs by remember { mutableStateOf<List<LibraryDto>>(emptyList()) }
+    var librarySeriesCounts by remember { mutableStateOf<Map<Int, Int>>(emptyMap()) }
     var onDeck by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var recentlyUpdated by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var newlyAdded by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
@@ -166,6 +189,8 @@ fun LibraryScreen(
     var serverName by remember { mutableStateOf("No server selected") }
     var session by remember { mutableStateOf(KavitaSession()) }
     var api by remember { mutableStateOf<KavitaApi?>(null) }
+    var isAdmin by remember { mutableStateOf(false) }
+    var scanningLibraryIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var selectedDownload by remember { mutableStateOf<OfflineIssueRecord?>(null) }
     var selectedChapter by remember { mutableStateOf<ChapterDto?>(null) }
     var selectedVolume by remember { mutableStateOf<VolumeDto?>(null) }
@@ -179,6 +204,7 @@ fun LibraryScreen(
 
     LaunchedEffect(sessionRevision) {
         libs = emptyList()
+        librarySeriesCounts = emptyMap()
         onDeck = emptyList()
         recentlyUpdated = emptyList()
         newlyAdded = emptyList()
@@ -187,6 +213,8 @@ fun LibraryScreen(
         error = null
         loading = true
         api = null
+        isAdmin = false
+        scanningLibraryIds = emptySet()
         try {
             serverName = sessionStore.activeProfile()?.name ?: "No server selected"
             session = sessionStore.load()
@@ -194,7 +222,17 @@ fun LibraryScreen(
             val client = KavitaClient(ctx, sessionStore)
             val (loadedApi, _) = client.buildApi()
             api = loadedApi
-            libs = loadedApi.userLibraries().sortedBy { it.id }
+            val loadedLibraries = loadedApi.userLibraries().sortedBy { it.id }
+            libs = loadedLibraries
+            launch {
+                isAdmin = runCatching {
+                    loadedApi.currentUser().roles.orEmpty()
+                        .any { it.equals("Admin", ignoreCase = true) }
+                }.getOrDefault(false)
+            }
+            launch {
+                librarySeriesCounts = loadLibrarySeriesCounts(loadedApi, loadedLibraries)
+            }
             onDeck = loadedApi.onDeck(pageSize = 12)
             recentlyUpdated = loadedApi.recentlyUpdatedSeries(pageSize = 16)
                 .map { it.toSeriesDto() }
@@ -221,6 +259,30 @@ fun LibraryScreen(
             }.onFailure {
                 Toast.makeText(ctx, "Could not update Want to Read", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    fun scanLibrary(library: LibraryDto) {
+        val currentApi = api ?: return
+        if (library.id in scanningLibraryIds) return
+        scope.launch {
+            scanningLibraryIds = scanningLibraryIds + library.id
+            runCatching {
+                currentApi.scanLibrary(library.id)
+            }.onSuccess {
+                Toast.makeText(
+                    ctx,
+                    "${library.name} scan requested",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }.onFailure {
+                Toast.makeText(
+                    ctx,
+                    "Could not scan ${library.name}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            scanningLibraryIds = scanningLibraryIds - library.id
         }
     }
 
@@ -280,6 +342,9 @@ fun LibraryScreen(
     Box(Modifier.fillMaxSize()) {
         HomeShell(
             libraries = libs,
+            librarySeriesCounts = librarySeriesCounts,
+            isAdmin = isAdmin,
+            scanningLibraryIds = scanningLibraryIds,
             serverName = serverName,
             loading = loading,
             error = error,
@@ -292,6 +357,7 @@ fun LibraryScreen(
             downloaded = downloaded,
             onOpenSettings = onOpenSettings,
             onSelectLibrary = onSelectLibrary,
+            onScanLibrary = ::scanLibrary,
             onSelectSeries = onSelectSeries,
             onRemoveWantToRead = ::removeFromWantToRead,
             onSelectDownloaded = ::openDownloaded,
@@ -396,6 +462,9 @@ fun LibraryScreen(
 @Composable
 private fun HomeShell(
     libraries: List<LibraryDto>,
+    librarySeriesCounts: Map<Int, Int>,
+    isAdmin: Boolean,
+    scanningLibraryIds: Set<Int>,
     serverName: String,
     loading: Boolean,
     error: String?,
@@ -408,6 +477,7 @@ private fun HomeShell(
     downloaded: List<OfflineIssueRecord>,
     onOpenSettings: () -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
+    onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
     onRemoveWantToRead: (SeriesDto) -> Unit,
     onSelectDownloaded: (OfflineIssueRecord) -> Unit,
@@ -449,6 +519,9 @@ private fun HomeShell(
                     HomeContent(
                         destination = destination,
                         libraries = libraries,
+                        librarySeriesCounts = librarySeriesCounts,
+                        isAdmin = isAdmin,
+                        scanningLibraryIds = scanningLibraryIds,
                         loading = loading,
                         error = error,
                         session = session,
@@ -460,6 +533,7 @@ private fun HomeShell(
                         downloaded = downloaded,
                         showDownloaded = showDownloaded,
                         onSelectLibrary = onSelectLibrary,
+                        onScanLibrary = onScanLibrary,
                         onSelectSeries = onSelectSeries,
                         onRemoveWantToRead = onRemoveWantToRead,
                         onSelectDownloaded = onSelectDownloaded,
@@ -476,6 +550,9 @@ private fun HomeShell(
                 HomeContent(
                     destination = destination,
                     libraries = libraries,
+                    librarySeriesCounts = librarySeriesCounts,
+                    isAdmin = isAdmin,
+                    scanningLibraryIds = scanningLibraryIds,
                     loading = loading,
                     error = error,
                     session = session,
@@ -487,6 +564,7 @@ private fun HomeShell(
                     downloaded = downloaded,
                     showDownloaded = showDownloaded,
                     onSelectLibrary = onSelectLibrary,
+                    onScanLibrary = onScanLibrary,
                     onSelectSeries = onSelectSeries,
                     onRemoveWantToRead = onRemoveWantToRead,
                     onSelectDownloaded = onSelectDownloaded,
@@ -527,26 +605,67 @@ private fun HomeTopBar(serverName: String, onOpenSettings: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HomeNavigationRail(
     selected: HomeDestination,
     onSelect: (HomeDestination) -> Unit
 ) {
-    NavigationRail(
-        modifier = Modifier
-            .fillMaxHeight()
-            .background(Color(0xFF181A1A)),
-        containerColor = Color(0xFF181A1A),
-        contentColor = Color.White
-    ) {
-        Spacer(Modifier.height(12.dp))
-        HomeDestination.entries.forEach { destination ->
-            NavigationRailItem(
-                selected = selected == destination,
-                onClick = { onSelect(destination) },
-                icon = { NavDestinationIcon(destination, selected == destination) },
-                label = { Text(destination.label) }
-            )
+    val railState = rememberWideNavigationRailState()
+    val scope = rememberCoroutineScope()
+    val expanded = railState.targetValue == WideNavigationRailValue.Expanded
+
+    MaterialTheme(motionScheme = MotionScheme.expressive()) {
+        ModalWideNavigationRail(
+            modifier = Modifier
+                .fillMaxHeight()
+                .background(Color(0xFF181A1A)),
+            state = railState,
+            hideOnCollapse = false,
+            colors = WideNavigationRailDefaults.colors(
+                containerColor = Color(0xFF181A1A),
+                contentColor = Color.White,
+                modalContainerColor = Color(0xFF202222),
+                modalContentColor = Color.White
+            ),
+            header = {
+                IconButton(
+                    modifier = Modifier
+                        .padding(start = 24.dp)
+                        .semantics {
+                            stateDescription = if (expanded) "Expanded" else "Collapsed"
+                        },
+                    onClick = { scope.launch { railState.toggle() } }
+                ) {
+                    Icon(
+                        imageVector = if (expanded) {
+                            Icons.AutoMirrored.Filled.MenuOpen
+                        } else {
+                            Icons.Filled.Menu
+                        },
+                        contentDescription = if (expanded) {
+                            "Collapse navigation"
+                        } else {
+                            "Expand navigation"
+                        }
+                    )
+                }
+            }
+        ) {
+            HomeDestination.entries.forEach { destination ->
+                WideNavigationRailItem(
+                    selected = selected == destination,
+                    onClick = {
+                        onSelect(destination)
+                        if (expanded) scope.launch { railState.collapse() }
+                    },
+                    icon = { NavDestinationIcon(destination, selected == destination) },
+                    label = {
+                        Text(if (expanded) destination.expandedLabel else destination.label)
+                    },
+                    railExpanded = expanded
+                )
+            }
         }
     }
 }
@@ -556,12 +675,12 @@ private fun HomeBottomNavigation(
     selected: HomeDestination,
     onSelect: (HomeDestination) -> Unit
 ) {
-    NavigationBar(
+    ShortNavigationBar(
         containerColor = Color(0xFF181A1A),
         contentColor = Color.White
     ) {
         HomeDestination.entries.forEach { destination ->
-            NavigationBarItem(
+            ShortNavigationBarItem(
                 selected = selected == destination,
                 onClick = { onSelect(destination) },
                 icon = { NavDestinationIcon(destination, selected == destination) },
@@ -593,8 +712,12 @@ private fun NavDestinationIcon(destination: HomeDestination, selected: Boolean) 
 @Composable
 private fun LibraryHub(
     libraries: List<LibraryDto>,
+    seriesCounts: Map<Int, Int>,
+    isAdmin: Boolean,
+    scanningLibraryIds: Set<Int>,
     session: KavitaSession,
     onSelectLibrary: (LibraryDto) -> Unit,
+    onScanLibrary: (LibraryDto) -> Unit,
     modifier: Modifier = Modifier
 ) {
     BrowsePageScaffold(title = "Libraries", modifier = modifier) {
@@ -630,13 +753,25 @@ private fun LibraryHub(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Spacer(Modifier.height(2.dp))
-                                Text(
-                                    library.subtitleText(),
-                                    color = Color(0xFFB9BDBD),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                seriesCounts[library.id]?.let { count ->
+                                    Text(
+                                        "$count series",
+                                        color = Color(0xFFB9BDBD),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+                            if (isAdmin) {
+                                IconButton(
+                                    onClick = { onScanLibrary(library) },
+                                    enabled = library.id !in scanningLibraryIds
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Refresh,
+                                        contentDescription = "Scan ${library.name}"
+                                    )
+                                }
                             }
                         }
                     }
@@ -689,16 +824,53 @@ private fun libraryCoverUrl(session: KavitaSession, libraryId: Int): String {
     return "$root/api/Image/library-cover?libraryId=$libraryId$apiKey"
 }
 
-private fun LibraryDto.iconText(): String {
-    return name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "L"
+private suspend fun loadLibrarySeriesCounts(
+    api: KavitaApi,
+    libraries: List<LibraryDto>
+): Map<Int, Int> = coroutineScope {
+    libraries.map { library ->
+        async {
+            runCatching { api.librarySeriesCount(library.id) }
+                .getOrNull()
+                ?.let { count -> library.id to count }
+        }
+    }.awaitAll().filterNotNull().toMap()
 }
 
-private fun LibraryDto.subtitleText(): String {
-    val folderName = folders.firstOrNull()
-        ?.replace('\\', '/')
-        ?.substringAfterLast('/')
-        ?.takeIf { it.isNotBlank() && !it.equals(name, ignoreCase = true) }
-    return folderName ?: "Kavita library"
+private suspend fun KavitaApi.librarySeriesCount(libraryId: Int): Int? {
+    val response = allSeriesV2Response(
+        body = SeriesFilterV2Dto(
+            statements = listOf(
+                SeriesFilterStatementDto(
+                    comparison = 0,
+                    field = 19,
+                    value = libraryId.toString()
+                )
+            )
+        ),
+        pageNumber = 0,
+        pageSize = 1
+    )
+    if (!response.isSuccessful) return null
+
+    val header = response.headers()["Pagination"]
+        ?: response.headers()["X-Pagination"]
+        ?: return if (response.body().isNullOrEmpty()) 0 else null
+    val pagination = runCatching {
+        PaginationHeaderJson.parseToJsonElement(header).jsonObject
+    }.getOrNull() ?: return null
+    return pagination.entries
+        .firstOrNull { (key, _) ->
+            key.equals("totalItems", ignoreCase = true) ||
+                key.equals("totalCount", ignoreCase = true)
+        }
+        ?.value
+        ?.jsonPrimitive
+        ?.intOrNull
+}
+
+private fun LibraryDto.iconText(): String {
+    return name.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "L"
 }
 
 @Composable
@@ -713,6 +885,9 @@ private fun HomePlaceholder(destination: HomeDestination, modifier: Modifier = M
 private fun HomeContent(
     destination: HomeDestination,
     libraries: List<LibraryDto>,
+    librarySeriesCounts: Map<Int, Int>,
+    isAdmin: Boolean,
+    scanningLibraryIds: Set<Int>,
     loading: Boolean,
     error: String?,
     session: KavitaSession,
@@ -724,6 +899,7 @@ private fun HomeContent(
     downloaded: List<OfflineIssueRecord>,
     showDownloaded: Boolean,
     onSelectLibrary: (LibraryDto) -> Unit,
+    onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
     onRemoveWantToRead: (SeriesDto) -> Unit,
     onSelectDownloaded: (OfflineIssueRecord) -> Unit,
@@ -770,8 +946,12 @@ private fun HomeContent(
             HomeDestination.Libraries -> {
                 LibraryHub(
                     libraries = libraries,
+                    seriesCounts = librarySeriesCounts,
+                    isAdmin = isAdmin,
+                    scanningLibraryIds = scanningLibraryIds,
                     session = session,
                     onSelectLibrary = onSelectLibrary,
+                    onScanLibrary = onScanLibrary,
                     modifier = Modifier.fillMaxSize()
                 )
             }

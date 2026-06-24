@@ -1,6 +1,7 @@
 package li.mof.kamigura
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,16 +13,21 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MotionScheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -59,6 +65,23 @@ private enum class ServerSettingsPage {
 private data class StatusMessage(val text: String, val isError: Boolean)
 
 private val StatusSuccessColor = Color(0xFF81C784)
+private val SettingsHubContentMaxWidth = 420.dp
+private val SettingsFormContentMaxWidth = 720.dp
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun SettingsTopAppBar(title: String, onBack: () -> Unit) {
+    MaterialTheme(motionScheme = MotionScheme.expressive()) {
+        TopAppBar(
+            title = { Text(title) },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            }
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -77,17 +100,26 @@ fun SettingsHubScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-            TopAppBar(title = { Text("Settings") })
+            SettingsTopAppBar(title = "Settings", onBack = onBack)
             Column(
-                Modifier.fillMaxSize().padding(16.dp),
+                Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Button(onClick = onServer, modifier = Modifier.fillMaxWidth()) { Text("Server (Kavita)") }
-                Button(onClick = onReader, modifier = Modifier.fillMaxWidth()) { Text("Reader") }
-                Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = SettingsHubContentMaxWidth)
+                        .align(Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(onClick = onServer, modifier = Modifier.fillMaxWidth()) { Text("Server (Kavita)") }
+                    Button(onClick = onReader, modifier = Modifier.fillMaxWidth()) { Text("Reader") }
+                }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "Kamigura v0.12.1",
+                    text = "Kamigura v0.13",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.align(Alignment.CenterHorizontally)
@@ -190,22 +222,27 @@ fun ServerSettingsScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        TopAppBar(
-            title = {
-                Text(
-                    if (page == ServerSettingsPage.Servers) {
-                        "Servers"
-                    } else {
-                        "Server Details"
-                    }
-                )
+        SettingsTopAppBar(
+            title = if (page == ServerSettingsPage.Servers) {
+                "Servers"
+            } else {
+                "Server Details"
+            },
+            onBack = {
+                if (page == ServerSettingsPage.ServerSelected) {
+                    page = ServerSettingsPage.Servers
+                } else {
+                    onBack()
+                }
             }
         )
         Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
+                .padding(16.dp)
+                .widthIn(max = SettingsFormContentMaxWidth)
+                .align(Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (page == ServerSettingsPage.Servers) {
@@ -266,13 +303,12 @@ fun ServerSettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("New Server") }
                 Text("Choose the default server or edit its connection details.", color = Color.Gray)
-                Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
             } else {
                 Text("Connection", style = MaterialTheme.typography.titleMedium)
                 OutlinedTextField(baseUrl, { baseUrl = it }, label = { Text("Server URL") }, singleLine = true)
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Button(
+                    OutlinedButton(
                         onClick = {
                             scope.launch {
                                 status = null
@@ -443,6 +479,10 @@ fun ServerSettingsScreen(
                                 }
                             }
                         },
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
                         modifier = Modifier.weight(1f)
                     ) { Text("Clear Auth") }
 
@@ -470,18 +510,13 @@ fun ServerSettingsScreen(
                                 status = StatusMessage("Server settings cleared", isError = false)
                             }
                         },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        ),
                         modifier = Modifier.weight(1f)
                     ) { Text("Forget Server") }
                 }
-                Button(
-                    onClick = {
-                        scope.launch {
-                            profiles = sessionStore.profiles()
-                            page = ServerSettingsPage.Servers
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Back to Servers") }
             }
         }
     }
@@ -504,9 +539,14 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
             .statusBarsPadding()
             .navigationBarsPadding()
     ) {
-        TopAppBar(title = { Text("Reader Settings") })
+        SettingsTopAppBar(title = "Reader Settings", onBack = onBack)
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+                .widthIn(max = SettingsFormContentMaxWidth)
+                .align(Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             SettingRow(
@@ -574,8 +614,6 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
                     valueLabel = { value -> "${(value * 100f).roundToInt()}%" }
                 )
             }
-
-            Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
         }
     }
     }
