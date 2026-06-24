@@ -21,9 +21,9 @@
 <details>
   <summary>ScreenShots</summary>
   
-  ![Tab-Series](docs/Tab-Series.png) ![Phone-Series](docs/Phone-Series.png)
+  ![Tab-Series](docs/Tab-Series.jpg) ![Phone-Series](docs/Phone-Series.jpg)
   
-  ![Tab-Detail](docs/Tab-Detail.png) ![Phone-Detail](docs/Phone-Detail.png)
+  ![Tab-Detail](docs/Tab-Detail.jpg) ![Phone-Detail](docs/Phone-Detail.jpg)
 
   ブラックジャックによろしく 佐藤秀峰
   
