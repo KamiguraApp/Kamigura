@@ -25,6 +25,7 @@
   
   ![Tab-Detail](docs/Tab-Detail.jpg) ![Phone-Detail](docs/Phone-Detail.jpg)
 
+  ブラックジャックによろしく 佐藤秀峰
   右上は液晶リフレッシュレートです...
 </details>
 ## 特色
