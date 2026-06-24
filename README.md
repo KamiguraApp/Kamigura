@@ -20,8 +20,12 @@
 > ステータス：**v0.1x (早期版)** ── 利用可能ですが、まだ発展途上です。
 <details>
   <summary>ScreenShots</summary>
+  
   ![Tab-Series](docs/Tab-Series.jpg) ![Phone-Series](docs/Phone-Series.jpg)
+  
   ![Tab-Detail](docs/Tab-Detail.jpg) ![Phone-Detail](docs/Phone-Detail.jpg)
+
+  右上は液晶リフレッシュレートです...
 </details>
 ## 特色
 
