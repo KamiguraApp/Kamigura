@@ -24,22 +24,18 @@
   <details>
   <summary>PixelSeries (Emulator)</summary>
 
-  <img src="/docs/Tab-Series.png" width="300"> <img src="/docs/Phone-Series.png" width="100">
+  <img src="/docs/Tab-Series.png" width="600"> <img src="/docs/Phone-Series.png" width="200">
 
-
-
-  ![pixtab-series](docs/Tab-Series.png) ![pixphone-series](docs/Phone-Series.png)
-
-  ![pixtab-detail](docs/Tab-Detail.png) ![pixphone-detail](docs/Phone-Detail.png)
+  <img src="/docs/Tab-Detail.png" width="600"> <img src="/docs/Phone-Detail.png" width="200">
 
   ブラックジャックによろしく 佐藤秀峰
   </details>
   <details>
   <summary>OneplusPad3/Oneplus12</summary>
   
-  ![opp-series](docs/Tab-Series.jpg) ![op12-series](docs/Phone-Series.jpg)
-  
-  ![opp-detail](docs/Tab-Detail.jpg) ![op12-detail](docs/Phone-Detail.jpg)
+  <img src="/docs/Tab-Series.jpg" width="600"> <img src="/docs/Phone-Series.jpg" width="200">
+
+  <img src="/docs/Tab-Detail.jpg" width="600"> <img src="/docs/Phone-Detail.jpg" width="200">
 
   ブラックジャックによろしく 佐藤秀峰
   
