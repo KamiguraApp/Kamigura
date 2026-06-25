@@ -24,6 +24,10 @@
   <details>
   <summary>PixelSeries (Emulator)</summary>
 
+  <img src="/docs/Tab-Series.png" width="300"> <img src="/docs/Phone-Series.png" width="100">
+
+
+
   ![pixtab-series](docs/Tab-Series.png) ![pixphone-series](docs/Phone-Series.png)
 
   ![pixtab-detail](docs/Tab-Detail.png) ![pixphone-detail](docs/Phone-Detail.png)
