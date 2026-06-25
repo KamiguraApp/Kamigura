@@ -28,7 +28,7 @@
 
   <img src="/docs/Tab-Detail.png" width="600"> .... <img src="/docs/Phone-Detail.png" width="200">
 
-  ブラックジャックによろしく 佐藤秀峰
+  *ブラックジャックによろしく 佐藤秀峰*
   </details>
   <details>
   <summary>OneplusPad3/Oneplus12</summary>
@@ -37,9 +37,9 @@
 
   <img src="/docs/Tab-Detail.jpg" width="600"> .... <img src="/docs/Phone-Detail.jpg" width="200">
 
-  ブラックジャックによろしく 佐藤秀峰
+  *ブラックジャックによろしく 佐藤秀峰*
   
-  右上は液晶リフレッシュレートです...
+  > 右上は液晶リフレッシュレートです...
   </details>
 </details>
 ## 特色
