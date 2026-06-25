@@ -37,7 +37,7 @@
 
   ![pixtab-series](docs/Tab-Series.png) ![pixphone-series](docs/Phone-Series.png)
 
-  ![pixtab-detail](docs/Tab-Series.png) ![pixphone-detail](docs/Phone-Detail.png)
+  ![pixtab-detail](docs/Tab-Detail.png) ![pixphone-detail](docs/Phone-Detail.png)
 
   </details>
 </details>
