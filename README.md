@@ -20,14 +20,26 @@
 > ステータス：**v0.1x (早期版)** ── 利用可能ですが、まだ発展途上です。
 <details>
   <summary>ScreenShots</summary>
+
+  <details>
+  <summary>OneplusPad3/Oneplus12</summary>
   
-  ![Tab-Series](docs/Tab-Series.jpg) ![Phone-Series](docs/Phone-Series.jpg)
+  ![opp-series](docs/Tab-Series.jpg) ![op12-series](docs/Phone-Series.jpg)
   
-  ![Tab-Detail](docs/Tab-Detail.jpg) ![Phone-Detail](docs/Phone-Detail.jpg)
+  ![opp-detail](docs/Tab-Detail.jpg) ![op12-detail](docs/Phone-Detail.jpg)
 
   ブラックジャックによろしく 佐藤秀峰
   
   右上は液晶リフレッシュレートです...
+  </details>
+  <details>
+  <summary>PixelSeries (Emulator)</summary>
+
+  ![pixtab-series](docs/Tab-Series.png) ![pixphone-series](docs/Phone-Series.png)
+
+  ![pixtab-detail](docs/Tab-Series.png) ![pixphone-detail](docs/Phone-Detail.png)
+
+  </details>
 </details>
 ## 特色
 
