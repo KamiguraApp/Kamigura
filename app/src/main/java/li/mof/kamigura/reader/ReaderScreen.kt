@@ -3,6 +3,9 @@ package li.mof.kamigura.reader
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -29,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -43,6 +47,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -311,6 +316,11 @@ fun ReaderScreen(
     var completingRead by remember { mutableStateOf(false) }
     var offlineChapter by remember { mutableStateOf<OfflineChapter?>(null) }
     var readerImageLoader by remember { mutableStateOf<ImageLoader?>(null) }
+    var activeTransition by remember { mutableStateOf<ReaderPageTransition?>(null) }
+    var transitionProgress by remember { mutableFloatStateOf(0f) }
+    var transitionSettling by remember { mutableStateOf(false) }
+    var queuedTurn by remember { mutableStateOf<PendingReaderTurn?>(null) }
+    var dragBoundaryDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
 
     DisposableEffect(readerImageLoader) {
@@ -586,62 +596,225 @@ fun ReaderScreen(
             zoomPan = initialZoomPanState
         }
 
+        fun turnTarget(
+            direction: ReaderTurnDirection,
+            step: Int,
+            completeWhenPastEnd: Boolean
+        ): Int? {
+            if (pages <= 0) return null
+            return when (direction) {
+                ReaderTurnDirection.Next -> {
+                    val rawTarget = page + step
+                    when {
+                        rawTarget < pages -> rawTarget
+                        completeWhenPastEnd -> null
+                        page < pages - 1 -> pages - 1
+                        else -> null
+                    }
+                }
+                ReaderTurnDirection.Previous -> {
+                    if (page == 0) null else (page - step).coerceAtLeast(0)
+                }
+            }
+        }
+
+        fun runBoundaryAction(direction: ReaderTurnDirection, completeWhenPastEnd: Boolean) {
+            when (direction) {
+                ReaderTurnDirection.Next -> if (completeWhenPastEnd) completeChapter()
+                ReaderTurnDirection.Previous -> if (page == 0) resetChapterAndExit()
+            }
+        }
+
+        lateinit var requestTurn: (ReaderTurnDirection, Int, Boolean) -> Unit
+
+        fun settleTransition(
+            commit: Boolean,
+            completeWhenPastEnd: Boolean
+        ) {
+            val transition = activeTransition
+            if (transition == null) {
+                val boundaryDirection = dragBoundaryDirection
+                dragBoundaryDirection = null
+                if (commit && boundaryDirection != null) {
+                    runBoundaryAction(boundaryDirection, completeWhenPastEnd)
+                }
+                transitionProgress = 0f
+                return
+            }
+
+            if (!settings.reader.pageTransitionAnimation) {
+                if (commit) page = transition.targetPage
+                activeTransition = null
+                transitionProgress = 0f
+                transitionSettling = false
+                return
+            }
+
+            transitionSettling = true
+            scope.launch {
+                val targetProgress = if (commit) 1f else 0f
+                val remaining = abs(targetProgress - transitionProgress)
+                val duration = (90 + 170 * remaining).roundToInt().coerceIn(90, 260)
+                Animatable(transitionProgress).animateTo(
+                    targetValue = targetProgress,
+                    animationSpec = tween(
+                        durationMillis = duration,
+                        easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                    )
+                ) {
+                    transitionProgress = value
+                }
+                if (commit) page = transition.targetPage
+                activeTransition = null
+                transitionProgress = 0f
+                transitionSettling = false
+            }
+        }
+
+        requestTurn = requestTurnLambda@{ direction, step, completeWhenPastEnd ->
+            if (transitionSettling || activeTransition != null) {
+                queuedTurn = PendingReaderTurn(direction, step, completeWhenPastEnd)
+                return@requestTurnLambda
+            }
+            val target = turnTarget(direction, step, completeWhenPastEnd)
+            if (target == null) {
+                runBoundaryAction(direction, completeWhenPastEnd)
+                return@requestTurnLambda
+            }
+            if (!settings.reader.pageTransitionAnimation) {
+                page = target
+                return@requestTurnLambda
+            }
+            activeTransition = ReaderPageTransition(
+                outgoingPage = page,
+                targetPage = target,
+                direction = direction
+            )
+            transitionProgress = 0f
+            settleTransition(commit = true, completeWhenPastEnd = completeWhenPastEnd)
+        }
+
+        LaunchedEffect(activeTransition, transitionSettling, queuedTurn, page) {
+            val pending = queuedTurn
+            if (activeTransition == null && !transitionSettling && pending != null) {
+                queuedTurn = null
+                requestTurn(pending.direction, pending.step, pending.completeWhenPastEnd)
+            }
+        }
+
+        fun updateTurnDrag(direction: ReaderTurnDirection, progress: Float) {
+            if (transitionSettling) return
+            if (activeTransition?.direction != direction) {
+                val step = if (direction == ReaderTurnDirection.Next) {
+                    nextPageTurnStep
+                } else {
+                    previousPageTurnStep
+                }
+                val completeAtBoundary = direction == ReaderTurnDirection.Next && showingFinalPage
+                val target = turnTarget(direction, step, completeAtBoundary)
+                activeTransition = target?.let {
+                    ReaderPageTransition(page, it, direction)
+                }
+                dragBoundaryDirection = if (target == null) direction else null
+            }
+            transitionProgress = progress
+        }
+
         if (error != null) {
             Text("Error: $error", color = Color.Red, modifier = Modifier.padding(12.dp))
         }
 
-        Row(
-            Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    scaleX = totalZoomScale
-                    scaleY = totalZoomScale
+        val transition = activeTransition
+        val transitionVisible =
+            transition != null && settings.reader.pageTransitionAnimation && !zoomPanEnabled
+        if (transitionVisible) {
+            requireNotNull(transition)
+            val progress = transitionProgress.coerceIn(0f, 1f)
+            val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
+            ReaderPageView(
+                cursor = transition.targetPage,
+                pageCount = pages,
+                portrait = portrait,
+                pageDimensions = pageDimensions,
+                rightToLeft = rtl,
+                pageModel = ::pageModel,
+                imageLoader = activeImageLoader,
+                invertMode = settings.reader.invertMode,
+                whiteThreshold = settings.reader.invertWhiteThreshold,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationX = -physicalSign * viewportWidthPx * 0.08f * (1f - progress)
+                        scaleX = 0.99f + 0.01f * progress
+                        scaleY = 0.99f + 0.01f * progress
+                        alpha = 0.94f + 0.06f * progress
+                    }
+            )
+        }
+
+        val currentModifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                if (transitionVisible) {
+                    requireNotNull(transition)
+                    val progress = transitionProgress.coerceIn(0f, 1f)
+                    val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
+                    val shadowEnvelope = 4f * progress * (1f - progress)
+                    translationX = physicalSign * viewportWidthPx * progress
+                    scaleX = 1f - 0.008f * progress
+                    scaleY = 1f - 0.008f * progress
+                    shadowElevation = 12.dp.toPx() * shadowEnvelope
+                    shape = RectangleShape
+                    clip = false
+                } else {
                     translationX = zoomPan.offsetX
                     translationY = zoomPan.offsetY
+                    scaleX = totalZoomScale
+                    scaleY = totalZoomScale
                 }
-        ) {
-            if (layout.singlePage) {
-                PageImage(
-                    model = pageModel(page),
-                    imageLoader = activeImageLoader,
-                    label = "Page $page",
-                    alignment = layout.singleAlignment,
-                    invertMode = settings.reader.invertMode,
-                    whiteThreshold = settings.reader.invertWhiteThreshold
-                )
-            } else {
-                PageImage(
-                    model = pageModel(spreadPages.leftPage),
-                    imageLoader = activeImageLoader,
-                    label = "Left ${spreadPages.leftPage}",
-                    alignment = Alignment.CenterEnd,
-                    invertMode = settings.reader.invertMode,
-                    whiteThreshold = settings.reader.invertWhiteThreshold
-                )
-                PageImage(
-                    model = pageModel(spreadPages.rightPage),
-                    imageLoader = activeImageLoader,
-                    label = "Right ${spreadPages.rightPage}",
-                    alignment = Alignment.CenterStart,
-                    invertMode = settings.reader.invertMode,
-                    whiteThreshold = settings.reader.invertWhiteThreshold
-                )
             }
-        }
+        ReaderPageView(
+            cursor = transition?.outgoingPage ?: page,
+            pageCount = pages,
+            portrait = portrait,
+            pageDimensions = pageDimensions,
+            rightToLeft = rtl,
+            pageModel = ::pageModel,
+            imageLoader = activeImageLoader,
+            invertMode = settings.reader.invertMode,
+            whiteThreshold = settings.reader.invertWhiteThreshold,
+            modifier = currentModifier
+        )
 
         ReaderTapLayer(
             rightToLeft = rtl,
-            onNextSpread = { movePageBy(nextPageTurnStep, completeWhenPastEnd = showingFinalPage) },
-            onPreviousSpread = { movePageBy(-previousPageTurnStep) },
-            onNextSingle = { nextSingle() },
-            onPreviousSingle = { prevSingle() },
+            onNextSpread = {
+                requestTurn(ReaderTurnDirection.Next, nextPageTurnStep, showingFinalPage)
+            },
+            onPreviousSpread = {
+                requestTurn(ReaderTurnDirection.Previous, previousPageTurnStep, false)
+            },
+            onNextSingle = { requestTurn(ReaderTurnDirection.Next, 1, page >= pages - 1) },
+            onPreviousSingle = { requestTurn(ReaderTurnDirection.Previous, 1, false) },
             onCenterTap = { showReaderMenu = !showReaderMenu },
+            turnViewportWidthPx = viewportWidthPx,
             zoomPanEnabled = zoomPanEnabled,
             panOffsetX = zoomPan.offsetX,
             panOffsetY = zoomPan.offsetY,
             panMaxX = panBounds.maxX,
             panMaxY = panBounds.maxY,
             onPan = { x, y -> zoomPan = zoomPan.copy(offsetX = x, offsetY = y) },
+            onTurnDrag = ::updateTurnDrag,
+            onTurnDragEnd = {
+                settleTransition(
+                    commit = shouldCommitReaderTurn(transitionProgress),
+                    completeWhenPastEnd = dragBoundaryDirection == ReaderTurnDirection.Next &&
+                        showingFinalPage
+                )
+            },
+            onTurnDragCancel = {
+                settleTransition(commit = false, completeWhenPastEnd = false)
+            },
             onDoubleTap = {
                 zoomPan = zoomPan.withDoubleTapZoom(
                     tapPosition = Offset(viewportWidthPx / 2f, viewportHeightPx / 2f),
@@ -682,6 +855,57 @@ fun ReaderScreen(
             )
         }
 
+    }
+}
+
+@Composable
+private fun ReaderPageView(
+    cursor: Int,
+    pageCount: Int,
+    portrait: Boolean,
+    pageDimensions: Map<Int, FileDimensionDto>,
+    rightToLeft: Boolean,
+    pageModel: (Int) -> Any?,
+    imageLoader: ImageLoader,
+    invertMode: InvertMode,
+    whiteThreshold: Float,
+    modifier: Modifier = Modifier
+) {
+    val layout = readerPageLayout(
+        page = cursor,
+        pageCount = pageCount,
+        portrait = portrait,
+        pageDimensions = pageDimensions
+    )
+    val spread = spreadPagesFor(cursor, rightToLeft)
+    Row(modifier) {
+        if (layout.singlePage) {
+            PageImage(
+                model = pageModel(cursor),
+                imageLoader = imageLoader,
+                label = "Page $cursor",
+                alignment = layout.singleAlignment,
+                invertMode = invertMode,
+                whiteThreshold = whiteThreshold
+            )
+        } else {
+            PageImage(
+                model = pageModel(spread.leftPage),
+                imageLoader = imageLoader,
+                label = "Left ${spread.leftPage}",
+                alignment = Alignment.CenterEnd,
+                invertMode = invertMode,
+                whiteThreshold = whiteThreshold
+            )
+            PageImage(
+                model = pageModel(spread.rightPage),
+                imageLoader = imageLoader,
+                label = "Right ${spread.rightPage}",
+                alignment = Alignment.CenterStart,
+                invertMode = invertMode,
+                whiteThreshold = whiteThreshold
+            )
+        }
     }
 }
 
@@ -758,13 +982,15 @@ private suspend fun prefetchReaderPages(
     targetHeight: Int
 ) = coroutineScope {
     val semaphore = Semaphore(ReaderPrefetchConcurrency)
-    models.map { model ->
+    models.mapIndexed { index, model ->
         launch {
             semaphore.withPermit {
                 val request = ImageRequest.Builder(context)
                     .data(model)
                     .size(targetWidth, targetHeight)
-                    .memoryCachePolicy(CachePolicy.DISABLED)
+                    .memoryCachePolicy(
+                        if (index == 0) CachePolicy.ENABLED else CachePolicy.DISABLED
+                    )
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .networkCachePolicy(CachePolicy.ENABLED)
                     .build()
@@ -835,12 +1061,16 @@ private fun ReaderTapLayer(
     onNextSingle: () -> Unit,
     onPreviousSingle: () -> Unit,
     onCenterTap: () -> Unit,
+    turnViewportWidthPx: Float,
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
     panMaxX: Float = 0f,
     panMaxY: Float = 0f,
     onPan: (Float, Float) -> Unit = { _, _ -> },
+    onTurnDrag: (ReaderTurnDirection, Float) -> Unit = { _, _ -> },
+    onTurnDragEnd: () -> Unit = {},
+    onTurnDragCancel: () -> Unit = {},
     onDoubleTap: (Offset) -> Unit = {},
     onTransform: (Float, Offset) -> Unit = { _, _ -> }
 ) {
@@ -859,14 +1089,16 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    onNextSpread = latestOnNextSpread,
-                    onPreviousSpread = latestOnPreviousSpread,
+                    turnViewportWidthPx = turnViewportWidthPx,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
                     panMaxX = panMaxX,
                     panMaxY = panMaxY,
-                    onPan = onPan
+                    onPan = onPan,
+                    onTurnDrag = onTurnDrag,
+                    onTurnDragEnd = onTurnDragEnd,
+                    onTurnDragCancel = onTurnDragCancel
                 )
                 .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
@@ -888,14 +1120,16 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    onNextSpread = latestOnNextSpread,
-                    onPreviousSpread = latestOnPreviousSpread,
+                    turnViewportWidthPx = turnViewportWidthPx,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
                     panMaxX = panMaxX,
                     panMaxY = panMaxY,
-                    onPan = onPan
+                    onPan = onPan,
+                    onTurnDrag = onTurnDrag,
+                    onTurnDragEnd = onTurnDragEnd,
+                    onTurnDragCancel = onTurnDragCancel
                 )
                 .pointerInput(Unit) {
                     detectTapGestures(
@@ -911,14 +1145,16 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    onNextSpread = latestOnNextSpread,
-                    onPreviousSpread = latestOnPreviousSpread,
+                    turnViewportWidthPx = turnViewportWidthPx,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
                     panMaxX = panMaxX,
                     panMaxY = panMaxY,
-                    onPan = onPan
+                    onPan = onPan,
+                    onTurnDrag = onTurnDrag,
+                    onTurnDragEnd = onTurnDragEnd,
+                    onTurnDragCancel = onTurnDragCancel
                 )
                 .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
@@ -987,40 +1223,41 @@ private fun Modifier.readerPinchZoom(
 @Composable
 private fun Modifier.readerDrag(
     rightToLeft: Boolean,
-    onNextSpread: () -> Unit,
-    onPreviousSpread: () -> Unit,
+    turnViewportWidthPx: Float,
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
     panMaxX: Float = 0f,
     panMaxY: Float = 0f,
-    onPan: (Float, Float) -> Unit = { _, _ -> }
+    onPan: (Float, Float) -> Unit = { _, _ -> },
+    onTurnDrag: (ReaderTurnDirection, Float) -> Unit,
+    onTurnDragEnd: () -> Unit,
+    onTurnDragCancel: () -> Unit
 ): Modifier {
-    val latestOnNextSpread by rememberUpdatedState(onNextSpread)
-    val latestOnPreviousSpread by rememberUpdatedState(onPreviousSpread)
     val latestPanOffsetX by rememberUpdatedState(panOffsetX)
     val latestPanOffsetY by rememberUpdatedState(panOffsetY)
+    val latestOnTurnDrag by rememberUpdatedState(onTurnDrag)
+    val latestOnTurnDragEnd by rememberUpdatedState(onTurnDragEnd)
+    val latestOnTurnDragCancel by rememberUpdatedState(onTurnDragCancel)
     return pointerInput(rightToLeft, zoomPanEnabled, panMaxX, panMaxY) {
         var totalDragX = 0f
-        var handled = false
+        var turnDragActive = false
         var activePanX = 0f
         var activePanY = 0f
         var dragStartedAtNegativePanEdge = false
         var dragStartedAtPositivePanEdge = false
-        val threshold = size.width * 0.18f
         val panEdgeTolerancePx = 1f
 
         detectDragGestures(
             onDragStart = {
                 totalDragX = 0f
-                handled = false
+                turnDragActive = false
                 activePanX = latestPanOffsetX
                 activePanY = latestPanOffsetY
                 dragStartedAtNegativePanEdge = activePanX <= -panMaxX + panEdgeTolerancePx
                 dragStartedAtPositivePanEdge = activePanX >= panMaxX - panEdgeTolerancePx
             },
             onDrag = { change, dragAmount ->
-                if (handled) return@detectDragGestures
                 if (zoomPanEnabled) {
                     val stillAtStartedNegativeEdge =
                         panMaxX > 0f &&
@@ -1042,30 +1279,28 @@ private fun Modifier.readerDrag(
                     }
 
                     totalDragX += dragAmount.x
-                    if (abs(totalDragX) < threshold) {
-                        change.consume()
-                        return@detectDragGestures
-                    }
-
-                    handled = true
-                    if (totalDragX > 0f) {
-                        if (rightToLeft) latestOnNextSpread() else latestOnPreviousSpread()
-                    } else {
-                        if (rightToLeft) latestOnPreviousSpread() else latestOnNextSpread()
-                    }
+                    turnDragActive = true
+                    latestOnTurnDrag(
+                        readerTurnForDrag(totalDragX, rightToLeft),
+                        readerTurnProgress(totalDragX, turnViewportWidthPx)
+                    )
                     change.consume()
                     return@detectDragGestures
                 }
 
                 totalDragX += dragAmount.x
-                if (abs(totalDragX) < threshold) return@detectDragGestures
-
-                handled = true
-                if (totalDragX > 0f) {
-                    if (rightToLeft) latestOnNextSpread() else latestOnPreviousSpread()
-                } else {
-                    if (rightToLeft) latestOnPreviousSpread() else latestOnNextSpread()
-                }
+                turnDragActive = true
+                latestOnTurnDrag(
+                    readerTurnForDrag(totalDragX, rightToLeft),
+                    readerTurnProgress(totalDragX, turnViewportWidthPx)
+                )
+                change.consume()
+            },
+            onDragEnd = {
+                if (turnDragActive) latestOnTurnDragEnd()
+            },
+            onDragCancel = {
+                if (turnDragActive) latestOnTurnDragCancel()
             }
         )
     }

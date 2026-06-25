@@ -570,6 +570,15 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
                 }
             )
 
+            SettingRow(
+                title = "Page transition animation",
+                desc = "Slides pages with a small amount of depth. Turn this off to use instant page changes.",
+                checked = settings.reader.pageTransitionAnimation,
+                onToggle = { enabled ->
+                    scope.launch { settingsStore.setPageTransitionAnimation(enabled) }
+                }
+            )
+
             Text("Invert (night)", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Off shows pages as-is. Smart inverts text pages and skips illustrations. Always inverts every page.",

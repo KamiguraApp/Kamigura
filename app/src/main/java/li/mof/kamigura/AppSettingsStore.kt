@@ -25,7 +25,8 @@ data class ReaderSettings(
     val rightToLeft: Boolean = true,
     val invertMode: InvertMode = InvertMode.Off,
     val invertWhiteThreshold: Float = 0.5f,
-    val prefetchTurns: Int = DefaultReaderPrefetchTurns
+    val prefetchTurns: Int = DefaultReaderPrefetchTurns,
+    val pageTransitionAnimation: Boolean = true
 )
 
 data class AppSettings(
@@ -38,6 +39,7 @@ class AppSettingsStore(private val context: Context) {
     private val KEY_INVERT_WHITE_THRESHOLD = floatPreferencesKey("reader_invert_white_threshold")
     private val KEY_PREFETCH_TURNS = intPreferencesKey("reader_prefetch_turns")
     private val KEY_LEGACY_UNMETERED_PREFETCH_TURNS = intPreferencesKey("reader_unmetered_prefetch_turns")
+    private val KEY_PAGE_TRANSITION_ANIMATION = booleanPreferencesKey("reader_page_transition_animation")
 
     val flow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         AppSettings(
@@ -50,7 +52,8 @@ class AppSettingsStore(private val context: Context) {
                 prefetchTurns = (prefs[KEY_PREFETCH_TURNS]
                     ?: prefs[KEY_LEGACY_UNMETERED_PREFETCH_TURNS]
                     ?: DefaultReaderPrefetchTurns)
-                    .coerceIn(0, MaxReaderPrefetchTurns)
+                    .coerceIn(0, MaxReaderPrefetchTurns),
+                pageTransitionAnimation = prefs[KEY_PAGE_TRANSITION_ANIMATION] ?: true
             )
         )
     }
@@ -69,5 +72,9 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setPrefetchTurns(value: Int) {
         context.settingsDataStore.edit { it[KEY_PREFETCH_TURNS] = value.coerceIn(0, MaxReaderPrefetchTurns) }
+    }
+
+    suspend fun setPageTransitionAnimation(value: Boolean) {
+        context.settingsDataStore.edit { it[KEY_PAGE_TRANSITION_ANIMATION] = value }
     }
 }
