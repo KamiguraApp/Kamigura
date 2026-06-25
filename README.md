@@ -22,6 +22,15 @@
   <summary>ScreenShots</summary>
 
   <details>
+  <summary>PixelSeries (Emulator)</summary>
+
+  ![pixtab-series](docs/Tab-Series.png) ![pixphone-series](docs/Phone-Series.png)
+
+  ![pixtab-detail](docs/Tab-Detail.png) ![pixphone-detail](docs/Phone-Detail.png)
+
+  ブラックジャックによろしく 佐藤秀峰
+  </details>
+  <details>
   <summary>OneplusPad3/Oneplus12</summary>
   
   ![opp-series](docs/Tab-Series.jpg) ![op12-series](docs/Phone-Series.jpg)
@@ -31,14 +40,6 @@
   ブラックジャックによろしく 佐藤秀峰
   
   右上は液晶リフレッシュレートです...
-  </details>
-  <details>
-  <summary>PixelSeries (Emulator)</summary>
-
-  ![pixtab-series](docs/Tab-Series.png) ![pixphone-series](docs/Phone-Series.png)
-
-  ![pixtab-detail](docs/Tab-Detail.png) ![pixphone-detail](docs/Phone-Detail.png)
-
   </details>
 </details>
 ## 特色
