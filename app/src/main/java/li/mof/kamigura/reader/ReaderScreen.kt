@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -758,13 +760,11 @@ fun ReaderScreen(
             transitionSettling = true
             scope.launch {
                 val targetProgress = if (commit) 1f else 0f
-                val remaining = abs(targetProgress - transitionProgress)
-                val duration = (90 + 170 * remaining).roundToInt().coerceIn(90, 260)
                 Animatable(transitionProgress).animateTo(
                     targetValue = targetProgress,
-                    animationSpec = tween(
-                        durationMillis = duration,
-                        easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                        stiffness = Spring.StiffnessMedium
                     )
                 ) {
                     transitionProgress = value
