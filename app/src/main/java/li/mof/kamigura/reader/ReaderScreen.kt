@@ -1569,6 +1569,7 @@ private fun Modifier.readerDrag(
         var dragStartedAtPositivePanEdge = false
         val panEdgeTolerancePx = 1f
         val horizontalIntentSlopPx = 8f
+        val turnIntentSlopPx = 1f
         val verticalCloseIntentSlopPx = 8f
         val closeMaxDragPx = closeVisualDistancePx.coerceAtLeast(1f)
         val closeCommitDistancePx = closeMaxDragPx * 0.18f
@@ -1649,9 +1650,13 @@ private fun Modifier.readerDrag(
                     return@detectDragGestures
                 }
 
+                val downwardCloseCandidate =
+                    closeSwipeEnabled &&
+                        gestureDragY > 0f &&
+                        gestureDragY > abs(gestureDragX)
                 val horizontalIntent =
-                    abs(gestureDragX) >= horizontalIntentSlopPx &&
-                        abs(gestureDragX) > abs(gestureDragY) * 1.2f
+                    abs(gestureDragX) >= turnIntentSlopPx &&
+                        !downwardCloseCandidate
                 val downwardCloseIntent =
                     closeSwipeEnabled &&
                         gestureDragY >= verticalCloseIntentSlopPx &&
