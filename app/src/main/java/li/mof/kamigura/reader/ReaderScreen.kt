@@ -129,6 +129,13 @@ private const val ReaderMaxZoomScale = 5f
 private const val ReaderZoomEpsilon = 0.01f
 private const val ReaderPrefetchConcurrency = 2
 
+private enum class ReaderDragMode {
+    Pending,
+    HorizontalTurn,
+    VerticalClose,
+    ZoomEdgeTurn
+}
+
 private data class ReaderSpreadPages(
     val leftPage: Int,
     val rightPage: Int
@@ -1561,8 +1568,7 @@ private fun Modifier.readerDrag(
         var totalDragX = 0f
         var gestureDragX = 0f
         var gestureDragY = 0f
-        var turnDragActive = false
-        var closeDragActive = false
+        var dragMode = ReaderDragMode.Pending
         var closeDragOffsetY = 0f
         var activePanX = 0f
         var activePanY = 0f
@@ -1579,8 +1585,7 @@ private fun Modifier.readerDrag(
             totalDragX = 0f
             gestureDragX = 0f
             gestureDragY = 0f
-            turnDragActive = false
-            closeDragActive = false
+            dragMode = ReaderDragMode.Pending
             closeDragOffsetY = 0f
             activePanX = latestPanOffsetX
             activePanY = latestPanOffsetY
@@ -1589,16 +1594,22 @@ private fun Modifier.readerDrag(
         }
 
         fun finishDrag() {
-            when {
-                closeDragActive -> latestOnCloseDragEnd(closeDragOffsetY >= closeCommitDistancePx)
-                turnDragActive -> latestOnTurnDragEnd()
+            when (dragMode) {
+                ReaderDragMode.VerticalClose -> {
+                    latestOnCloseDragEnd(closeDragOffsetY >= closeCommitDistancePx)
+                }
+                ReaderDragMode.HorizontalTurn,
+                ReaderDragMode.ZoomEdgeTurn -> latestOnTurnDragEnd()
+                ReaderDragMode.Pending -> Unit
             }
         }
 
         fun cancelDrag() {
-            when {
-                closeDragActive -> latestOnCloseDragCancel()
-                turnDragActive -> latestOnTurnDragCancel()
+            when (dragMode) {
+                ReaderDragMode.VerticalClose -> latestOnCloseDragCancel()
+                ReaderDragMode.HorizontalTurn,
+                ReaderDragMode.ZoomEdgeTurn -> latestOnTurnDragCancel()
+                ReaderDragMode.Pending -> Unit
             }
         }
 
@@ -1606,7 +1617,7 @@ private fun Modifier.readerDrag(
             gestureDragX += dragAmount.x
             gestureDragY += dragAmount.y
             if (zoomPanEnabled) {
-                if (turnDragActive) {
+                if (dragMode == ReaderDragMode.ZoomEdgeTurn) {
                     totalDragX += dragAmount.x
                     latestOnTurnDrag(
                         readerTurnForDrag(totalDragX, rightToLeft),
@@ -1639,7 +1650,7 @@ private fun Modifier.readerDrag(
                 }
 
                 totalDragX = gestureDragX
-                turnDragActive = true
+                dragMode = ReaderDragMode.ZoomEdgeTurn
                 latestOnTurnDrag(
                     readerTurnForDrag(totalDragX, rightToLeft),
                     readerTurnProgress(totalDragX, turnVisualDistancePx)
@@ -1648,30 +1659,14 @@ private fun Modifier.readerDrag(
                 return
             }
 
-            if (closeDragActive) {
-                val horizontalTakeover =
-                    abs(gestureDragX) >= horizontalIntentSlopPx &&
-                        abs(gestureDragX) > abs(gestureDragY) * 1.05f
-                if (horizontalTakeover) {
-                    closeDragActive = false
-                    closeDragOffsetY = 0f
-                    latestOnCloseDrag(0f)
-                    totalDragX = gestureDragX
-                    turnDragActive = true
-                    latestOnTurnDrag(
-                        readerTurnForDrag(totalDragX, rightToLeft),
-                        readerTurnProgress(totalDragX, turnVisualDistancePx)
-                    )
-                    change.consume()
-                    return
-                }
+            if (dragMode == ReaderDragMode.VerticalClose) {
                 closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
                 latestOnCloseDrag(closeDragOffsetY)
                 change.consume()
                 return
             }
 
-            if (turnDragActive) {
+            if (dragMode == ReaderDragMode.HorizontalTurn) {
                 totalDragX += dragAmount.x
                 latestOnTurnDrag(
                     readerTurnForDrag(totalDragX, rightToLeft),
@@ -1688,13 +1683,13 @@ private fun Modifier.readerDrag(
                     gestureDragY > abs(gestureDragX) * 1.4f
             when {
                 downwardCloseIntent -> {
-                    closeDragActive = true
+                    dragMode = ReaderDragMode.VerticalClose
                     closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
                     latestOnCloseDrag(closeDragOffsetY)
                 }
                 horizontalIntent -> {
                     totalDragX = gestureDragX
-                    turnDragActive = true
+                    dragMode = ReaderDragMode.HorizontalTurn
                     latestOnTurnDrag(
                         readerTurnForDrag(totalDragX, rightToLeft),
                         readerTurnProgress(totalDragX, turnVisualDistancePx)
