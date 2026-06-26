@@ -38,7 +38,7 @@ internal fun readerTurnForDrag(
 
 internal fun readerTurnProgress(
     dragX: Float,
-    commitDistancePx: Float
-): Float = (kotlin.math.abs(dragX) / commitDistancePx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+    visualDistancePx: Float
+): Float = (kotlin.math.abs(dragX) / visualDistancePx.coerceAtLeast(1f)).coerceIn(0f, 1f)
 
-internal fun shouldCommitReaderTurn(progress: Float): Boolean = progress >= 1f
+internal fun shouldCommitReaderTurn(progress: Float): Boolean = progress >= 0.12f

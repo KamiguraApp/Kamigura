@@ -126,7 +126,6 @@ private const val ReaderDoubleTapUserZoomScale = 2f
 private const val ReaderMaxZoomScale = 5f
 private const val ReaderZoomEpsilon = 0.01f
 private const val ReaderPrefetchConcurrency = 2
-private val ReaderTurnCommitDistance = 72.dp
 
 private data class ReaderSpreadPages(
     val leftPage: Int,
@@ -599,7 +598,7 @@ fun ReaderScreen(
         val portrait = maxHeight > maxWidth
         val viewportWidthPx = with(density) { maxWidth.toPx() }
         val viewportHeightPx = with(density) { maxHeight.toPx() }
-        val turnCommitDistancePx = with(density) { ReaderTurnCommitDistance.toPx() }
+        val turnVisualDistancePx = viewportWidthPx
         val layout = readerPageLayout(
             page = page,
             pageCount = pages,
@@ -931,7 +930,7 @@ fun ReaderScreen(
                 onNextSingle = { requestTurn(ReaderTurnDirection.Next, 1, page >= pages - 1) },
                 onPreviousSingle = { requestTurn(ReaderTurnDirection.Previous, 1, false) },
                 onCenterTap = { showReaderMenu = !showReaderMenu },
-                turnCommitDistancePx = turnCommitDistancePx,
+                turnVisualDistancePx = turnVisualDistancePx,
                 zoomPanEnabled = zoomPanEnabled,
                 panOffsetX = zoomPan.offsetX,
                 panOffsetY = zoomPan.offsetY,
@@ -1253,7 +1252,7 @@ private fun ReaderTapLayer(
     onNextSingle: () -> Unit,
     onPreviousSingle: () -> Unit,
     onCenterTap: () -> Unit,
-    turnCommitDistancePx: Float,
+    turnVisualDistancePx: Float,
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
@@ -1281,7 +1280,7 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    turnCommitDistancePx = turnCommitDistancePx,
+                    turnVisualDistancePx = turnVisualDistancePx,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
@@ -1312,7 +1311,7 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    turnCommitDistancePx = turnCommitDistancePx,
+                    turnVisualDistancePx = turnVisualDistancePx,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
@@ -1337,7 +1336,7 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    turnCommitDistancePx = turnCommitDistancePx,
+                    turnVisualDistancePx = turnVisualDistancePx,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
@@ -1415,7 +1414,7 @@ private fun Modifier.readerPinchZoom(
 @Composable
 private fun Modifier.readerDrag(
     rightToLeft: Boolean,
-    turnCommitDistancePx: Float,
+    turnVisualDistancePx: Float,
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
@@ -1474,7 +1473,7 @@ private fun Modifier.readerDrag(
                     turnDragActive = true
                     latestOnTurnDrag(
                         readerTurnForDrag(totalDragX, rightToLeft),
-                        readerTurnProgress(totalDragX, turnCommitDistancePx)
+                        readerTurnProgress(totalDragX, turnVisualDistancePx)
                     )
                     change.consume()
                     return@detectDragGestures
@@ -1484,7 +1483,7 @@ private fun Modifier.readerDrag(
                 turnDragActive = true
                 latestOnTurnDrag(
                     readerTurnForDrag(totalDragX, rightToLeft),
-                    readerTurnProgress(totalDragX, turnCommitDistancePx)
+                    readerTurnProgress(totalDragX, turnVisualDistancePx)
                 )
                 change.consume()
             },

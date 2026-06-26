@@ -24,9 +24,9 @@ class ReaderTransitionTest {
 
     @Test
     fun progressAndCommitAreBounded() {
-        assertEquals(0.5f, readerTurnProgress(48f, 96f), 0.001f)
-        assertEquals(1f, readerTurnProgress(120f, 96f), 0.001f)
-        assertFalse(shouldCommitReaderTurn(0.99f))
-        assertTrue(shouldCommitReaderTurn(1f))
+        assertEquals(0.5f, readerTurnProgress(500f, 1000f), 0.001f)
+        assertEquals(1f, readerTurnProgress(1200f, 1000f), 0.001f)
+        assertFalse(shouldCommitReaderTurn(0.119f))
+        assertTrue(shouldCommitReaderTurn(0.12f))
     }
 }
