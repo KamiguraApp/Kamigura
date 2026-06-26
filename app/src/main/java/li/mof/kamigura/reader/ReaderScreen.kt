@@ -86,6 +86,7 @@ import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.download.OfflinePage
 import li.mof.kamigura.download.decodeOfflinePage
 import li.mof.kamigura.ui.ValueBubbleSlider
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
@@ -144,6 +145,18 @@ private data class ReaderZoomPanState(
     val offsetX: Float = 0f,
     val offsetY: Float = 0f
 )
+
+private fun ReaderZoomPanState.lerpTo(
+    target: ReaderZoomPanState,
+    fraction: Float
+): ReaderZoomPanState {
+    val t = fraction.coerceIn(0f, 1f)
+    return ReaderZoomPanState(
+        userScale = userScale + (target.userScale - userScale) * t,
+        offsetX = offsetX + (target.offsetX - offsetX) * t,
+        offsetY = offsetY + (target.offsetY - offsetY) * t
+    )
+}
 
 private data class ReaderPanBounds(
     val maxX: Float,
@@ -383,6 +396,7 @@ fun ReaderScreen(
     var transitionSettling by remember { mutableStateOf(false) }
     var queuedTurn by remember { mutableStateOf<PendingReaderTurn?>(null) }
     var dragBoundaryDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
+    var zoomAnimationJob by remember { mutableStateOf<Job?>(null) }
     val invertDecisionCache = remember { mutableStateMapOf<ReaderInvertCacheKey, Boolean>() }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
 
@@ -683,6 +697,7 @@ fun ReaderScreen(
         val initialZoomPanState = ReaderZoomPanState()
 
         LaunchedEffect(page) {
+            zoomAnimationJob?.cancel()
             zoomPan = initialZoomPanState
         }
 
@@ -939,12 +954,16 @@ fun ReaderScreen(
                 onPreviousSingle = { requestTurn(ReaderTurnDirection.Previous, 1, false) },
                 onCenterTap = { showReaderMenu = !showReaderMenu },
                 turnVisualDistancePx = turnVisualDistancePx,
+                zoneWidthPx = viewportWidthPx / 3f,
                 zoomPanEnabled = zoomPanEnabled,
                 panOffsetX = zoomPan.offsetX,
                 panOffsetY = zoomPan.offsetY,
                 panMaxX = panBounds.maxX,
                 panMaxY = panBounds.maxY,
-                onPan = { x, y -> zoomPan = zoomPan.copy(offsetX = x, offsetY = y) },
+                onPan = { x, y ->
+                    zoomAnimationJob?.cancel()
+                    zoomPan = zoomPan.copy(offsetX = x, offsetY = y)
+                },
                 onTurnDrag = ::updateTurnDrag,
                 onTurnDragEnd = {
                     settleTransition(
@@ -957,15 +976,30 @@ fun ReaderScreen(
                     settleTransition(commit = false, completeWhenPastEnd = false)
                 },
                 onDoubleTap = {
-                    zoomPan = zoomPan.withDoubleTapZoom(
-                        tapPosition = Offset(viewportWidthPx / 2f, viewportHeightPx / 2f),
+                    val start = zoomPan
+                    val target = start.withDoubleTapZoom(
+                        tapPosition = it,
                         baseZoomScale = baseZoomScale,
                         viewportWidthPx = viewportWidthPx,
                         viewportHeightPx = viewportHeightPx,
                         initialState = initialZoomPanState
                     )
+                    zoomAnimationJob?.cancel()
+                    zoomAnimationJob = scope.launch {
+                        Animatable(0f).animateTo(
+                            targetValue = 1f,
+                            animationSpec = tween(
+                                durationMillis = 180,
+                                easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                            )
+                        ) {
+                            zoomPan = start.lerpTo(target, value)
+                        }
+                        zoomPan = target
+                    }
                 },
                 onTransform = { zoomChange, panChange, focalPoint ->
+                    zoomAnimationJob?.cancel()
                     zoomPan = zoomPan.withTransform(
                         zoomChange = zoomChange,
                         panChange = panChange,
@@ -1262,6 +1296,7 @@ private fun ReaderTapLayer(
     onPreviousSingle: () -> Unit,
     onCenterTap: () -> Unit,
     turnVisualDistancePx: Float,
+    zoneWidthPx: Float,
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
@@ -1333,9 +1368,9 @@ private fun ReaderTapLayer(
                     onTurnDragEnd = onTurnDragEnd,
                     onTurnDragCancel = onTurnDragCancel
                 )
-                .pointerInput(Unit) {
+                .pointerInput(zoneWidthPx) {
                     detectTapGestures(
-                        onDoubleTap = { latestOnDoubleTap(it) },
+                        onDoubleTap = { latestOnDoubleTap(Offset(it.x + zoneWidthPx, it.y)) },
                         onTap = { latestOnCenterTap() }
                     )
                 }
