@@ -8,7 +8,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -1569,93 +1570,42 @@ private fun Modifier.readerDrag(
         var dragStartedAtPositivePanEdge = false
         val panEdgeTolerancePx = 1f
         val horizontalIntentSlopPx = 8f
-        val turnIntentSlopPx = 1f
-        val verticalCloseIntentSlopPx = 8f
+        val turnIntentSlopPx = 4f
+        val verticalCloseIntentSlopPx = 12f
         val closeMaxDragPx = closeVisualDistancePx.coerceAtLeast(1f)
         val closeCommitDistancePx = closeMaxDragPx * 0.18f
 
-        detectDragGestures(
-            onDragStart = {
-                totalDragX = 0f
-                gestureDragX = 0f
-                gestureDragY = 0f
-                turnDragActive = false
-                closeDragActive = false
-                closeDragOffsetY = 0f
-                activePanX = latestPanOffsetX
-                activePanY = latestPanOffsetY
-                dragStartedAtNegativePanEdge = activePanX <= -panMaxX + panEdgeTolerancePx
-                dragStartedAtPositivePanEdge = activePanX >= panMaxX - panEdgeTolerancePx
-            },
-            onDrag = { change, dragAmount ->
-                gestureDragX += dragAmount.x
-                gestureDragY += dragAmount.y
-                if (zoomPanEnabled) {
-                    if (turnDragActive) {
-                        totalDragX += dragAmount.x
-                        latestOnTurnDrag(
-                            readerTurnForDrag(totalDragX, rightToLeft),
-                            readerTurnProgress(totalDragX, turnVisualDistancePx)
-                        )
-                        change.consume()
-                        return@detectDragGestures
-                    }
+        fun resetDragState() {
+            totalDragX = 0f
+            gestureDragX = 0f
+            gestureDragY = 0f
+            turnDragActive = false
+            closeDragActive = false
+            closeDragOffsetY = 0f
+            activePanX = latestPanOffsetX
+            activePanY = latestPanOffsetY
+            dragStartedAtNegativePanEdge = activePanX <= -panMaxX + panEdgeTolerancePx
+            dragStartedAtPositivePanEdge = activePanX >= panMaxX - panEdgeTolerancePx
+        }
 
-                    val stillAtStartedNegativeEdge =
-                        panMaxX > 0f &&
-                            dragStartedAtNegativePanEdge &&
-                            activePanX <= -panMaxX + panEdgeTolerancePx
-                    val stillAtStartedPositiveEdge =
-                        panMaxX > 0f &&
-                            dragStartedAtPositivePanEdge &&
-                            activePanX >= panMaxX - panEdgeTolerancePx
-                    val draggingOutFromStartEdge =
-                        (stillAtStartedNegativeEdge && dragAmount.x < 0f) ||
-                            (stillAtStartedPositiveEdge && dragAmount.x > 0f)
-                    val horizontalIntent =
-                        abs(gestureDragX) >= horizontalIntentSlopPx &&
-                            abs(gestureDragX) > abs(gestureDragY) * 1.2f
-                    if (!draggingOutFromStartEdge || !horizontalIntent) {
-                        activePanX = (activePanX + dragAmount.x).coerceIn(-panMaxX, panMaxX)
-                        activePanY = (activePanY + dragAmount.y).coerceIn(-panMaxY, panMaxY)
-                        onPan(activePanX, activePanY)
-                        change.consume()
-                        return@detectDragGestures
-                    }
+        fun finishDrag() {
+            when {
+                closeDragActive -> latestOnCloseDragEnd(closeDragOffsetY >= closeCommitDistancePx)
+                turnDragActive -> latestOnTurnDragEnd()
+            }
+        }
 
-                    totalDragX = gestureDragX
-                    turnDragActive = true
-                    latestOnTurnDrag(
-                        readerTurnForDrag(totalDragX, rightToLeft),
-                        readerTurnProgress(totalDragX, turnVisualDistancePx)
-                    )
-                    change.consume()
-                    return@detectDragGestures
-                }
+        fun cancelDrag() {
+            when {
+                closeDragActive -> latestOnCloseDragCancel()
+                turnDragActive -> latestOnTurnDragCancel()
+            }
+        }
 
-                if (closeDragActive) {
-                    val horizontalTakeover =
-                        abs(gestureDragX) >= horizontalIntentSlopPx &&
-                            abs(gestureDragX) > abs(gestureDragY) * 1.05f
-                    if (horizontalTakeover) {
-                        closeDragActive = false
-                        closeDragOffsetY = 0f
-                        latestOnCloseDrag(0f)
-                        totalDragX = gestureDragX
-                        turnDragActive = true
-                        latestOnTurnDrag(
-                            readerTurnForDrag(totalDragX, rightToLeft),
-                            readerTurnProgress(totalDragX, turnVisualDistancePx)
-                        )
-                        change.consume()
-                        return@detectDragGestures
-                    }
-                    closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
-                    latestOnCloseDrag(closeDragOffsetY)
-                    change.consume()
-                    return@detectDragGestures
-                }
-
+        fun handleDrag(change: PointerInputChange, dragAmount: Offset) {
+            gestureDragX += dragAmount.x
+            gestureDragY += dragAmount.y
+            if (zoomPanEnabled) {
                 if (turnDragActive) {
                     totalDragX += dragAmount.x
                     latestOnTurnDrag(
@@ -1663,50 +1613,124 @@ private fun Modifier.readerDrag(
                         readerTurnProgress(totalDragX, turnVisualDistancePx)
                     )
                     change.consume()
-                    return@detectDragGestures
+                    return
                 }
 
-                val downwardCloseCandidate =
-                    closeSwipeEnabled &&
-                        gestureDragY > 0f &&
-                        gestureDragY > abs(gestureDragX)
+                val stillAtStartedNegativeEdge =
+                    panMaxX > 0f &&
+                        dragStartedAtNegativePanEdge &&
+                        activePanX <= -panMaxX + panEdgeTolerancePx
+                val stillAtStartedPositiveEdge =
+                    panMaxX > 0f &&
+                        dragStartedAtPositivePanEdge &&
+                        activePanX >= panMaxX - panEdgeTolerancePx
+                val draggingOutFromStartEdge =
+                    (stillAtStartedNegativeEdge && dragAmount.x < 0f) ||
+                        (stillAtStartedPositiveEdge && dragAmount.x > 0f)
                 val horizontalIntent =
-                    abs(gestureDragX) >= turnIntentSlopPx &&
-                        !downwardCloseCandidate
-                val downwardCloseIntent =
-                    closeSwipeEnabled &&
-                        gestureDragY >= verticalCloseIntentSlopPx &&
-                        gestureDragY > abs(gestureDragX) * 1.2f
-                when {
-                    downwardCloseIntent -> {
-                        closeDragActive = true
-                        closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
-                        latestOnCloseDrag(closeDragOffsetY)
-                    }
-                    horizontalIntent -> {
-                        totalDragX = gestureDragX
-                        turnDragActive = true
-                        latestOnTurnDrag(
-                            readerTurnForDrag(totalDragX, rightToLeft),
-                            readerTurnProgress(totalDragX, turnVisualDistancePx)
-                        )
-                    }
+                    abs(gestureDragX) >= horizontalIntentSlopPx &&
+                        abs(gestureDragX) > abs(gestureDragY) * 1.2f
+                if (!draggingOutFromStartEdge || !horizontalIntent) {
+                    activePanX = (activePanX + dragAmount.x).coerceIn(-panMaxX, panMaxX)
+                    activePanY = (activePanY + dragAmount.y).coerceIn(-panMaxY, panMaxY)
+                    onPan(activePanX, activePanY)
+                    change.consume()
+                    return
                 }
+
+                totalDragX = gestureDragX
+                turnDragActive = true
+                latestOnTurnDrag(
+                    readerTurnForDrag(totalDragX, rightToLeft),
+                    readerTurnProgress(totalDragX, turnVisualDistancePx)
+                )
                 change.consume()
-            },
-            onDragEnd = {
-                when {
-                    closeDragActive -> latestOnCloseDragEnd(closeDragOffsetY >= closeCommitDistancePx)
-                    turnDragActive -> latestOnTurnDragEnd()
+                return
+            }
+
+            if (closeDragActive) {
+                val horizontalTakeover =
+                    abs(gestureDragX) >= horizontalIntentSlopPx &&
+                        abs(gestureDragX) > abs(gestureDragY) * 1.05f
+                if (horizontalTakeover) {
+                    closeDragActive = false
+                    closeDragOffsetY = 0f
+                    latestOnCloseDrag(0f)
+                    totalDragX = gestureDragX
+                    turnDragActive = true
+                    latestOnTurnDrag(
+                        readerTurnForDrag(totalDragX, rightToLeft),
+                        readerTurnProgress(totalDragX, turnVisualDistancePx)
+                    )
+                    change.consume()
+                    return
                 }
-            },
-            onDragCancel = {
-                when {
-                    closeDragActive -> latestOnCloseDragCancel()
-                    turnDragActive -> latestOnTurnDragCancel()
+                closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
+                latestOnCloseDrag(closeDragOffsetY)
+                change.consume()
+                return
+            }
+
+            if (turnDragActive) {
+                totalDragX += dragAmount.x
+                latestOnTurnDrag(
+                    readerTurnForDrag(totalDragX, rightToLeft),
+                    readerTurnProgress(totalDragX, turnVisualDistancePx)
+                )
+                change.consume()
+                return
+            }
+
+            val horizontalIntent = abs(gestureDragX) >= turnIntentSlopPx
+            val downwardCloseIntent =
+                closeSwipeEnabled &&
+                    gestureDragY >= verticalCloseIntentSlopPx &&
+                    gestureDragY > abs(gestureDragX) * 1.4f
+            when {
+                downwardCloseIntent -> {
+                    closeDragActive = true
+                    closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
+                    latestOnCloseDrag(closeDragOffsetY)
+                }
+                horizontalIntent -> {
+                    totalDragX = gestureDragX
+                    turnDragActive = true
+                    latestOnTurnDrag(
+                        readerTurnForDrag(totalDragX, rightToLeft),
+                        readerTurnProgress(totalDragX, turnVisualDistancePx)
+                    )
                 }
             }
-        )
+            change.consume()
+        }
+
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            resetDragState()
+            var previousPosition = down.position
+            val pointerId = down.id
+
+            while (true) {
+                val event = awaitPointerEvent()
+                val pressedChanges = event.changes.filter { it.pressed }
+                if (pressedChanges.size > 1) {
+                    cancelDrag()
+                    break
+                }
+
+                val change = event.changes.firstOrNull { it.id == pointerId }
+                if (change == null || !change.pressed) {
+                    finishDrag()
+                    break
+                }
+
+                val dragAmount = change.position - previousPosition
+                previousPosition = change.position
+                if (dragAmount != Offset.Zero) {
+                    handleDrag(change, dragAmount)
+                }
+            }
+        }
     }
 }
 
