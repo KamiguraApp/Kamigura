@@ -52,6 +52,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -89,11 +91,13 @@ import li.mof.kamigura.download.decodeOfflinePage
 import li.mof.kamigura.ui.ValueBubbleSlider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -1386,29 +1390,29 @@ private fun ReaderTapLayer(
         Modifier
             .fillMaxSize()
             .readerPinchZoom(onTransform = onTransform)
+            .readerDrag(
+                rightToLeft = rightToLeft,
+                turnVisualDistancePx = turnVisualDistancePx,
+                zoomPanEnabled = zoomPanEnabled,
+                panOffsetX = panOffsetX,
+                panOffsetY = panOffsetY,
+                panMaxX = panMaxX,
+                panMaxY = panMaxY,
+                onPan = onPan,
+                onTurnDrag = onTurnDrag,
+                onTurnDragEnd = onTurnDragEnd,
+                onTurnDragCancel = onTurnDragCancel,
+                closeSwipeEnabled = closeSwipeEnabled,
+                closeVisualDistancePx = closeVisualDistancePx,
+                onCloseDrag = onCloseDrag,
+                onCloseDragEnd = onCloseDragEnd,
+                onCloseDragCancel = onCloseDragCancel
+            )
     ) {
         Box(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .readerDrag(
-                    rightToLeft = rightToLeft,
-                    turnVisualDistancePx = turnVisualDistancePx,
-                    zoomPanEnabled = zoomPanEnabled,
-                    panOffsetX = panOffsetX,
-                    panOffsetY = panOffsetY,
-                    panMaxX = panMaxX,
-                    panMaxY = panMaxY,
-                    onPan = onPan,
-                    onTurnDrag = onTurnDrag,
-                    onTurnDragEnd = onTurnDragEnd,
-                    onTurnDragCancel = onTurnDragCancel,
-                    closeSwipeEnabled = closeSwipeEnabled,
-                    closeVisualDistancePx = closeVisualDistancePx,
-                    onCloseDrag = onCloseDrag,
-                    onCloseDragEnd = onCloseDragEnd,
-                    onCloseDragCancel = onCloseDragCancel
-                )
                 .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
                         onTap = {
@@ -1426,24 +1430,6 @@ private fun ReaderTapLayer(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .readerDrag(
-                    rightToLeft = rightToLeft,
-                    turnVisualDistancePx = turnVisualDistancePx,
-                    zoomPanEnabled = zoomPanEnabled,
-                    panOffsetX = panOffsetX,
-                    panOffsetY = panOffsetY,
-                    panMaxX = panMaxX,
-                    panMaxY = panMaxY,
-                    onPan = onPan,
-                    onTurnDrag = onTurnDrag,
-                    onTurnDragEnd = onTurnDragEnd,
-                    onTurnDragCancel = onTurnDragCancel,
-                    closeSwipeEnabled = closeSwipeEnabled,
-                    closeVisualDistancePx = closeVisualDistancePx,
-                    onCloseDrag = onCloseDrag,
-                    onCloseDragEnd = onCloseDragEnd,
-                    onCloseDragCancel = onCloseDragCancel
-                )
                 .pointerInput(zoneWidthPx) {
                     detectTapGestures(
                         onDoubleTap = { latestOnDoubleTap(Offset(it.x + zoneWidthPx, it.y)) },
@@ -1455,24 +1441,6 @@ private fun ReaderTapLayer(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .readerDrag(
-                    rightToLeft = rightToLeft,
-                    turnVisualDistancePx = turnVisualDistancePx,
-                    zoomPanEnabled = zoomPanEnabled,
-                    panOffsetX = panOffsetX,
-                    panOffsetY = panOffsetY,
-                    panMaxX = panMaxX,
-                    panMaxY = panMaxY,
-                    onPan = onPan,
-                    onTurnDrag = onTurnDrag,
-                    onTurnDragEnd = onTurnDragEnd,
-                    onTurnDragCancel = onTurnDragCancel,
-                    closeSwipeEnabled = closeSwipeEnabled,
-                    closeVisualDistancePx = closeVisualDistancePx,
-                    onCloseDrag = onCloseDrag,
-                    onCloseDragEnd = onCloseDragEnd,
-                    onCloseDragCancel = onCloseDragCancel
-                )
                 .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
                         onTap = {
@@ -1576,8 +1544,9 @@ private fun Modifier.readerDrag(
         var dragStartedAtPositivePanEdge = false
         val panEdgeTolerancePx = 1f
         val horizontalIntentSlopPx = 8f
-        val turnIntentSlopPx = 4f
+        val directionLockSlopPx = 4f
         val verticalCloseIntentSlopPx = 12f
+        val mouseReleaseFallbackTimeoutMillis = 180L
         val closeMaxDragPx = closeVisualDistancePx.coerceAtLeast(1f)
         val closeCommitDistancePx = closeMaxDragPx * 0.18f
 
@@ -1676,18 +1645,24 @@ private fun Modifier.readerDrag(
                 return
             }
 
-            val horizontalIntent = abs(gestureDragX) >= turnIntentSlopPx
+            val absGestureX = abs(gestureDragX)
+            val hasDirectionIntent = hypot(gestureDragX, gestureDragY) >= directionLockSlopPx
             val downwardCloseIntent =
                 closeSwipeEnabled &&
                     gestureDragY >= verticalCloseIntentSlopPx &&
-                    gestureDragY > abs(gestureDragX) * 1.4f
+                    gestureDragY > absGestureX * 1.4f
+            if (!hasDirectionIntent) {
+                change.consume()
+                return
+            }
+
             when {
                 downwardCloseIntent -> {
                     dragMode = ReaderDragMode.VerticalClose
                     closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
                     latestOnCloseDrag(closeDragOffsetY)
                 }
-                horizontalIntent -> {
+                else -> {
                     totalDragX = gestureDragX
                     dragMode = ReaderDragMode.HorizontalTurn
                     latestOnTurnDrag(
@@ -1700,13 +1675,27 @@ private fun Modifier.readerDrag(
         }
 
         awaitEachGesture {
-            val down = awaitFirstDown(requireUnconsumed = false)
+            val down = awaitFirstDown(
+                requireUnconsumed = false,
+                pass = PointerEventPass.Initial
+            )
             resetDragState()
             var previousPosition = down.position
             val pointerId = down.id
+            val mouseLikeGesture = down.type != PointerType.Touch
 
             while (true) {
-                val event = awaitPointerEvent()
+                val event = if (mouseLikeGesture && dragMode != ReaderDragMode.Pending) {
+                    withTimeoutOrNull(mouseReleaseFallbackTimeoutMillis) {
+                        awaitPointerEvent(PointerEventPass.Initial)
+                    }
+                } else {
+                    awaitPointerEvent(PointerEventPass.Initial)
+                }
+                if (event == null) {
+                    finishDrag()
+                    break
+                }
                 val pressedChanges = event.changes.filter { it.pressed }
                 if (pressedChanges.size > 1) {
                     cancelDrag()
