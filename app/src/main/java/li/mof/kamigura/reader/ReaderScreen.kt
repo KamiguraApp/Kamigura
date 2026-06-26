@@ -606,6 +606,22 @@ fun ReaderScreen(
             portrait = portrait,
             pageDimensions = pageDimensions
         )
+        fun prefetchTargetsFor(indices: List<Int>): List<ReaderPrefetchTarget> {
+            return indices.mapNotNull { index ->
+                val model = pageModel(index) as? String ?: return@mapNotNull null
+                ReaderPrefetchTarget(
+                    model = model,
+                    targetWidth = readerPrefetchSlotWidthPx(
+                        page = index,
+                        pageCount = pages,
+                        portrait = portrait,
+                        pageDimensions = pageDimensions,
+                        viewportWidthPx = viewportWidthPx
+                    ),
+                    targetHeight = viewportHeightPx.roundToInt().coerceAtLeast(1)
+                )
+            }
+        }
         LaunchedEffect(
             page,
             pages,
@@ -627,20 +643,7 @@ fun ReaderScreen(
                 pageDimensions = pageDimensions,
                 turns = settings.reader.prefetchTurns
             )
-            val targets = indices.mapNotNull { index ->
-                val model = pageModel(index) as? String ?: return@mapNotNull null
-                ReaderPrefetchTarget(
-                    model = model,
-                    targetWidth = readerPrefetchSlotWidthPx(
-                        page = index,
-                        pageCount = pages,
-                        portrait = portrait,
-                        pageDimensions = pageDimensions,
-                        viewportWidthPx = viewportWidthPx
-                    ),
-                    targetHeight = viewportHeightPx.roundToInt().coerceAtLeast(1)
-                )
-            }
+            val targets = prefetchTargetsFor(indices)
             prefetchReaderPages(
                 context = ctx,
                 imageLoader = activeImageLoader,
@@ -803,6 +806,42 @@ fun ReaderScreen(
             transitionProgress = progress
         }
 
+        LaunchedEffect(
+            activeTransition?.targetPage,
+            pages,
+            portrait,
+            pageDimensions,
+            offlineChapter,
+            activeImageLoader,
+            settings.reader.invertMode,
+            settings.reader.invertWhiteThreshold
+        ) {
+            val targetPage = activeTransition?.targetPage ?: return@LaunchedEffect
+            if (offlineChapter != null || pages <= 0) return@LaunchedEffect
+            val targets = prefetchTargetsFor(
+                readerVisiblePageIndices(
+                    page = targetPage,
+                    pageCount = pages,
+                    portrait = portrait,
+                    pageDimensions = pageDimensions
+                )
+            )
+            prefetchReaderPages(
+                context = ctx,
+                imageLoader = activeImageLoader,
+                targets = targets
+            )
+            if (settings.reader.invertMode == InvertMode.Smart) {
+                preAnalyzeReaderPages(
+                    context = ctx,
+                    imageLoader = activeImageLoader,
+                    models = targets.map { it.model }.distinct(),
+                    whiteThreshold = settings.reader.invertWhiteThreshold,
+                    invertDecisionCache = invertDecisionCache
+                )
+            }
+        }
+
         if (error != null) {
             Text("Error: $error", color = Color.Red, modifier = Modifier.padding(12.dp))
         }
@@ -810,91 +849,75 @@ fun ReaderScreen(
         val transition = activeTransition
         val transitionVisible =
             transition != null && settings.reader.pageTransitionAnimation && !zoomPanEnabled
-        val transitionUsesAtomicSpread = transition?.let {
-            !portrait && !readerPageLayout(
-                page = it.outgoingPage,
-                pageCount = pages,
-                portrait = false,
-                pageDimensions = pageDimensions
-            ).singlePage
-        } == true
-        if (transitionVisible) {
-            requireNotNull(transition)
-            val progress = transitionProgress.coerceIn(0f, 1f)
-            val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
-            val travelFraction = if (transitionUsesAtomicSpread) 0.06f else 1f
-            ReaderPageView(
-                cursor = transition.targetPage,
-                pageCount = pages,
-                portrait = portrait,
-                pageDimensions = pageDimensions,
-                rightToLeft = rtl,
-                pageModel = ::pageModel,
-                imageLoader = activeImageLoader,
-                invertMode = settings.reader.invertMode,
-                whiteThreshold = settings.reader.invertWhiteThreshold,
-                invertDecisionCache = invertDecisionCache,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        translationX =
-                            -physicalSign * viewportWidthPx * travelFraction * (1f - progress)
-                        scaleX = 0.99f + 0.01f * progress
-                        scaleY = 0.99f + 0.01f * progress
-                        alpha = if (transitionUsesAtomicSpread) 1f else 0.94f + 0.06f * progress
-                    }
-            )
-        }
-
-        val currentModifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                if (transitionVisible) {
-                    requireNotNull(transition)
-                    val progress = transitionProgress.coerceIn(0f, 1f)
-                    val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
-                    val shadowEnvelope = 4f * progress * (1f - progress)
-                    val travelFraction = if (transitionUsesAtomicSpread) 0.06f else 1f
-                    translationX = physicalSign * viewportWidthPx * travelFraction * progress
-                    scaleX = 1f - 0.008f * progress
-                    scaleY = 1f - 0.008f * progress
-                    alpha = if (transitionUsesAtomicSpread) {
-                        ((1f - progress) / 0.18f).coerceIn(0f, 1f)
-                    } else {
-                        1f
-                    }
-                    shadowElevation = 12.dp.toPx() * shadowEnvelope
-                    shape = RectangleShape
-                    clip = false
-                } else {
-                    translationX = zoomPan.offsetX
-                    translationY = zoomPan.offsetY
-                    scaleX = totalZoomScale
-                    scaleY = totalZoomScale
-                }
+        Box(Modifier.fillMaxSize().clipToBounds()) {
+            if (transitionVisible) {
+                requireNotNull(transition)
+                val progress = transitionProgress.coerceIn(0f, 1f)
+                val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
+                val shadowEnvelope = 4f * progress * (1f - progress)
+                ReaderPageView(
+                    cursor = transition.targetPage,
+                    pageCount = pages,
+                    portrait = portrait,
+                    pageDimensions = pageDimensions,
+                    rightToLeft = rtl,
+                    pageModel = ::pageModel,
+                    imageLoader = activeImageLoader,
+                    invertMode = settings.reader.invertMode,
+                    whiteThreshold = settings.reader.invertWhiteThreshold,
+                    invertDecisionCache = invertDecisionCache,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = -physicalSign * viewportWidthPx * (1f - progress)
+                            shadowElevation = 6.dp.toPx() * shadowEnvelope
+                            shape = RectangleShape
+                            clip = false
+                        }
+                )
+                ReaderPageView(
+                    cursor = transition.outgoingPage,
+                    pageCount = pages,
+                    portrait = portrait,
+                    pageDimensions = pageDimensions,
+                    rightToLeft = rtl,
+                    pageModel = ::pageModel,
+                    imageLoader = activeImageLoader,
+                    invertMode = settings.reader.invertMode,
+                    whiteThreshold = settings.reader.invertWhiteThreshold,
+                    invertDecisionCache = invertDecisionCache,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = physicalSign * viewportWidthPx * progress
+                            shadowElevation = 10.dp.toPx() * shadowEnvelope
+                            shape = RectangleShape
+                            clip = false
+                        }
+                )
+            } else {
+                ReaderPageView(
+                    cursor = page,
+                    pageCount = pages,
+                    portrait = portrait,
+                    pageDimensions = pageDimensions,
+                    rightToLeft = rtl,
+                    pageModel = ::pageModel,
+                    imageLoader = activeImageLoader,
+                    invertMode = settings.reader.invertMode,
+                    whiteThreshold = settings.reader.invertWhiteThreshold,
+                    invertDecisionCache = invertDecisionCache,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = zoomPan.offsetX
+                            translationY = zoomPan.offsetY
+                            scaleX = totalZoomScale
+                            scaleY = totalZoomScale
+                        }
+                )
             }
-        val currentCursor = if (
-            transition != null &&
-            transition.targetPage == page &&
-            transitionProgress >= 1f
-        ) {
-            transition.targetPage
-        } else {
-            transition?.outgoingPage ?: page
         }
-        ReaderPageView(
-            cursor = currentCursor,
-            pageCount = pages,
-            portrait = portrait,
-            pageDimensions = pageDimensions,
-            rightToLeft = rtl,
-            pageModel = ::pageModel,
-            imageLoader = activeImageLoader,
-            invertMode = settings.reader.invertMode,
-            whiteThreshold = settings.reader.invertWhiteThreshold,
-            invertDecisionCache = invertDecisionCache,
-            modifier = currentModifier
-        )
 
         key(page, nextPageTurnStep, previousPageTurnStep, showingFinalPage) {
             ReaderTapLayer(
