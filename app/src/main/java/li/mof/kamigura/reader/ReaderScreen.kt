@@ -1634,6 +1634,22 @@ private fun Modifier.readerDrag(
                 }
 
                 if (closeDragActive) {
+                    val horizontalTakeover =
+                        abs(gestureDragX) >= horizontalIntentSlopPx &&
+                            abs(gestureDragX) > abs(gestureDragY) * 1.05f
+                    if (horizontalTakeover) {
+                        closeDragActive = false
+                        closeDragOffsetY = 0f
+                        latestOnCloseDrag(0f)
+                        totalDragX = gestureDragX
+                        turnDragActive = true
+                        latestOnTurnDrag(
+                            readerTurnForDrag(totalDragX, rightToLeft),
+                            readerTurnProgress(totalDragX, turnVisualDistancePx)
+                        )
+                        change.consume()
+                        return@detectDragGestures
+                    }
                     closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
                     latestOnCloseDrag(closeDragOffsetY)
                     change.consume()
