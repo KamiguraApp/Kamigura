@@ -296,19 +296,27 @@ private fun readerPanBoundsPx(
 private fun ReaderZoomPanState.withTransform(
     zoomChange: Float,
     panChange: Offset,
+    focalPoint: Offset,
     baseZoomScale: Float,
     viewportWidthPx: Float,
     viewportHeightPx: Float
 ): ReaderZoomPanState {
     val maxUserScale = (ReaderMaxZoomScale / baseZoomScale).coerceAtLeast(1f)
+    val oldTotalScale = baseZoomScale * userScale
     val nextUserScale = (userScale * zoomChange).coerceIn(1f, maxUserScale)
     val nextTotalScale = baseZoomScale * nextUserScale
     val bounds = readerPanBoundsPx(viewportWidthPx, viewportHeightPx, nextTotalScale)
     val keepOffset = nextTotalScale > 1f + ReaderZoomEpsilon
+    val center = Offset(viewportWidthPx / 2f, viewportHeightPx / 2f)
+    val focalFromCenter = focalPoint - center
+    val previousFocalFromCenter = focalFromCenter - panChange
+    val scaleChange = if (oldTotalScale > 0f) nextTotalScale / oldTotalScale else 1f
+    val nextOffsetX = focalFromCenter.x - (previousFocalFromCenter.x - offsetX) * scaleChange
+    val nextOffsetY = focalFromCenter.y - (previousFocalFromCenter.y - offsetY) * scaleChange
     return ReaderZoomPanState(
         userScale = nextUserScale,
-        offsetX = if (keepOffset) (offsetX + panChange.x).coerceIn(-bounds.maxX, bounds.maxX) else 0f,
-        offsetY = if (keepOffset) (offsetY + panChange.y).coerceIn(-bounds.maxY, bounds.maxY) else 0f
+        offsetX = if (keepOffset) nextOffsetX.coerceIn(-bounds.maxX, bounds.maxX) else 0f,
+        offsetY = if (keepOffset) nextOffsetY.coerceIn(-bounds.maxY, bounds.maxY) else 0f
     )
 }
 
@@ -957,10 +965,11 @@ fun ReaderScreen(
                         initialState = initialZoomPanState
                     )
                 },
-                onTransform = { zoomChange, panChange ->
+                onTransform = { zoomChange, panChange, focalPoint ->
                     zoomPan = zoomPan.withTransform(
                         zoomChange = zoomChange,
                         panChange = panChange,
+                        focalPoint = focalPoint,
                         baseZoomScale = baseZoomScale,
                         viewportWidthPx = viewportWidthPx,
                         viewportHeightPx = viewportHeightPx
@@ -1263,7 +1272,7 @@ private fun ReaderTapLayer(
     onTurnDragEnd: () -> Unit = {},
     onTurnDragCancel: () -> Unit = {},
     onDoubleTap: (Offset) -> Unit = {},
-    onTransform: (Float, Offset) -> Unit = { _, _ -> }
+    onTransform: (Float, Offset, Offset) -> Unit = { _, _, _ -> }
 ) {
     val latestOnNextSpread by rememberUpdatedState(onNextSpread)
     val latestOnPreviousSpread by rememberUpdatedState(onPreviousSpread)
@@ -1272,12 +1281,15 @@ private fun ReaderTapLayer(
     val latestOnCenterTap by rememberUpdatedState(onCenterTap)
     val latestOnDoubleTap by rememberUpdatedState(onDoubleTap)
 
-    Row(Modifier.fillMaxSize()) {
+    Row(
+        Modifier
+            .fillMaxSize()
+            .readerPinchZoom(onTransform = onTransform)
+    ) {
         Box(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
                     turnVisualDistancePx = turnVisualDistancePx,
@@ -1308,7 +1320,6 @@ private fun ReaderTapLayer(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
                     turnVisualDistancePx = turnVisualDistancePx,
@@ -1333,7 +1344,6 @@ private fun ReaderTapLayer(
             Modifier
                 .weight(1f)
                 .fillMaxHeight()
-                .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
                     turnVisualDistancePx = turnVisualDistancePx,
@@ -1365,7 +1375,7 @@ private fun ReaderTapLayer(
 
 @Composable
 private fun Modifier.readerPinchZoom(
-    onTransform: (Float, Offset) -> Unit
+    onTransform: (Float, Offset, Offset) -> Unit
 ): Modifier {
     val latestOnTransform by rememberUpdatedState(onTransform)
     return pointerInput(Unit) {
@@ -1400,7 +1410,7 @@ private fun Modifier.readerPinchZoom(
 
                 val previousCentroid = lastCentroid
                 if (previousCentroid != null && lastSpan > 0f && span > 0f) {
-                    latestOnTransform(span / lastSpan, centroid - previousCentroid)
+                    latestOnTransform(span / lastSpan, centroid - previousCentroid, centroid)
                     pressedChanges.forEach { it.consume() }
                 }
 
