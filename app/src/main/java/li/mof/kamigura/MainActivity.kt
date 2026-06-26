@@ -21,7 +21,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -40,8 +39,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import androidx.navigation.compose.rememberNavController
+import coil.Coil
 import coil.ImageLoader
-import coil.compose.LocalImageLoader
 import li.mof.kamigura.ui.theme.KamiguraTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
@@ -88,13 +87,17 @@ fun AppRoot(
     val nav = rememberNavController()
     val ctx = LocalContext.current
 
-    var imageLoader by remember { mutableStateOf<ImageLoader?>(null) }
     var sessionRevision by remember { mutableIntStateOf(0) }
     var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
     var updateNoticeShown by rememberSaveable { mutableStateOf(false) }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
 
+    fun installImageLoader(loader: ImageLoader?) {
+        Coil.setImageLoader(loader ?: ImageLoader(ctx))
+    }
+
     LaunchedEffect(Unit) {
+        installImageLoader(null)
         @Suppress("DEPRECATION")
         val currentVersion = ctx.packageManager
             .getPackageInfo(ctx.packageName, 0)
@@ -115,7 +118,7 @@ fun AppRoot(
 
     suspend fun refreshActiveServer() {
         sessionRevision += 1
-        imageLoader = try {
+        val nextImageLoader = try {
             val session = sessionStore.load()
             if (session.baseUrl.isBlank() || (session.jwt.isBlank() && session.apiKey.isBlank())) {
                 null
@@ -127,12 +130,10 @@ fun AppRoot(
         } catch (_: Throwable) {
             null
         }
+        installImageLoader(nextImageLoader)
     }
 
-    CompositionLocalProvider(
-        LocalImageLoader provides (imageLoader ?: ImageLoader(ctx))
-    ) {
-        NavHost(navController = nav, startDestination = "login") {
+    NavHost(navController = nav, startDestination = "login") {
             composable("login") {
                 LoginScreen(
                     sessionStore = sessionStore,
@@ -140,7 +141,7 @@ fun AppRoot(
                     onLoggedIn = {
                         val client = KavitaClient(ctx, sessionStore)
                         val (_, okHttp) = client.buildApi()
-                        imageLoader = client.buildImageLoader(okHttp)
+                        installImageLoader(client.buildImageLoader(okHttp))
                         sessionRevision += 1
                         val destination = if (
                             loginDefaults.debugLibraryId > 0 && loginDefaults.debugSeriesId > 0
@@ -162,7 +163,7 @@ fun AppRoot(
                     onOpenOffline = {
                         val saved = sessionStore.loadDefault()
                         sessionStore.useTransient(saved)
-                        imageLoader = null
+                        installImageLoader(null)
                         sessionRevision += 1
                         nav.navigate("libraries") {
                             popUpTo("login") { inclusive = true }
@@ -274,7 +275,6 @@ fun AppRoot(
                 ReaderSettingsScreen(settingsStore = settingsStore, onBack = { nav.popBackStack() })
             }
         }
-    }
 }
 
 data class LoginDefaults(

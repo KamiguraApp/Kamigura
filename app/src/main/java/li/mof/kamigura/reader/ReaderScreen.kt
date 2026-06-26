@@ -65,8 +65,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import coil.ImageLoader
+import coil.imageLoader
 import coil.compose.AsyncImage
-import coil.compose.LocalImageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
@@ -373,7 +373,7 @@ fun ReaderScreen(
 ) {
     val ctx = LocalContext.current
     val density = LocalDensity.current
-    val fallbackImageLoader = LocalImageLoader.current
+    val fallbackImageLoader = ctx.imageLoader
     val scope = rememberCoroutineScope()
     val settings by settingsStore.flow.collectAsState(initial = AppSettings())
     ReaderFullscreenEffect()
