@@ -397,6 +397,8 @@ fun ReaderScreen(
     var queuedTurn by remember { mutableStateOf<PendingReaderTurn?>(null) }
     var dragBoundaryDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
     var zoomAnimationJob by remember { mutableStateOf<Job?>(null) }
+    var closeDragOffsetY by remember { mutableFloatStateOf(0f) }
+    var closeAnimationJob by remember { mutableStateOf<Job?>(null) }
     val invertDecisionCache = remember { mutableStateMapOf<ReaderInvertCacheKey, Boolean>() }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
 
@@ -698,7 +700,9 @@ fun ReaderScreen(
 
         LaunchedEffect(page) {
             zoomAnimationJob?.cancel()
+            closeAnimationJob?.cancel()
             zoomPan = initialZoomPanState
+            closeDragOffsetY = 0f
         }
 
         fun turnTarget(
@@ -869,7 +873,16 @@ fun ReaderScreen(
         val transition = activeTransition
         val transitionVisible =
             transition != null && settings.reader.pageTransitionAnimation && !zoomPanEnabled
-        Box(Modifier.fillMaxSize().clipToBounds()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .clipToBounds()
+                .graphicsLayer {
+                    val safeViewportHeight = viewportHeightPx.coerceAtLeast(1f)
+                    translationY = closeDragOffsetY
+                    alpha = (1f - closeDragOffsetY / safeViewportHeight * 0.35f).coerceIn(0.65f, 1f)
+                }
+        ) {
             if (transitionVisible) {
                 requireNotNull(transition)
                 val progress = transitionProgress.coerceIn(0f, 1f)
@@ -972,6 +985,48 @@ fun ReaderScreen(
                 },
                 onTurnDragCancel = {
                     settleTransition(commit = false, completeWhenPastEnd = false)
+                },
+                closeSwipeEnabled = activeTransition == null && !transitionSettling && !showReaderMenu,
+                closeVisualDistancePx = viewportHeightPx,
+                onCloseDrag = { offset ->
+                    closeAnimationJob?.cancel()
+                    closeDragOffsetY = offset
+                },
+                onCloseDragEnd = { commit ->
+                    closeAnimationJob?.cancel()
+                    closeAnimationJob = scope.launch {
+                        val start = closeDragOffsetY
+                        val target = if (commit) viewportHeightPx else 0f
+                        Animatable(start).animateTo(
+                            targetValue = target,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
+                        ) {
+                            closeDragOffsetY = value
+                        }
+                        if (commit) {
+                            onBack()
+                        } else {
+                            closeDragOffsetY = 0f
+                        }
+                    }
+                },
+                onCloseDragCancel = {
+                    closeAnimationJob?.cancel()
+                    closeAnimationJob = scope.launch {
+                        Animatable(closeDragOffsetY).animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
+                        ) {
+                            closeDragOffsetY = value
+                        }
+                        closeDragOffsetY = 0f
+                    }
                 },
                 onDoubleTap = {
                     val start = zoomPan
@@ -1304,6 +1359,11 @@ private fun ReaderTapLayer(
     onTurnDrag: (ReaderTurnDirection, Float) -> Unit = { _, _ -> },
     onTurnDragEnd: () -> Unit = {},
     onTurnDragCancel: () -> Unit = {},
+    closeSwipeEnabled: Boolean = false,
+    closeVisualDistancePx: Float = 1f,
+    onCloseDrag: (Float) -> Unit = {},
+    onCloseDragEnd: (Boolean) -> Unit = {},
+    onCloseDragCancel: () -> Unit = {},
     onDoubleTap: (Offset) -> Unit = {},
     onTransform: (Float, Offset, Offset) -> Unit = { _, _, _ -> }
 ) {
@@ -1334,7 +1394,12 @@ private fun ReaderTapLayer(
                     onPan = onPan,
                     onTurnDrag = onTurnDrag,
                     onTurnDragEnd = onTurnDragEnd,
-                    onTurnDragCancel = onTurnDragCancel
+                    onTurnDragCancel = onTurnDragCancel,
+                    closeSwipeEnabled = closeSwipeEnabled,
+                    closeVisualDistancePx = closeVisualDistancePx,
+                    onCloseDrag = onCloseDrag,
+                    onCloseDragEnd = onCloseDragEnd,
+                    onCloseDragCancel = onCloseDragCancel
                 )
                 .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
@@ -1364,7 +1429,12 @@ private fun ReaderTapLayer(
                     onPan = onPan,
                     onTurnDrag = onTurnDrag,
                     onTurnDragEnd = onTurnDragEnd,
-                    onTurnDragCancel = onTurnDragCancel
+                    onTurnDragCancel = onTurnDragCancel,
+                    closeSwipeEnabled = closeSwipeEnabled,
+                    closeVisualDistancePx = closeVisualDistancePx,
+                    onCloseDrag = onCloseDrag,
+                    onCloseDragEnd = onCloseDragEnd,
+                    onCloseDragCancel = onCloseDragCancel
                 )
                 .pointerInput(zoneWidthPx) {
                     detectTapGestures(
@@ -1388,7 +1458,12 @@ private fun ReaderTapLayer(
                     onPan = onPan,
                     onTurnDrag = onTurnDrag,
                     onTurnDragEnd = onTurnDragEnd,
-                    onTurnDragCancel = onTurnDragCancel
+                    onTurnDragCancel = onTurnDragCancel,
+                    closeSwipeEnabled = closeSwipeEnabled,
+                    closeVisualDistancePx = closeVisualDistancePx,
+                    onCloseDrag = onCloseDrag,
+                    onCloseDragEnd = onCloseDragEnd,
+                    onCloseDragCancel = onCloseDragCancel
                 )
                 .pointerInput(rightToLeft, zoomPanEnabled) {
                     detectTapGestures(
@@ -1466,24 +1541,37 @@ private fun Modifier.readerDrag(
     onPan: (Float, Float) -> Unit = { _, _ -> },
     onTurnDrag: (ReaderTurnDirection, Float) -> Unit,
     onTurnDragEnd: () -> Unit,
-    onTurnDragCancel: () -> Unit
+    onTurnDragCancel: () -> Unit,
+    closeSwipeEnabled: Boolean = false,
+    closeVisualDistancePx: Float = 1f,
+    onCloseDrag: (Float) -> Unit = {},
+    onCloseDragEnd: (Boolean) -> Unit = {},
+    onCloseDragCancel: () -> Unit = {}
 ): Modifier {
     val latestPanOffsetX by rememberUpdatedState(panOffsetX)
     val latestPanOffsetY by rememberUpdatedState(panOffsetY)
     val latestOnTurnDrag by rememberUpdatedState(onTurnDrag)
     val latestOnTurnDragEnd by rememberUpdatedState(onTurnDragEnd)
     val latestOnTurnDragCancel by rememberUpdatedState(onTurnDragCancel)
-    return pointerInput(rightToLeft, zoomPanEnabled, panMaxX, panMaxY) {
+    val latestOnCloseDrag by rememberUpdatedState(onCloseDrag)
+    val latestOnCloseDragEnd by rememberUpdatedState(onCloseDragEnd)
+    val latestOnCloseDragCancel by rememberUpdatedState(onCloseDragCancel)
+    return pointerInput(rightToLeft, zoomPanEnabled, panMaxX, panMaxY, closeSwipeEnabled, closeVisualDistancePx) {
         var totalDragX = 0f
         var gestureDragX = 0f
         var gestureDragY = 0f
         var turnDragActive = false
+        var closeDragActive = false
+        var closeDragOffsetY = 0f
         var activePanX = 0f
         var activePanY = 0f
         var dragStartedAtNegativePanEdge = false
         var dragStartedAtPositivePanEdge = false
         val panEdgeTolerancePx = 1f
         val horizontalIntentSlopPx = 8f
+        val verticalCloseIntentSlopPx = 8f
+        val closeMaxDragPx = closeVisualDistancePx.coerceAtLeast(1f)
+        val closeCommitDistancePx = closeMaxDragPx * 0.18f
 
         detectDragGestures(
             onDragStart = {
@@ -1491,6 +1579,8 @@ private fun Modifier.readerDrag(
                 gestureDragX = 0f
                 gestureDragY = 0f
                 turnDragActive = false
+                closeDragActive = false
+                closeDragOffsetY = 0f
                 activePanX = latestPanOffsetX
                 activePanY = latestPanOffsetY
                 dragStartedAtNegativePanEdge = activePanX <= -panMaxX + panEdgeTolerancePx
@@ -1542,19 +1632,58 @@ private fun Modifier.readerDrag(
                     return@detectDragGestures
                 }
 
-                totalDragX += dragAmount.x
-                turnDragActive = true
-                latestOnTurnDrag(
-                    readerTurnForDrag(totalDragX, rightToLeft),
-                    readerTurnProgress(totalDragX, turnVisualDistancePx)
-                )
+                if (closeDragActive) {
+                    closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
+                    latestOnCloseDrag(closeDragOffsetY)
+                    change.consume()
+                    return@detectDragGestures
+                }
+
+                if (turnDragActive) {
+                    totalDragX += dragAmount.x
+                    latestOnTurnDrag(
+                        readerTurnForDrag(totalDragX, rightToLeft),
+                        readerTurnProgress(totalDragX, turnVisualDistancePx)
+                    )
+                    change.consume()
+                    return@detectDragGestures
+                }
+
+                val horizontalIntent =
+                    abs(gestureDragX) >= horizontalIntentSlopPx &&
+                        abs(gestureDragX) > abs(gestureDragY) * 1.2f
+                val downwardCloseIntent =
+                    closeSwipeEnabled &&
+                        gestureDragY >= verticalCloseIntentSlopPx &&
+                        gestureDragY > abs(gestureDragX) * 1.2f
+                when {
+                    downwardCloseIntent -> {
+                        closeDragActive = true
+                        closeDragOffsetY = gestureDragY.coerceIn(0f, closeMaxDragPx)
+                        latestOnCloseDrag(closeDragOffsetY)
+                    }
+                    horizontalIntent -> {
+                        totalDragX = gestureDragX
+                        turnDragActive = true
+                        latestOnTurnDrag(
+                            readerTurnForDrag(totalDragX, rightToLeft),
+                            readerTurnProgress(totalDragX, turnVisualDistancePx)
+                        )
+                    }
+                }
                 change.consume()
             },
             onDragEnd = {
-                if (turnDragActive) latestOnTurnDragEnd()
+                when {
+                    closeDragActive -> latestOnCloseDragEnd(closeDragOffsetY >= closeCommitDistancePx)
+                    turnDragActive -> latestOnTurnDragEnd()
+                }
             },
             onDragCancel = {
-                if (turnDragActive) latestOnTurnDragCancel()
+                when {
+                    closeDragActive -> latestOnCloseDragCancel()
+                    turnDragActive -> latestOnTurnDragCancel()
+                }
             }
         )
     }
