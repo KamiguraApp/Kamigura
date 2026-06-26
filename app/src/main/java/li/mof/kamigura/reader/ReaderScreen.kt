@@ -34,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -124,6 +125,7 @@ private const val ReaderDoubleTapUserZoomScale = 2f
 private const val ReaderMaxZoomScale = 5f
 private const val ReaderZoomEpsilon = 0.01f
 private const val ReaderPrefetchConcurrency = 2
+private val ReaderTurnCommitDistance = 96.dp
 
 private data class ReaderSpreadPages(
     val leftPage: Int,
@@ -146,6 +148,11 @@ private data class ReaderZoomPanState(
 private data class ReaderPanBounds(
     val maxX: Float,
     val maxY: Float
+)
+
+private data class ReaderInvertCacheKey(
+    val model: Any,
+    val whiteThreshold: Float
 )
 
 private fun Map<Int, FileDimensionDto>.pageIsWide(page: Int): Boolean {
@@ -322,6 +329,7 @@ fun ReaderScreen(
     var transitionSettling by remember { mutableStateOf(false) }
     var queuedTurn by remember { mutableStateOf<PendingReaderTurn?>(null) }
     var dragBoundaryDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
+    val invertDecisionCache = remember { mutableStateMapOf<ReaderInvertCacheKey, Boolean>() }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
 
     DisposableEffect(readerImageLoader) {
@@ -544,6 +552,7 @@ fun ReaderScreen(
         val portrait = maxHeight > maxWidth
         val viewportWidthPx = with(density) { maxWidth.toPx() }
         val viewportHeightPx = with(density) { maxHeight.toPx() }
+        val turnCommitDistancePx = with(density) { ReaderTurnCommitDistance.toPx() }
         val layout = readerPageLayout(
             page = page,
             pageCount = pages,
@@ -559,7 +568,9 @@ fun ReaderScreen(
             activeImageLoader,
             s.baseUrl,
             s.apiKey,
-            settings.reader.prefetchTurns
+            settings.reader.prefetchTurns,
+            settings.reader.invertMode,
+            settings.reader.invertWhiteThreshold
         ) {
             if (offlineChapter != null || pages <= 0) return@LaunchedEffect
             val indices = readerPrefetchPageIndices(
@@ -569,13 +580,23 @@ fun ReaderScreen(
                 pageDimensions = pageDimensions,
                 turns = settings.reader.prefetchTurns
             )
+            val models = indices.mapNotNull { index -> pageModel(index) as? String }
             prefetchReaderPages(
                 context = ctx,
                 imageLoader = activeImageLoader,
-                models = indices.mapNotNull { index -> pageModel(index) as? String },
+                models = models,
                 targetWidth = viewportWidthPx.toInt().coerceAtLeast(1),
                 targetHeight = viewportHeightPx.toInt().coerceAtLeast(1)
             )
+            if (settings.reader.invertMode == InvertMode.Smart) {
+                preAnalyzeReaderPages(
+                    context = ctx,
+                    imageLoader = activeImageLoader,
+                    models = models,
+                    whiteThreshold = settings.reader.invertWhiteThreshold,
+                    invertDecisionCache = invertDecisionCache
+                )
+            }
         }
         val showingFinalPage = if (layout.singlePage) {
             page >= pages - 1
@@ -751,6 +772,7 @@ fun ReaderScreen(
                 imageLoader = activeImageLoader,
                 invertMode = settings.reader.invertMode,
                 whiteThreshold = settings.reader.invertWhiteThreshold,
+                invertDecisionCache = invertDecisionCache,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
@@ -800,6 +822,7 @@ fun ReaderScreen(
             imageLoader = activeImageLoader,
             invertMode = settings.reader.invertMode,
             whiteThreshold = settings.reader.invertWhiteThreshold,
+            invertDecisionCache = invertDecisionCache,
             modifier = currentModifier
         )
 
@@ -815,7 +838,7 @@ fun ReaderScreen(
                 onNextSingle = { requestTurn(ReaderTurnDirection.Next, 1, page >= pages - 1) },
                 onPreviousSingle = { requestTurn(ReaderTurnDirection.Previous, 1, false) },
                 onCenterTap = { showReaderMenu = !showReaderMenu },
-                turnViewportWidthPx = viewportWidthPx,
+                turnCommitDistancePx = turnCommitDistancePx,
                 zoomPanEnabled = zoomPanEnabled,
                 panOffsetX = zoomPan.offsetX,
                 panOffsetY = zoomPan.offsetY,
@@ -888,6 +911,7 @@ private fun ReaderPageView(
     imageLoader: ImageLoader,
     invertMode: InvertMode,
     whiteThreshold: Float,
+    invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>,
     modifier: Modifier = Modifier
 ) {
     val layout = readerPageLayout(
@@ -906,7 +930,8 @@ private fun ReaderPageView(
                     label = "Page $cursor",
                     alignment = layout.singleAlignment,
                     invertMode = invertMode,
-                    whiteThreshold = whiteThreshold
+                    whiteThreshold = whiteThreshold,
+                    invertDecisionCache = invertDecisionCache
                 )
             }
         } else {
@@ -917,7 +942,8 @@ private fun ReaderPageView(
                     label = "Left ${spread.leftPage}",
                     alignment = Alignment.CenterEnd,
                     invertMode = invertMode,
-                    whiteThreshold = whiteThreshold
+                    whiteThreshold = whiteThreshold,
+                    invertDecisionCache = invertDecisionCache
                 )
             }
             key(spread.rightPage) {
@@ -927,7 +953,8 @@ private fun ReaderPageView(
                     label = "Right ${spread.rightPage}",
                     alignment = Alignment.CenterStart,
                     invertMode = invertMode,
-                    whiteThreshold = whiteThreshold
+                    whiteThreshold = whiteThreshold,
+                    invertDecisionCache = invertDecisionCache
                 )
             }
         }
@@ -942,7 +969,8 @@ private fun RowScope.PageImage(
     alignment: Alignment,
     contentScale: ContentScale = ContentScale.Fit,
     invertMode: InvertMode = InvertMode.Off,
-    whiteThreshold: Float = 0.5f
+    whiteThreshold: Float = 0.5f,
+    invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>
 ) {
     val ctx = LocalContext.current
     val density = LocalDensity.current
@@ -968,8 +996,13 @@ private fun RowScope.PageImage(
                 else -> model
             }
         }
-        val shouldInvert by produceState(
-            initialValue = false,
+        val cacheKey = resolvedModel?.let { ReaderInvertCacheKey(it, whiteThreshold) }
+        val shouldInvert by produceState<Boolean?>(
+            initialValue = when (invertMode) {
+                InvertMode.Off -> false
+                InvertMode.Always -> true
+                InvertMode.Smart -> cacheKey?.let(invertDecisionCache::get)
+            },
             resolvedModel,
             invertMode,
             whiteThreshold,
@@ -978,12 +1011,24 @@ private fun RowScope.PageImage(
             value = when (invertMode) {
                 InvertMode.Off -> false
                 InvertMode.Always -> true
-                InvertMode.Smart -> resolvedModel != null &&
-                    analyzeShouldInvert(ctx, imageLoader, resolvedModel!!, whiteThreshold)
+                InvertMode.Smart -> {
+                    val loadedModel = resolvedModel
+                    if (loadedModel == null) {
+                        null
+                    } else {
+                        val key = ReaderInvertCacheKey(loadedModel, whiteThreshold)
+                        invertDecisionCache[key] ?: analyzeShouldInvert(
+                            ctx,
+                            imageLoader,
+                            loadedModel,
+                            whiteThreshold
+                        ).also { invertDecisionCache[key] = it }
+                    }
+                }
             }
         }
 
-        if (resolvedModel == null) {
+        if (resolvedModel == null || shouldInvert == null) {
             Text("-", color = Color.Gray)
         } else {
             AsyncImage(
@@ -993,7 +1038,7 @@ private fun RowScope.PageImage(
                 modifier = Modifier.fillMaxSize(),
                 alignment = alignment,
                 contentScale = contentScale,
-                colorFilter = if (shouldInvert) NegativeColorFilter else null
+                colorFilter = if (shouldInvert == true) NegativeColorFilter else null
             )
         }
     }
@@ -1014,7 +1059,7 @@ private suspend fun prefetchReaderPages(
                     .data(model)
                     .size(targetWidth, targetHeight)
                     .memoryCachePolicy(
-                        if (index == 0) CachePolicy.ENABLED else CachePolicy.DISABLED
+                        if (index < 2) CachePolicy.ENABLED else CachePolicy.DISABLED
                     )
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .networkCachePolicy(CachePolicy.ENABLED)
@@ -1025,6 +1070,37 @@ private suspend fun prefetchReaderPages(
                     throw cancelled
                 } catch (_: Throwable) {
                     // Prefetch is opportunistic; the visible page reports its own error.
+                }
+            }
+        }
+    }.forEach { it.join() }
+}
+
+private suspend fun preAnalyzeReaderPages(
+    context: Context,
+    imageLoader: ImageLoader,
+    models: List<String>,
+    whiteThreshold: Float,
+    invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>
+) = coroutineScope {
+    val semaphore = Semaphore(ReaderPrefetchConcurrency)
+    models.map { model ->
+        launch {
+            semaphore.withPermit {
+                val key = ReaderInvertCacheKey(model, whiteThreshold)
+                if (key !in invertDecisionCache) {
+                    try {
+                        invertDecisionCache[key] = analyzeShouldInvert(
+                            context,
+                            imageLoader,
+                            model,
+                            whiteThreshold
+                        )
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Throwable) {
+                        // Visible rendering retries the analysis if pre-analysis fails.
+                    }
                 }
             }
         }
@@ -1086,7 +1162,7 @@ private fun ReaderTapLayer(
     onNextSingle: () -> Unit,
     onPreviousSingle: () -> Unit,
     onCenterTap: () -> Unit,
-    turnViewportWidthPx: Float,
+    turnCommitDistancePx: Float,
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
@@ -1114,7 +1190,7 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    turnViewportWidthPx = turnViewportWidthPx,
+                    turnCommitDistancePx = turnCommitDistancePx,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
@@ -1145,7 +1221,7 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    turnViewportWidthPx = turnViewportWidthPx,
+                    turnCommitDistancePx = turnCommitDistancePx,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
@@ -1170,7 +1246,7 @@ private fun ReaderTapLayer(
                 .readerPinchZoom(onTransform = onTransform)
                 .readerDrag(
                     rightToLeft = rightToLeft,
-                    turnViewportWidthPx = turnViewportWidthPx,
+                    turnCommitDistancePx = turnCommitDistancePx,
                     zoomPanEnabled = zoomPanEnabled,
                     panOffsetX = panOffsetX,
                     panOffsetY = panOffsetY,
@@ -1248,7 +1324,7 @@ private fun Modifier.readerPinchZoom(
 @Composable
 private fun Modifier.readerDrag(
     rightToLeft: Boolean,
-    turnViewportWidthPx: Float,
+    turnCommitDistancePx: Float,
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
@@ -1307,7 +1383,7 @@ private fun Modifier.readerDrag(
                     turnDragActive = true
                     latestOnTurnDrag(
                         readerTurnForDrag(totalDragX, rightToLeft),
-                        readerTurnProgress(totalDragX, turnViewportWidthPx)
+                        readerTurnProgress(totalDragX, turnCommitDistancePx)
                     )
                     change.consume()
                     return@detectDragGestures
@@ -1317,7 +1393,7 @@ private fun Modifier.readerDrag(
                 turnDragActive = true
                 latestOnTurnDrag(
                     readerTurnForDrag(totalDragX, rightToLeft),
-                    readerTurnProgress(totalDragX, turnViewportWidthPx)
+                    readerTurnProgress(totalDragX, turnCommitDistancePx)
                 )
                 change.consume()
             },
