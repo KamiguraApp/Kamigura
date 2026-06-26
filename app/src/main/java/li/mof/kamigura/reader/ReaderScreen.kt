@@ -1477,16 +1477,21 @@ private fun Modifier.readerDrag(
     val latestOnTurnDragCancel by rememberUpdatedState(onTurnDragCancel)
     return pointerInput(rightToLeft, zoomPanEnabled, panMaxX, panMaxY) {
         var totalDragX = 0f
+        var gestureDragX = 0f
+        var gestureDragY = 0f
         var turnDragActive = false
         var activePanX = 0f
         var activePanY = 0f
         var dragStartedAtNegativePanEdge = false
         var dragStartedAtPositivePanEdge = false
         val panEdgeTolerancePx = 1f
+        val horizontalIntentSlopPx = 8f
 
         detectDragGestures(
             onDragStart = {
                 totalDragX = 0f
+                gestureDragX = 0f
+                gestureDragY = 0f
                 turnDragActive = false
                 activePanX = latestPanOffsetX
                 activePanY = latestPanOffsetY
@@ -1494,7 +1499,19 @@ private fun Modifier.readerDrag(
                 dragStartedAtPositivePanEdge = activePanX >= panMaxX - panEdgeTolerancePx
             },
             onDrag = { change, dragAmount ->
+                gestureDragX += dragAmount.x
+                gestureDragY += dragAmount.y
                 if (zoomPanEnabled) {
+                    if (turnDragActive) {
+                        totalDragX += dragAmount.x
+                        latestOnTurnDrag(
+                            readerTurnForDrag(totalDragX, rightToLeft),
+                            readerTurnProgress(totalDragX, turnVisualDistancePx)
+                        )
+                        change.consume()
+                        return@detectDragGestures
+                    }
+
                     val stillAtStartedNegativeEdge =
                         panMaxX > 0f &&
                             dragStartedAtNegativePanEdge &&
@@ -1506,7 +1523,10 @@ private fun Modifier.readerDrag(
                     val draggingOutFromStartEdge =
                         (stillAtStartedNegativeEdge && dragAmount.x < 0f) ||
                             (stillAtStartedPositiveEdge && dragAmount.x > 0f)
-                    if (!draggingOutFromStartEdge) {
+                    val horizontalIntent =
+                        abs(gestureDragX) >= horizontalIntentSlopPx &&
+                            abs(gestureDragX) > abs(gestureDragY) * 1.2f
+                    if (!draggingOutFromStartEdge || !horizontalIntent) {
                         activePanX = (activePanX + dragAmount.x).coerceIn(-panMaxX, panMaxX)
                         activePanY = (activePanY + dragAmount.y).coerceIn(-panMaxY, panMaxY)
                         onPan(activePanX, activePanY)
@@ -1514,7 +1534,7 @@ private fun Modifier.readerDrag(
                         return@detectDragGestures
                     }
 
-                    totalDragX += dragAmount.x
+                    totalDragX = gestureDragX
                     turnDragActive = true
                     latestOnTurnDrag(
                         readerTurnForDrag(totalDragX, rightToLeft),
