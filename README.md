@@ -11,7 +11,7 @@
 
 ## Kamigura とは
 
-**Kamigura** (紙倉, *paper warehouse*) は、Android タブレットで漫画やライトノベルを読むためのアプリです。
+**Kamigura** (紙倉, *paper warehouse*) は、Android タブレットで漫画やライトノベルを読むための 3rd party アプリです。
 [Kavita](https://www.kavitareader.com/) サーバに置かれた蔵書に接続し、紙の本に近い感覚で読書できます。
 
 特に想定しているのは、**自分で裁断・スキャンして電子化した本 (自炊本) を、
