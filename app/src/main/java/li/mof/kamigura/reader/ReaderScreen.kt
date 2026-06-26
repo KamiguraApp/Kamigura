@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -125,7 +126,7 @@ private const val ReaderDoubleTapUserZoomScale = 2f
 private const val ReaderMaxZoomScale = 5f
 private const val ReaderZoomEpsilon = 0.01f
 private const val ReaderPrefetchConcurrency = 2
-private val ReaderTurnCommitDistance = 96.dp
+private val ReaderTurnCommitDistance = 72.dp
 
 private data class ReaderSpreadPages(
     val leftPage: Int,
@@ -153,6 +154,12 @@ private data class ReaderPanBounds(
 private data class ReaderInvertCacheKey(
     val model: Any,
     val whiteThreshold: Float
+)
+
+private data class ReaderPrefetchTarget(
+    val model: String,
+    val targetWidth: Int,
+    val targetHeight: Int
 )
 
 private fun Map<Int, FileDimensionDto>.pageIsWide(page: Int): Boolean {
@@ -211,6 +218,18 @@ private fun readerPageLayout(
     )
 }
 
+private fun readerVisiblePageIndices(
+    page: Int,
+    pageCount: Int,
+    portrait: Boolean,
+    pageDimensions: Map<Int, FileDimensionDto>
+): List<Int> {
+    if (page !in 0 until pageCount) return emptyList()
+    val layout = readerPageLayout(page, pageCount, portrait, pageDimensions)
+    if (layout.singlePage) return listOf(page)
+    return listOf(page, page + 1).filter { it in 0 until pageCount }
+}
+
 internal fun readerPrefetchPageIndices(
     page: Int,
     pageCount: Int,
@@ -226,13 +245,41 @@ internal fun readerPrefetchPageIndices(
         val currentLayout = readerPageLayout(cursor, pageCount, portrait, pageDimensions)
         val next = cursor + currentLayout.nextStep
         if (next !in 0 until pageCount) break
-        val nextLayout = readerPageLayout(next, pageCount, portrait, pageDimensions)
-        result += next
-        if (!nextLayout.singlePage && next + 1 < pageCount) result += next + 1
+        result += readerVisiblePageIndices(next, pageCount, portrait, pageDimensions)
         cursor = next
         remainingTurns--
     }
     return result.toList()
+}
+
+private fun readerPrefetchPageIndicesAround(
+    page: Int,
+    pageCount: Int,
+    portrait: Boolean,
+    pageDimensions: Map<Int, FileDimensionDto>,
+    turns: Int
+): List<Int> {
+    if (pageCount <= 0 || page !in 0 until pageCount || turns <= 0) return emptyList()
+    val result = LinkedHashSet<Int>()
+    val layout = readerPageLayout(page, pageCount, portrait, pageDimensions)
+    result += readerPrefetchPageIndices(page, pageCount, portrait, pageDimensions, turns)
+    if (page > 0) {
+        val previous = (page - layout.previousStep).coerceAtLeast(0)
+        result += readerVisiblePageIndices(previous, pageCount, portrait, pageDimensions)
+    }
+    return result.toList()
+}
+
+private fun readerPrefetchSlotWidthPx(
+    page: Int,
+    pageCount: Int,
+    portrait: Boolean,
+    pageDimensions: Map<Int, FileDimensionDto>,
+    viewportWidthPx: Float
+): Int {
+    val layout = readerPageLayout(page, pageCount, portrait, pageDimensions)
+    val width = if (layout.singlePage) viewportWidthPx else viewportWidthPx / 2f
+    return width.roundToInt().coerceAtLeast(1)
 }
 
 private fun readerPanBoundsPx(
@@ -573,26 +620,37 @@ fun ReaderScreen(
             settings.reader.invertWhiteThreshold
         ) {
             if (offlineChapter != null || pages <= 0) return@LaunchedEffect
-            val indices = readerPrefetchPageIndices(
+            val indices = readerPrefetchPageIndicesAround(
                 page = page,
                 pageCount = pages,
                 portrait = portrait,
                 pageDimensions = pageDimensions,
                 turns = settings.reader.prefetchTurns
             )
-            val models = indices.mapNotNull { index -> pageModel(index) as? String }
+            val targets = indices.mapNotNull { index ->
+                val model = pageModel(index) as? String ?: return@mapNotNull null
+                ReaderPrefetchTarget(
+                    model = model,
+                    targetWidth = readerPrefetchSlotWidthPx(
+                        page = index,
+                        pageCount = pages,
+                        portrait = portrait,
+                        pageDimensions = pageDimensions,
+                        viewportWidthPx = viewportWidthPx
+                    ),
+                    targetHeight = viewportHeightPx.roundToInt().coerceAtLeast(1)
+                )
+            }
             prefetchReaderPages(
                 context = ctx,
                 imageLoader = activeImageLoader,
-                models = models,
-                targetWidth = viewportWidthPx.toInt().coerceAtLeast(1),
-                targetHeight = viewportHeightPx.toInt().coerceAtLeast(1)
+                targets = targets
             )
             if (settings.reader.invertMode == InvertMode.Smart) {
                 preAnalyzeReaderPages(
                     context = ctx,
                     imageLoader = activeImageLoader,
-                    models = models,
+                    models = targets.map { it.model }.distinct(),
                     whiteThreshold = settings.reader.invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache
                 )
@@ -686,7 +744,10 @@ fun ReaderScreen(
                 ) {
                     transitionProgress = value
                 }
-                if (commit) page = transition.targetPage
+                if (commit) {
+                    page = transition.targetPage
+                    withFrameNanos { }
+                }
                 activeTransition = null
                 transitionProgress = 0f
                 transitionSettling = false
@@ -812,8 +873,17 @@ fun ReaderScreen(
                     scaleY = totalZoomScale
                 }
             }
+        val currentCursor = if (
+            transition != null &&
+            transition.targetPage == page &&
+            transitionProgress >= 1f
+        ) {
+            transition.targetPage
+        } else {
+            transition?.outgoingPage ?: page
+        }
         ReaderPageView(
-            cursor = transition?.outgoingPage ?: page,
+            cursor = currentCursor,
             pageCount = pages,
             portrait = portrait,
             pageDimensions = pageDimensions,
@@ -1028,9 +1098,9 @@ private fun RowScope.PageImage(
             }
         }
 
-        if (resolvedModel == null || shouldInvert == null) {
+        if (resolvedModel == null) {
             Text("-", color = Color.Gray)
-        } else {
+        } else if (shouldInvert != null) {
             AsyncImage(
                 model = resolvedModel,
                 imageLoader = imageLoader,
@@ -1047,19 +1117,17 @@ private fun RowScope.PageImage(
 private suspend fun prefetchReaderPages(
     context: Context,
     imageLoader: ImageLoader,
-    models: List<String>,
-    targetWidth: Int,
-    targetHeight: Int
+    targets: List<ReaderPrefetchTarget>
 ) = coroutineScope {
     val semaphore = Semaphore(ReaderPrefetchConcurrency)
-    models.mapIndexed { index, model ->
+    targets.mapIndexed { index, target ->
         launch {
             semaphore.withPermit {
                 val request = ImageRequest.Builder(context)
-                    .data(model)
-                    .size(targetWidth, targetHeight)
+                    .data(target.model)
+                    .size(target.targetWidth, target.targetHeight)
                     .memoryCachePolicy(
-                        if (index < 2) CachePolicy.ENABLED else CachePolicy.DISABLED
+                        if (index < 4) CachePolicy.ENABLED else CachePolicy.DISABLED
                     )
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .networkCachePolicy(CachePolicy.ENABLED)
