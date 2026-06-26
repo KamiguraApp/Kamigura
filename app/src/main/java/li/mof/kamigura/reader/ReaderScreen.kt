@@ -4,10 +4,8 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -988,9 +986,9 @@ fun ReaderScreen(
                     zoomAnimationJob = scope.launch {
                         Animatable(0f).animateTo(
                             targetValue = 1f,
-                            animationSpec = tween(
-                                durationMillis = 180,
-                                easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
                             )
                         ) {
                             zoomPan = start.lerpTo(target, value)
