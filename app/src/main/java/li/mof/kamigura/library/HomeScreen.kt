@@ -11,7 +11,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,7 +30,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuOpen
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -59,6 +57,8 @@ import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.WideNavigationRailDefaults
 import androidx.compose.material3.WideNavigationRailItem
 import androidx.compose.material3.WideNavigationRailValue
+import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
+import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -1220,16 +1220,29 @@ private fun HomeShelf(
         if (series.isEmpty()) {
             Text("Nothing here yet", color = Color(0xFF9FA5A5), style = MaterialTheme.typography.bodyMedium)
         } else {
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                series.forEach { item ->
+            val carouselState = rememberCarouselState { series.size }
+            HorizontalMultiBrowseCarousel(
+                state = carouselState,
+                preferredItemWidth = 164.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp),
+                itemSpacing = 14.dp,
+                minSmallItemWidth = 48.dp,
+                maxSmallItemWidth = 72.dp,
+                contentPadding = PaddingValues(horizontal = 4.dp)
+            ) { index ->
+                val item = series[index]
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .maskClip(MaterialTheme.shapes.small)
+                ) {
                     SeriesPosterCard(
                         series = item,
                         session = session,
                         modifier = Modifier
-                            .width(160.dp)
+                            .fillMaxSize()
                             .clickable { onSelectSeries(item) }
                     )
                 }
