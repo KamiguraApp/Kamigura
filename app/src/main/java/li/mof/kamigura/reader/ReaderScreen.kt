@@ -50,7 +50,6 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -973,7 +972,6 @@ fun ReaderScreen(
                 requireNotNull(transition)
                 val progress = transitionProgress.coerceIn(0f, 1f)
                 val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
-                val shadowEnvelope = 4f * progress * (1f - progress)
                 ReaderPageView(
                     cursor = transition.targetPage,
                     pageCount = pages,
@@ -989,9 +987,6 @@ fun ReaderScreen(
                         .fillMaxSize()
                         .graphicsLayer {
                             translationX = -physicalSign * viewportWidthPx * (1f - progress)
-                            shadowElevation = 6.dp.toPx() * shadowEnvelope
-                            shape = RectangleShape
-                            clip = false
                         }
                 )
                 ReaderPageView(
@@ -1009,9 +1004,6 @@ fun ReaderScreen(
                         .fillMaxSize()
                         .graphicsLayer {
                             translationX = physicalSign * viewportWidthPx * progress
-                            shadowElevation = 10.dp.toPx() * shadowEnvelope
-                            shape = RectangleShape
-                            clip = false
                         }
                 )
             } else {
