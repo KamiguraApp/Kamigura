@@ -228,9 +228,15 @@ fun AppRoot(
             ) { backStack ->
                 val libraryId = backStack.arguments!!.getInt("libraryId")
                 val libraryName = backStack.arguments!!.getString("libraryName") ?: ""
-                SeriesScreen(sessionStore, libraryId, libraryName) { s ->
-                    nav.navigate("chapters/$libraryId/${s.id}/${s.name}")
-                }
+                SeriesScreen(
+                    sessionStore = sessionStore,
+                    libraryId = libraryId,
+                    libraryName = libraryName,
+                    onBack = { nav.popBackStack() },
+                    onSelect = { s ->
+                        nav.navigate("chapters/$libraryId/${s.id}/${s.name}")
+                    }
+                )
             }
 
             composable(

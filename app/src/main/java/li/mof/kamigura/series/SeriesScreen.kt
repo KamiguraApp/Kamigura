@@ -124,6 +124,7 @@ fun SeriesScreen(
     sessionStore: KavitaSessionStore,
     libraryId: Int,
     libraryName: String,
+    onBack: () -> Unit,
     onSelect: (SeriesDto) -> Unit
 ) {
     val ctx = LocalContext.current
@@ -184,6 +185,7 @@ fun SeriesScreen(
     ) {
         BrowsePageScaffold(
             title = libraryName,
+            onBack = onBack,
             actions = {
                 if (isAdmin && api != null) {
                     Box {
