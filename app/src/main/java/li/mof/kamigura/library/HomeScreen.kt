@@ -1231,7 +1231,7 @@ private fun HomeShelf(
                 itemSpacing = 14.dp,
                 minSmallItemWidth = 48.dp,
                 maxSmallItemWidth = 72.dp,
-                contentPadding = PaddingValues(horizontal = 4.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp)
             ) { index ->
                 val item = series[index]
                 Box(
