@@ -49,6 +49,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -254,7 +256,7 @@ fun SeriesScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ChapterPickScreen(
     sessionStore: KavitaSessionStore,
@@ -281,6 +283,7 @@ fun ChapterPickScreen(
     var issueLoading by remember { mutableStateOf(false) }
     var issueActionBusy by remember { mutableStateOf(false) }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+    val pullRefreshState = rememberPullToRefreshState()
 
     suspend fun loadSeriesDetails(initialLoad: Boolean) {
         if (initialLoad) {
@@ -454,7 +457,17 @@ fun ChapterPickScreen(
                 onRefresh = {
                     scope.launch { loadSeriesDetails(initialLoad = false) }
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                state = pullRefreshState,
+                indicator = {
+                    PullToRefreshDefaults.LoadingIndicator(
+                        state = pullRefreshState,
+                        isRefreshing = refreshing,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        containerColor = Color(0xFF24352F),
+                        color = Color(0xFF86D39B)
+                    )
+                }
             ) {
                 SeriesDetailContent(
                     series = displaySeries,
