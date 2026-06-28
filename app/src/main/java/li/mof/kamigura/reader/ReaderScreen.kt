@@ -53,7 +53,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -139,6 +138,17 @@ private enum class ReaderDragMode {
     VerticalClose,
     ZoomEdgeTurn
 }
+
+private enum class ReaderTapZone {
+    Left,
+    Center,
+    Right
+}
+
+private data class ReaderPendingCenterTap(
+    val position: Offset,
+    val uptimeMillis: Long
+)
 
 private data class ReaderSpreadPages(
     val leftPage: Int,
@@ -977,7 +987,6 @@ fun ReaderScreen(
                 onPreviousSingle = { requestTurn(ReaderTurnDirection.Previous, 1, false) },
                 onCenterTap = { showReaderMenu = !showReaderMenu },
                 turnVisualDistancePx = turnVisualDistancePx,
-                zoneWidthPx = viewportWidthPx / 3f,
                 zoomPanEnabled = zoomPanEnabled,
                 panOffsetX = zoomPan.offsetX,
                 panOffsetY = zoomPan.offsetY,
@@ -1361,7 +1370,6 @@ private fun ReaderTapLayer(
     onPreviousSingle: () -> Unit,
     onCenterTap: () -> Unit,
     turnVisualDistancePx: Float,
-    zoneWidthPx: Float,
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
@@ -1386,11 +1394,11 @@ private fun ReaderTapLayer(
     val latestOnCenterTap by rememberUpdatedState(onCenterTap)
     val latestOnDoubleTap by rememberUpdatedState(onDoubleTap)
 
-    Row(
+    Box(
         Modifier
             .fillMaxSize()
             .readerPinchZoom(onTransform = onTransform)
-            .readerDrag(
+            .readerGestures(
                 rightToLeft = rightToLeft,
                 turnVisualDistancePx = turnVisualDistancePx,
                 zoomPanEnabled = zoomPanEnabled,
@@ -1406,55 +1414,31 @@ private fun ReaderTapLayer(
                 closeVisualDistancePx = closeVisualDistancePx,
                 onCloseDrag = onCloseDrag,
                 onCloseDragEnd = onCloseDragEnd,
-                onCloseDragCancel = onCloseDragCancel
+                onCloseDragCancel = onCloseDragCancel,
+                onLeftTap = {
+                    if (!zoomPanEnabled) {
+                        if (rightToLeft) latestOnNextSpread() else latestOnPreviousSpread()
+                    }
+                },
+                onCenterTap = latestOnCenterTap,
+                onRightTap = {
+                    if (!zoomPanEnabled) {
+                        if (rightToLeft) latestOnPreviousSpread() else latestOnNextSpread()
+                    }
+                },
+                onLeftLongPress = {
+                    if (!zoomPanEnabled) {
+                        if (rightToLeft) latestOnNextSingle() else latestOnPreviousSingle()
+                    }
+                },
+                onRightLongPress = {
+                    if (!zoomPanEnabled) {
+                        if (rightToLeft) latestOnPreviousSingle() else latestOnNextSingle()
+                    }
+                },
+                onCenterDoubleTap = latestOnDoubleTap
             )
-    ) {
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .pointerInput(rightToLeft, zoomPanEnabled) {
-                    detectTapGestures(
-                        onTap = {
-                            if (zoomPanEnabled) return@detectTapGestures
-                            if (rightToLeft) latestOnNextSpread() else latestOnPreviousSpread()
-                        },
-                        onLongPress = {
-                            if (zoomPanEnabled) return@detectTapGestures
-                            if (rightToLeft) latestOnNextSingle() else latestOnPreviousSingle()
-                        }
-                    )
-                }
-        )
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .pointerInput(zoneWidthPx) {
-                    detectTapGestures(
-                        onDoubleTap = { latestOnDoubleTap(Offset(it.x + zoneWidthPx, it.y)) },
-                        onTap = { latestOnCenterTap() }
-                    )
-                }
-        )
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .pointerInput(rightToLeft, zoomPanEnabled) {
-                    detectTapGestures(
-                        onTap = {
-                            if (zoomPanEnabled) return@detectTapGestures
-                            if (rightToLeft) latestOnPreviousSpread() else latestOnNextSpread()
-                        },
-                        onLongPress = {
-                            if (zoomPanEnabled) return@detectTapGestures
-                            if (rightToLeft) latestOnPreviousSingle() else latestOnNextSingle()
-                        }
-                    )
-                }
-        )
-    }
+    )
 }
 
 @Composable
@@ -1506,7 +1490,7 @@ private fun Modifier.readerPinchZoom(
 }
 
 @Composable
-private fun Modifier.readerDrag(
+private fun Modifier.readerGestures(
     rightToLeft: Boolean,
     turnVisualDistancePx: Float,
     zoomPanEnabled: Boolean = false,
@@ -1522,16 +1506,29 @@ private fun Modifier.readerDrag(
     closeVisualDistancePx: Float = 1f,
     onCloseDrag: (Float) -> Unit = {},
     onCloseDragEnd: (Boolean) -> Unit = {},
-    onCloseDragCancel: () -> Unit = {}
+    onCloseDragCancel: () -> Unit = {},
+    onLeftTap: () -> Unit = {},
+    onCenterTap: () -> Unit = {},
+    onRightTap: () -> Unit = {},
+    onLeftLongPress: () -> Unit = {},
+    onRightLongPress: () -> Unit = {},
+    onCenterDoubleTap: (Offset) -> Unit = {}
 ): Modifier {
     val latestPanOffsetX by rememberUpdatedState(panOffsetX)
     val latestPanOffsetY by rememberUpdatedState(panOffsetY)
+    val latestOnPan by rememberUpdatedState(onPan)
     val latestOnTurnDrag by rememberUpdatedState(onTurnDrag)
     val latestOnTurnDragEnd by rememberUpdatedState(onTurnDragEnd)
     val latestOnTurnDragCancel by rememberUpdatedState(onTurnDragCancel)
     val latestOnCloseDrag by rememberUpdatedState(onCloseDrag)
     val latestOnCloseDragEnd by rememberUpdatedState(onCloseDragEnd)
     val latestOnCloseDragCancel by rememberUpdatedState(onCloseDragCancel)
+    val latestOnLeftTap by rememberUpdatedState(onLeftTap)
+    val latestOnCenterTap by rememberUpdatedState(onCenterTap)
+    val latestOnRightTap by rememberUpdatedState(onRightTap)
+    val latestOnLeftLongPress by rememberUpdatedState(onLeftLongPress)
+    val latestOnRightLongPress by rememberUpdatedState(onRightLongPress)
+    val latestOnCenterDoubleTap by rememberUpdatedState(onCenterDoubleTap)
     return pointerInput(rightToLeft, zoomPanEnabled, panMaxX, panMaxY, closeSwipeEnabled, closeVisualDistancePx) {
         var totalDragX = 0f
         var gestureDragX = 0f
@@ -1546,9 +1543,13 @@ private fun Modifier.readerDrag(
         val horizontalIntentSlopPx = 8f
         val directionLockSlopPx = 4f
         val verticalCloseIntentSlopPx = 12f
-        val mouseReleaseFallbackTimeoutMillis = 180L
+        val tapMoveSlopPx = directionLockSlopPx
+        val doubleTapSlopPx = 64f
+        val longPressTimeoutMillis = 500L
+        val doubleTapTimeoutMillis = 300L
         val closeMaxDragPx = closeVisualDistancePx.coerceAtLeast(1f)
         val closeCommitDistancePx = closeMaxDragPx * 0.18f
+        var pendingCenterTap: ReaderPendingCenterTap? = null
 
         fun resetDragState() {
             totalDragX = 0f
@@ -1579,6 +1580,61 @@ private fun Modifier.readerDrag(
                 ReaderDragMode.HorizontalTurn,
                 ReaderDragMode.ZoomEdgeTurn -> latestOnTurnDragCancel()
                 ReaderDragMode.Pending -> Unit
+            }
+        }
+
+        fun tapZone(position: Offset): ReaderTapZone {
+            val thirdWidth = size.width / 3f
+            return when {
+                position.x < thirdWidth -> ReaderTapZone.Left
+                position.x >= thirdWidth * 2f -> ReaderTapZone.Right
+                else -> ReaderTapZone.Center
+            }
+        }
+
+        fun flushPendingCenterTap() {
+            if (pendingCenterTap != null) {
+                pendingCenterTap = null
+                latestOnCenterTap()
+            }
+        }
+
+        fun dropPendingCenterTap() {
+            pendingCenterTap = null
+        }
+
+        fun handleTap(position: Offset, uptimeMillis: Long) {
+            when (tapZone(position)) {
+                ReaderTapZone.Left -> {
+                    flushPendingCenterTap()
+                    latestOnLeftTap()
+                }
+                ReaderTapZone.Right -> {
+                    flushPendingCenterTap()
+                    latestOnRightTap()
+                }
+                ReaderTapZone.Center -> {
+                    val pending = pendingCenterTap
+                    if (
+                        pending != null &&
+                        uptimeMillis - pending.uptimeMillis <= doubleTapTimeoutMillis &&
+                        (position - pending.position).getDistance() <= doubleTapSlopPx
+                    ) {
+                        pendingCenterTap = null
+                        latestOnCenterDoubleTap(position)
+                    } else {
+                        pendingCenterTap = ReaderPendingCenterTap(position, uptimeMillis)
+                    }
+                }
+            }
+        }
+
+        fun handleLongPress(position: Offset) {
+            flushPendingCenterTap()
+            when (tapZone(position)) {
+                ReaderTapZone.Left -> latestOnLeftLongPress()
+                ReaderTapZone.Right -> latestOnRightLongPress()
+                ReaderTapZone.Center -> Unit
             }
         }
 
@@ -1613,7 +1669,7 @@ private fun Modifier.readerDrag(
                 if (!draggingOutFromStartEdge || !horizontalIntent) {
                     activePanX = (activePanX + dragAmount.x).coerceIn(-panMaxX, panMaxX)
                     activePanY = (activePanY + dragAmount.y).coerceIn(-panMaxY, panMaxY)
-                    onPan(activePanX, activePanY)
+                    latestOnPan(activePanX, activePanY)
                     change.consume()
                     return
                 }
@@ -1675,42 +1731,91 @@ private fun Modifier.readerDrag(
         }
 
         awaitEachGesture {
-            val down = awaitFirstDown(
-                requireUnconsumed = false,
-                pass = PointerEventPass.Initial
-            )
+            val down = if (pendingCenterTap != null) {
+                withTimeoutOrNull(doubleTapTimeoutMillis) {
+                    awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial
+                    )
+                } ?: run {
+                    flushPendingCenterTap()
+                    return@awaitEachGesture
+                }
+            } else {
+                awaitFirstDown(
+                    requireUnconsumed = false,
+                    pass = PointerEventPass.Initial
+                )
+            }
+            pendingCenterTap?.let { pending ->
+                if ((down.position - pending.position).getDistance() > doubleTapSlopPx) {
+                    flushPendingCenterTap()
+                }
+            }
             resetDragState()
             var previousPosition = down.position
             val pointerId = down.id
-            val mouseLikeGesture = down.type != PointerType.Touch
+            var lastEventUptimeMillis = down.uptimeMillis
+            var tapCandidate = true
+            var longPressFired = false
 
             while (true) {
-                val event = if (mouseLikeGesture && dragMode != ReaderDragMode.Pending) {
-                    withTimeoutOrNull(mouseReleaseFallbackTimeoutMillis) {
+                val timeUntilLongPressMillis = longPressTimeoutMillis -
+                    (lastEventUptimeMillis - down.uptimeMillis)
+                val event = if (tapCandidate && !longPressFired && timeUntilLongPressMillis > 0L) {
+                    withTimeoutOrNull(timeUntilLongPressMillis) {
                         awaitPointerEvent(PointerEventPass.Initial)
                     }
                 } else {
                     awaitPointerEvent(PointerEventPass.Initial)
                 }
                 if (event == null) {
-                    finishDrag()
-                    break
+                    if (tapCandidate && !longPressFired) {
+                        handleLongPress(down.position)
+                        longPressFired = true
+                        tapCandidate = false
+                        continue
+                    } else {
+                        finishDrag()
+                        break
+                    }
                 }
                 val pressedChanges = event.changes.filter { it.pressed }
                 if (pressedChanges.size > 1) {
+                    dropPendingCenterTap()
                     cancelDrag()
                     break
                 }
 
                 val change = event.changes.firstOrNull { it.id == pointerId }
                 if (change == null || !change.pressed) {
-                    finishDrag()
+                    val release = event.changes.firstOrNull { it.id == pointerId }
+                    if (tapCandidate && !longPressFired) {
+                        handleTap(
+                            position = release?.position ?: previousPosition,
+                            uptimeMillis = release?.uptimeMillis ?: lastEventUptimeMillis
+                        )
+                    } else {
+                        finishDrag()
+                    }
                     break
                 }
+                lastEventUptimeMillis = change.uptimeMillis
 
                 val dragAmount = change.position - previousPosition
                 previousPosition = change.position
+                if (longPressFired) {
+                    change.consume()
+                    continue
+                }
                 if (dragAmount != Offset.Zero) {
+                    if (tapCandidate && (change.position - down.position).getDistance() >= tapMoveSlopPx) {
+                        tapCandidate = false
+                        dropPendingCenterTap()
+                    }
+                    if (tapCandidate) {
+                        change.consume()
+                    }
                     handleDrag(change, dragAmount)
                 }
             }
