@@ -69,6 +69,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import coil.ImageLoader
 import coil.imageLoader
 import coil.compose.AsyncImage
@@ -683,13 +684,13 @@ fun ReaderScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                scope.launch { latestFlushProgress() }
+                lifecycleOwner.lifecycleScope.launch { latestFlushProgress() }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            scope.launch { latestFlushProgress() }
+            lifecycleOwner.lifecycleScope.launch { latestFlushProgress() }
         }
     }
 
