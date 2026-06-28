@@ -252,11 +252,11 @@ fun LibraryScreen(
             launch {
                 librarySeriesCounts = loadLibrarySeriesCounts(loadedApi, loadedLibraries)
             }
-            onDeck = loadedApi.onDeck(pageSize = 12)
-            recentlyUpdated = loadedApi.recentlyUpdatedSeries(pageSize = 16)
+            onDeck = loadedApi.onDeck(pageSize = HomePreviewShelfPageSize)
+            recentlyUpdated = loadedApi.recentlyUpdatedSeries(pageSize = HomePreviewShelfPageSize)
                 .map { it.toSeriesDto() }
                 .distinctBy { it.id }
-            newlyAdded = loadedApi.recentlyAdded(pageSize = 18)
+            newlyAdded = loadedApi.recentlyAdded(pageSize = HomePreviewShelfPageSize)
             runCatching { loadedApi.wantToRead(pageSize = 200) }
                 .onSuccess { wantToRead = it }
                 .onFailure { wantToReadError = it.message ?: it.toString() }
@@ -1365,6 +1365,7 @@ private suspend fun KavitaApi.loadShelfSeries(shelfKind: HomeShelfKind): List<Se
 }
 
 private const val HomeShelfPageSize = 200
+private const val HomePreviewShelfPageSize = 20
 
 private fun GroupedSeriesDto.toSeriesDto(): SeriesDto {
     return SeriesDto(
