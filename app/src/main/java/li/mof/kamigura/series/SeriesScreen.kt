@@ -48,6 +48,7 @@ import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -270,6 +271,7 @@ fun ChapterPickScreen(
     var volumes by remember { mutableStateOf<List<VolumeDto>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
     var session by remember { mutableStateOf(KavitaSession()) }
     var api by remember { mutableStateOf<KavitaApi?>(null) }
     var isAdmin by remember { mutableStateOf(false) }
@@ -280,11 +282,15 @@ fun ChapterPickScreen(
     var issueActionBusy by remember { mutableStateOf(false) }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
 
-    LaunchedEffect(seriesId) {
-        loading = true
-        error = null
-        api = null
-        isAdmin = false
+    suspend fun loadSeriesDetails(initialLoad: Boolean) {
+        if (initialLoad) {
+            loading = true
+            error = null
+            api = null
+            isAdmin = false
+        } else {
+            refreshing = true
+        }
         try {
             val loadedSession = sessionStore.load()
             session = loadedSession
@@ -299,11 +305,25 @@ fun ChapterPickScreen(
             metadata = runCatching { loadedApi.seriesMetadata(seriesId) }.getOrNull()
             continueChapter = runCatching { loadedApi.continuePoint(seriesId) }.getOrNull()
             volumes = loadedApi.volumes(seriesId)
+            error = null
         } catch (t: Throwable) {
-            error = t.message ?: t.toString()
+            val message = t.message ?: t.toString()
+            if (initialLoad || series == null) {
+                error = message
+            } else {
+                Toast.makeText(ctx, "Could not refresh series details", Toast.LENGTH_SHORT).show()
+            }
         } finally {
-            loading = false
+            if (initialLoad) {
+                loading = false
+            } else {
+                refreshing = false
+            }
         }
+    }
+
+    LaunchedEffect(seriesId) {
+        loadSeriesDetails(initialLoad = true)
     }
 
     val chapterCards = volumes.flatMap { volume ->
@@ -429,18 +449,26 @@ fun ChapterPickScreen(
             loading -> DarkLoadingState()
             error != null -> DarkMessageState("Could not load series details", error ?: "Unknown error")
             loadedApi == null -> DarkMessageState("Could not load series details", "API unavailable")
-            else -> SeriesDetailContent(
-                series = displaySeries,
-                metadata = metadata,
-                continueChapter = continueChapter,
-                chapterCards = chapterCards,
-                volumeCount = volumes.size,
-                session = session,
-                api = loadedApi,
-                isAdmin = isAdmin,
-                onPick = { chapterId, volumeId -> onPick(chapterId, volumeId, false) },
-                onIssueClick = ::openIssue
-            )
+            else -> PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = {
+                    scope.launch { loadSeriesDetails(initialLoad = false) }
+                },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                SeriesDetailContent(
+                    series = displaySeries,
+                    metadata = metadata,
+                    continueChapter = continueChapter,
+                    chapterCards = chapterCards,
+                    volumeCount = volumes.size,
+                    session = session,
+                    api = loadedApi,
+                    isAdmin = isAdmin,
+                    onPick = { chapterId, volumeId -> onPick(chapterId, volumeId, false) },
+                    onIssueClick = ::openIssue
+                )
+            }
         }
 
         val issue = selectedIssue

@@ -66,6 +66,9 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.ImageLoader
 import coil.imageLoader
 import coil.compose.AsyncImage
@@ -89,6 +92,7 @@ import li.mof.kamigura.download.OfflinePage
 import li.mof.kamigura.download.decodeOfflinePage
 import li.mof.kamigura.ui.ValueBubbleSlider
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CancellationException
@@ -131,6 +135,7 @@ private const val ReaderDoubleTapUserZoomScale = 2f
 private const val ReaderMaxZoomScale = 5f
 private const val ReaderZoomEpsilon = 0.01f
 private const val ReaderPrefetchConcurrency = 2
+private const val ReaderProgressSyncDelayMillis = 3_000L
 
 private enum class ReaderDragMode {
     Pending,
@@ -397,6 +402,7 @@ fun ReaderScreen(
     val density = LocalDensity.current
     val fallbackImageLoader = ctx.imageLoader
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val settings by settingsStore.flow.collectAsState(initial = AppSettings())
     ReaderFullscreenEffect()
 
@@ -423,6 +429,8 @@ fun ReaderScreen(
     var closeAnimationJob by remember { mutableStateOf<Job?>(null) }
     val invertDecisionCache = remember { mutableStateMapOf<ReaderInvertCacheKey, Boolean>() }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+    var pendingRemoteProgressPage by remember { mutableStateOf<Int?>(null) }
+    var lastRemoteProgressPage by remember { mutableStateOf<Int?>(null) }
 
     DisposableEffect(readerImageLoader) {
         val activeLoader = readerImageLoader
@@ -430,6 +438,43 @@ fun ReaderScreen(
     }
 
     fun clampPage(value: Int): Int = value.coerceIn(0, (pages - 1).coerceAtLeast(0))
+    suspend fun saveRemoteProgress(targetPage: Int, showError: Boolean): Boolean {
+        if (!readerReady) return false
+        if (incognito) return false
+        if (pages <= 0 || targetPage !in 0 until pages) return false
+        if (lastRemoteProgressPage == targetPage) {
+            if (pendingRemoteProgressPage == targetPage) pendingRemoteProgressPage = null
+            return true
+        }
+        val loadedApi = api ?: return false
+        val loadedSession = session
+        return try {
+            loadedApi.saveProgress(
+                ProgressDto(
+                    libraryId = libraryId,
+                    seriesId = seriesId,
+                    volumeId = volumeId,
+                    chapterId = chapterId,
+                    pageNum = targetPage
+                )
+            )
+            lastRemoteProgressPage = targetPage
+            if (pendingRemoteProgressPage == targetPage) pendingRemoteProgressPage = null
+            if (offlineChapter != null && loadedSession != null) {
+                offlineRepository.markProgressSynced(
+                    session = loadedSession,
+                    chapterId = chapterId,
+                    expectedPage = targetPage
+                )
+            }
+            true
+        } catch (t: Throwable) {
+            if (showError && offlineChapter == null) {
+                error = "Progress save failed: ${t.message ?: t.toString()}"
+            }
+            false
+        }
+    }
     fun completeChapter() {
         if (completingRead || pages <= 0) return
         completingRead = true
@@ -460,6 +505,10 @@ fun ReaderScreen(
                     )
                 )
             }.isSuccess
+            if (progressSaved) {
+                lastRemoteProgressPage = pages - 1
+                if (pendingRemoteProgressPage == pages - 1) pendingRemoteProgressPage = null
+            }
             val readMarked = loadedApi != null && runCatching {
                 loadedApi.markChapterRead(
                     MarkChapterReadDto(
@@ -502,6 +551,10 @@ fun ReaderScreen(
                     )
                 )
             }.isSuccess
+            if (unreadMarked) {
+                lastRemoteProgressPage = 0
+                if (pendingRemoteProgressPage == 0) pendingRemoteProgressPage = null
+            }
             if (offlineChapter != null && loadedSession != null && unreadMarked) {
                 offlineRepository.markProgressSynced(
                     session = loadedSession,
@@ -552,6 +605,9 @@ fun ReaderScreen(
             pages = local.pages.size
             pageDimensions = local.dimensions
             page = local.record.localPage.coerceIn(0, (pages - 1).coerceAtLeast(0))
+            if (!local.record.progressPending) {
+                lastRemoteProgressPage = page
+            }
             readerReady = pages > 0
         }
 
@@ -582,9 +638,13 @@ fun ReaderScreen(
                 pageDimensions = info.pageDimensions.toPageDimensionMap()
                 val savedPage = loadedApi.getProgress(chapterId).pageNum
                 page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
+                lastRemoteProgressPage = page
             } else if (!local.record.progressPending) {
                 val savedPage = runCatching { loadedApi.getProgress(chapterId).pageNum }.getOrNull()
-                if (savedPage != null) page = savedPage.coerceIn(0, pages - 1)
+                if (savedPage != null) {
+                    page = savedPage.coerceIn(0, pages - 1)
+                    lastRemoteProgressPage = page
+                }
             }
             readerReady = true
         } catch (t: Throwable) {
@@ -594,7 +654,7 @@ fun ReaderScreen(
         }
     }
 
-    LaunchedEffect(api, readerReady, pages, page, incognito) {
+    LaunchedEffect(readerReady, pages, page, incognito, session, offlineChapter) {
         if (!readerReady) return@LaunchedEffect
         if (incognito) return@LaunchedEffect
         if (pages <= 0 || page !in 0 until pages) return@LaunchedEffect
@@ -602,28 +662,34 @@ fun ReaderScreen(
         if (offlineChapter != null) {
             offlineRepository.saveLocalProgress(loadedSession, chapterId, page)
         }
-        val loadedApi = api ?: return@LaunchedEffect
-        try {
-            loadedApi.saveProgress(
-                ProgressDto(
-                    libraryId = libraryId,
-                    seriesId = seriesId,
-                    volumeId = volumeId,
-                    chapterId = chapterId,
-                    pageNum = page
-                )
-            )
-            if (offlineChapter != null) {
-                offlineRepository.markProgressSynced(
-                    session = loadedSession,
-                    chapterId = chapterId,
-                    expectedPage = page
-                )
+    }
+
+    LaunchedEffect(api, readerReady, pages, page, incognito) {
+        if (!readerReady) return@LaunchedEffect
+        if (incognito) return@LaunchedEffect
+        if (pages <= 0 || page !in 0 until pages) return@LaunchedEffect
+        if (api == null) return@LaunchedEffect
+        if (lastRemoteProgressPage == page) return@LaunchedEffect
+        pendingRemoteProgressPage = page
+        delay(ReaderProgressSyncDelayMillis)
+        saveRemoteProgress(page, showError = true)
+    }
+
+    val latestFlushProgress by rememberUpdatedState<suspend () -> Unit>({
+        val targetPage = pendingRemoteProgressPage ?: page
+        saveRemoteProgress(targetPage, showError = false)
+    })
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                scope.launch { latestFlushProgress() }
             }
-        } catch (t: Throwable) {
-            if (offlineChapter == null) {
-                error = "Progress save failed: ${t.message ?: t.toString()}"
-            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            scope.launch { latestFlushProgress() }
         }
     }
 
