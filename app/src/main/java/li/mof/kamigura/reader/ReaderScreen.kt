@@ -439,7 +439,7 @@ fun ReaderScreen(
     }
 
     fun clampPage(value: Int): Int = value.coerceIn(0, (pages - 1).coerceAtLeast(0))
-    suspend fun saveRemoteProgress(targetPage: Int, showError: Boolean): Boolean {
+    suspend fun saveRemoteProgress(targetPage: Int): Boolean {
         if (!readerReady) return false
         if (incognito) return false
         if (pages <= 0 || targetPage !in 0 until pages) return false
@@ -469,10 +469,7 @@ fun ReaderScreen(
                 )
             }
             true
-        } catch (t: Throwable) {
-            if (showError && offlineChapter == null) {
-                error = "Progress save failed: ${t.message ?: t.toString()}"
-            }
+        } catch (_: Throwable) {
             false
         }
     }
@@ -673,12 +670,12 @@ fun ReaderScreen(
         if (lastRemoteProgressPage == page) return@LaunchedEffect
         pendingRemoteProgressPage = page
         delay(ReaderProgressSyncDelayMillis)
-        saveRemoteProgress(page, showError = true)
+        saveRemoteProgress(page)
     }
 
     val latestFlushProgress by rememberUpdatedState<suspend () -> Unit>({
         val targetPage = pendingRemoteProgressPage ?: page
-        saveRemoteProgress(targetPage, showError = false)
+        saveRemoteProgress(targetPage)
     })
 
     DisposableEffect(lifecycleOwner) {
