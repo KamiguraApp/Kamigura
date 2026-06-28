@@ -44,6 +44,7 @@ import coil.ImageLoader
 import li.mof.kamigura.ui.theme.KamiguraTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import li.mof.kamigura.library.DownloadedScreen
 import li.mof.kamigura.library.LibraryScreen
 import li.mof.kamigura.library.HomeShelfKind
 import li.mof.kamigura.library.SeriesShelfScreen
@@ -188,11 +189,19 @@ fun AppRoot(
                     onUpdateNoticeShown = { updateNoticeShown = true },
                     onOpenSettings = { nav.navigate("settings") },
                     onOpenShelf = { shelfKind -> nav.navigate("shelf/${shelfKind.routeValue}") },
+                    onOpenDownloaded = { nav.navigate("downloaded") },
                     onSelectLibrary = { lib -> nav.navigate("series/${lib.id}/${lib.name}") },
                     onSelectSeries = { series ->
                         val libraryId = series.libraryId ?: 0
                         nav.navigate("chapters/$libraryId/${series.id}/${series.name}")
-                    },
+                    }
+                )
+            }
+
+            composable("downloaded") {
+                DownloadedScreen(
+                    sessionStore = sessionStore,
+                    onBack = { nav.popBackStack() },
                     onPickIssue = { libraryId, seriesId, volumeId, chapterId, incognito ->
                         nav.navigate("reader/$libraryId/$seriesId/$volumeId/$chapterId?incognito=$incognito")
                     }

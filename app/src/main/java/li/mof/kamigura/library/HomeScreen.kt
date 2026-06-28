@@ -3,7 +3,6 @@ package li.mof.kamigura.library
 import android.net.Uri
 import android.widget.Toast
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -167,15 +166,9 @@ fun LibraryScreen(
     onUpdateNoticeShown: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
+    onOpenDownloaded: () -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
-    onSelectSeries: (SeriesDto) -> Unit,
-    onPickIssue: (
-        libraryId: Int,
-        seriesId: Int,
-        volumeId: Int,
-        chapterId: Int,
-        incognito: Boolean
-    ) -> Unit
+    onSelectSeries: (SeriesDto) -> Unit
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -210,11 +203,6 @@ fun LibraryScreen(
     var api by remember { mutableStateOf<KavitaApi?>(null) }
     var isAdmin by remember { mutableStateOf(false) }
     var scanningLibraryIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var selectedDownload by remember { mutableStateOf<OfflineIssueRecord?>(null) }
-    var selectedChapter by remember { mutableStateOf<ChapterDto?>(null) }
-    var selectedVolume by remember { mutableStateOf<VolumeDto?>(null) }
-    var issueLoading by remember { mutableStateOf(false) }
-    var issueActionBusy by remember { mutableStateOf(false) }
 
     val downloadedFlow = remember(session.baseUrl, session.username, session.apiKey) {
         offlineRepository.observeDownloaded(session)
@@ -305,59 +293,6 @@ fun LibraryScreen(
         }
     }
 
-    fun openDownloaded(record: OfflineIssueRecord) {
-        selectedDownload = record
-        val fallbackChapter = ChapterDto(
-            id = record.chapterId,
-            title = record.issueName,
-            pages = record.pageCount.takeIf { it > 0 },
-            pagesRead = record.localPage,
-            volumeId = record.volumeId
-        )
-        selectedChapter = fallbackChapter
-        selectedVolume = VolumeDto(
-            id = record.volumeId,
-            name = record.issueName,
-            chapters = listOf(fallbackChapter)
-        )
-        val currentApi = api
-        issueLoading = currentApi != null
-        if (currentApi == null) return
-        scope.launch {
-            val detail = runCatching { currentApi.seriesChapter(record.chapterId) }.getOrNull()
-            val volume = runCatching { currentApi.volumes(record.seriesId) }.getOrNull()
-                ?.firstOrNull { candidate ->
-                    candidate.id == record.volumeId || candidate.chapters.any { it.id == record.chapterId }
-                }
-            if (selectedDownload?.chapterId == record.chapterId) {
-                selectedChapter = detail ?: fallbackChapter
-                selectedVolume = volume ?: detail?.let {
-                    VolumeDto(id = record.volumeId, name = record.issueName, chapters = listOf(it))
-                } ?: selectedVolume
-                issueLoading = false
-            }
-        }
-    }
-
-    fun deleteDownloaded(record: OfflineIssueRecord, closeSheet: Boolean = false) {
-        scope.launch {
-            issueActionBusy = true
-            runCatching { offlineRepository.remove(session, record.chapterId) }
-                .onSuccess {
-                    if (closeSheet && selectedDownload?.chapterId == record.chapterId) {
-                        selectedDownload = null
-                        selectedChapter = null
-                        selectedVolume = null
-                    }
-                    Toast.makeText(ctx, "Download deleted", Toast.LENGTH_SHORT).show()
-                }
-                .onFailure {
-                    Toast.makeText(ctx, "Could not delete download", Toast.LENGTH_SHORT).show()
-                }
-            issueActionBusy = false
-        }
-    }
-
     Box(Modifier.fillMaxSize()) {
         HomeShell(
             libraries = libs,
@@ -376,12 +311,11 @@ fun LibraryScreen(
             downloaded = downloaded,
             onOpenSettings = onOpenSettings,
             onOpenShelf = onOpenShelf,
+            onOpenDownloaded = onOpenDownloaded,
             onSelectLibrary = onSelectLibrary,
             onScanLibrary = ::scanLibrary,
             onSelectSeries = onSelectSeries,
-            onRemoveWantToRead = ::removeFromWantToRead,
-            onSelectDownloaded = ::openDownloaded,
-            onDeleteDownloaded = { deleteDownloaded(it) }
+            onRemoveWantToRead = ::removeFromWantToRead
         )
         SnackbarHost(
             hostState = updateSnackbarHostState,
@@ -391,92 +325,6 @@ fun LibraryScreen(
                 .padding(16.dp)
         )
     }
-
-    val selectedRecord = selectedDownload
-    val detail = selectedChapter
-    val actionColor = detail?.coverActionColor(Color(0xFF6A5BB7)) ?: Color(0xFF6A5BB7)
-    IssueDetailSideSheet(
-        visible = selectedRecord != null,
-        seriesName = selectedRecord?.seriesName.orEmpty(),
-        volume = selectedVolume,
-        chapter = detail,
-        fileSizeBytes = selectedRecord?.totalBytes,
-        downloadRecord = selectedRecord,
-        loading = issueLoading,
-        actionBusy = issueActionBusy,
-        session = session,
-        actionColor = actionColor,
-        onDismissRequest = {
-            selectedDownload = null
-            selectedChapter = null
-            selectedVolume = null
-        },
-        onRead = {
-            selectedRecord?.let {
-                onPickIssue(it.libraryId, it.seriesId, it.volumeId, it.chapterId, false)
-            }
-        },
-        onReadIncognito = {
-            selectedRecord?.let {
-                onPickIssue(it.libraryId, it.seriesId, it.volumeId, it.chapterId, true)
-            }
-        },
-        onMarkRead = {
-            val record = selectedRecord ?: return@IssueDetailSideSheet
-            val currentApi = api
-            scope.launch {
-                issueActionBusy = true
-                runCatching {
-                    if (currentApi != null) {
-                        currentApi.markChapterRead(MarkChapterReadDto(record.seriesId, record.chapterId, false))
-                    } else {
-                        offlineRepository.saveLocalProgress(
-                            session = session,
-                            chapterId = record.chapterId,
-                            page = record.pageCount,
-                            markRead = true
-                        )
-                    }
-                }.onSuccess {
-                    selectedChapter = currentApi?.let {
-                        runCatching { it.seriesChapter(record.chapterId) }.getOrNull()
-                    } ?: detail?.copy(pagesRead = detail.pages)
-                    Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show()
-                }.onFailure {
-                    Toast.makeText(ctx, "Could not mark issue as read", Toast.LENGTH_SHORT).show()
-                }
-                issueActionBusy = false
-            }
-        },
-        onMarkUnread = {
-            val record = selectedRecord ?: return@IssueDetailSideSheet
-            val currentApi = api
-            scope.launch {
-                issueActionBusy = true
-                runCatching {
-                    if (currentApi != null) {
-                        currentApi.markChaptersUnread(
-                            MarkVolumesReadDto(record.seriesId, chapterIds = listOf(record.chapterId))
-                        )
-                    } else {
-                        offlineRepository.markLocalUnread(session, record.chapterId)
-                    }
-                }.onSuccess {
-                    selectedChapter = currentApi?.let {
-                        runCatching { it.seriesChapter(record.chapterId) }.getOrNull()
-                    } ?: detail?.copy(pagesRead = 0)
-                    Toast.makeText(ctx, "Marked as unread", Toast.LENGTH_SHORT).show()
-                }.onFailure {
-                    Toast.makeText(ctx, "Could not mark issue as unread", Toast.LENGTH_SHORT).show()
-                }
-                issueActionBusy = false
-            }
-        },
-        onDownload = {},
-        onRemoveDownload = {
-            selectedRecord?.let { deleteDownloaded(it, closeSheet = true) }
-        }
-    )
 }
 
 @Composable
@@ -497,12 +345,11 @@ private fun HomeShell(
     downloaded: List<OfflineIssueRecord>,
     onOpenSettings: () -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
+    onOpenDownloaded: () -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
     onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
-    onRemoveWantToRead: (SeriesDto) -> Unit,
-    onSelectDownloaded: (OfflineIssueRecord) -> Unit,
-    onDeleteDownloaded: (OfflineIssueRecord) -> Unit
+    onRemoveWantToRead: (SeriesDto) -> Unit
 ) {
     var destination by rememberSaveable(
         stateSaver = Saver(
@@ -510,15 +357,9 @@ private fun HomeShell(
             restore = { HomeDestination.entries[it] }
         )
     ) { mutableStateOf(HomeDestination.Home) }
-    var showDownloaded by rememberSaveable { mutableStateOf(false) }
 
     fun selectDestination(next: HomeDestination) {
-        if (next == HomeDestination.Browse) showDownloaded = false
         destination = next
-    }
-
-    BackHandler(enabled = destination == HomeDestination.Browse && showDownloaded) {
-        showDownloaded = false
     }
 
     BoxWithConstraints(
@@ -552,16 +393,12 @@ private fun HomeShell(
                         wantToRead = wantToRead,
                         wantToReadError = wantToReadError,
                         downloaded = downloaded,
-                        showDownloaded = showDownloaded,
                         onSelectLibrary = onSelectLibrary,
                         onScanLibrary = onScanLibrary,
                         onSelectSeries = onSelectSeries,
                         onOpenShelf = onOpenShelf,
                         onRemoveWantToRead = onRemoveWantToRead,
-                        onSelectDownloaded = onSelectDownloaded,
-                        onDeleteDownloaded = onDeleteDownloaded,
-                        onOpenDownloaded = { showDownloaded = true },
-                        onBackToBrowse = { showDownloaded = false },
+                        onOpenDownloaded = onOpenDownloaded,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -584,16 +421,12 @@ private fun HomeShell(
                     wantToRead = wantToRead,
                     wantToReadError = wantToReadError,
                     downloaded = downloaded,
-                    showDownloaded = showDownloaded,
                     onSelectLibrary = onSelectLibrary,
                     onScanLibrary = onScanLibrary,
                     onSelectSeries = onSelectSeries,
                     onOpenShelf = onOpenShelf,
                     onRemoveWantToRead = onRemoveWantToRead,
-                    onSelectDownloaded = onSelectDownloaded,
-                    onDeleteDownloaded = onDeleteDownloaded,
-                    onOpenDownloaded = { showDownloaded = true },
-                    onBackToBrowse = { showDownloaded = false },
+                    onOpenDownloaded = onOpenDownloaded,
                     modifier = Modifier.weight(1f)
                 )
                 HomeBottomNavigation(
@@ -920,16 +753,12 @@ private fun HomeContent(
     wantToRead: List<SeriesDto>,
     wantToReadError: String?,
     downloaded: List<OfflineIssueRecord>,
-    showDownloaded: Boolean,
     onSelectLibrary: (LibraryDto) -> Unit,
     onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
     onRemoveWantToRead: (SeriesDto) -> Unit,
-    onSelectDownloaded: (OfflineIssueRecord) -> Unit,
-    onDeleteDownloaded: (OfflineIssueRecord) -> Unit,
     onOpenDownloaded: () -> Unit,
-    onBackToBrowse: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxSize()) {
@@ -1002,22 +831,11 @@ private fun HomeContent(
                 }
             }
             HomeDestination.Browse -> {
-                if (showDownloaded) {
-                    DownloadedGrid(
-                        records = downloaded,
-                        session = session,
-                        onSelect = onSelectDownloaded,
-                        onDelete = onDeleteDownloaded,
-                        onBack = onBackToBrowse,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    BrowseHub(
-                        downloadedCount = downloaded.size,
-                        onOpenDownloaded = onOpenDownloaded,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                BrowseHub(
+                    downloadedCount = downloaded.size,
+                    onOpenDownloaded = onOpenDownloaded,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
             HomeDestination.Search -> {
                 HomePlaceholder(destination, Modifier.fillMaxSize())
@@ -1235,6 +1053,201 @@ private fun DownloadedIssueCardMenu(
             )
         }
     }
+}
+
+@Composable
+internal fun DownloadedScreen(
+    sessionStore: KavitaSessionStore,
+    onBack: () -> Unit,
+    onPickIssue: (
+        libraryId: Int,
+        seriesId: Int,
+        volumeId: Int,
+        chapterId: Int,
+        incognito: Boolean
+    ) -> Unit
+) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+
+    var session by remember { mutableStateOf(KavitaSession()) }
+    var api by remember { mutableStateOf<KavitaApi?>(null) }
+    var selectedDownload by remember { mutableStateOf<OfflineIssueRecord?>(null) }
+    var selectedChapter by remember { mutableStateOf<ChapterDto?>(null) }
+    var selectedVolume by remember { mutableStateOf<VolumeDto?>(null) }
+    var issueLoading by remember { mutableStateOf(false) }
+    var issueActionBusy by remember { mutableStateOf(false) }
+
+    val downloadedFlow = remember(session.baseUrl, session.username, session.apiKey) {
+        offlineRepository.observeDownloaded(session)
+    }
+    val downloaded by downloadedFlow.collectAsState(initial = emptyList())
+
+    LaunchedEffect(Unit) {
+        val loadedSession = sessionStore.load()
+        session = loadedSession
+        runCatching { offlineRepository.ensureLocalCovers(loadedSession) }
+        api = runCatching {
+            KavitaClient(ctx, sessionStore).buildApi().first
+        }.getOrNull()
+    }
+
+    fun openDownloaded(record: OfflineIssueRecord) {
+        selectedDownload = record
+        val fallbackChapter = ChapterDto(
+            id = record.chapterId,
+            title = record.issueName,
+            pages = record.pageCount.takeIf { it > 0 },
+            pagesRead = record.localPage,
+            volumeId = record.volumeId
+        )
+        selectedChapter = fallbackChapter
+        selectedVolume = VolumeDto(
+            id = record.volumeId,
+            name = record.issueName,
+            chapters = listOf(fallbackChapter)
+        )
+        val currentApi = api
+        issueLoading = currentApi != null
+        if (currentApi == null) return
+        scope.launch {
+            val detail = runCatching { currentApi.seriesChapter(record.chapterId) }.getOrNull()
+            val volume = runCatching { currentApi.volumes(record.seriesId) }.getOrNull()
+                ?.firstOrNull { candidate ->
+                    candidate.id == record.volumeId || candidate.chapters.any { it.id == record.chapterId }
+                }
+            if (selectedDownload?.chapterId == record.chapterId) {
+                selectedChapter = detail ?: fallbackChapter
+                selectedVolume = volume ?: detail?.let {
+                    VolumeDto(id = record.volumeId, name = record.issueName, chapters = listOf(it))
+                } ?: selectedVolume
+                issueLoading = false
+            }
+        }
+    }
+
+    fun deleteDownloaded(record: OfflineIssueRecord, closeSheet: Boolean = false) {
+        scope.launch {
+            issueActionBusy = true
+            runCatching { offlineRepository.remove(session, record.chapterId) }
+                .onSuccess {
+                    if (closeSheet && selectedDownload?.chapterId == record.chapterId) {
+                        selectedDownload = null
+                        selectedChapter = null
+                        selectedVolume = null
+                    }
+                    Toast.makeText(ctx, "Download deleted", Toast.LENGTH_SHORT).show()
+                }
+                .onFailure {
+                    Toast.makeText(ctx, "Could not delete download", Toast.LENGTH_SHORT).show()
+                }
+            issueActionBusy = false
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .background(Color(0xFF202222))
+    ) {
+        DownloadedGrid(
+            records = downloaded,
+            session = session,
+            onSelect = ::openDownloaded,
+            onDelete = { deleteDownloaded(it) },
+            onBack = onBack,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+
+    val selectedRecord = selectedDownload
+    val detail = selectedChapter
+    val actionColor = detail?.coverActionColor(Color(0xFF6A5BB7)) ?: Color(0xFF6A5BB7)
+    IssueDetailSideSheet(
+        visible = selectedRecord != null,
+        seriesName = selectedRecord?.seriesName.orEmpty(),
+        volume = selectedVolume,
+        chapter = detail,
+        fileSizeBytes = selectedRecord?.totalBytes,
+        downloadRecord = selectedRecord,
+        loading = issueLoading,
+        actionBusy = issueActionBusy,
+        session = session,
+        actionColor = actionColor,
+        onDismissRequest = {
+            selectedDownload = null
+            selectedChapter = null
+            selectedVolume = null
+        },
+        onRead = {
+            selectedRecord?.let {
+                onPickIssue(it.libraryId, it.seriesId, it.volumeId, it.chapterId, false)
+            }
+        },
+        onReadIncognito = {
+            selectedRecord?.let {
+                onPickIssue(it.libraryId, it.seriesId, it.volumeId, it.chapterId, true)
+            }
+        },
+        onMarkRead = {
+            val record = selectedRecord ?: return@IssueDetailSideSheet
+            val currentApi = api
+            scope.launch {
+                issueActionBusy = true
+                runCatching {
+                    if (currentApi != null) {
+                        currentApi.markChapterRead(MarkChapterReadDto(record.seriesId, record.chapterId, false))
+                    } else {
+                        offlineRepository.saveLocalProgress(
+                            session = session,
+                            chapterId = record.chapterId,
+                            page = record.pageCount,
+                            markRead = true
+                        )
+                    }
+                }.onSuccess {
+                    selectedChapter = currentApi?.let {
+                        runCatching { it.seriesChapter(record.chapterId) }.getOrNull()
+                    } ?: detail?.copy(pagesRead = detail.pages)
+                    Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show()
+                }.onFailure {
+                    Toast.makeText(ctx, "Could not mark issue as read", Toast.LENGTH_SHORT).show()
+                }
+                issueActionBusy = false
+            }
+        },
+        onMarkUnread = {
+            val record = selectedRecord ?: return@IssueDetailSideSheet
+            val currentApi = api
+            scope.launch {
+                issueActionBusy = true
+                runCatching {
+                    if (currentApi != null) {
+                        currentApi.markChaptersUnread(
+                            MarkVolumesReadDto(record.seriesId, chapterIds = listOf(record.chapterId))
+                        )
+                    } else {
+                        offlineRepository.markLocalUnread(session, record.chapterId)
+                    }
+                }.onSuccess {
+                    selectedChapter = currentApi?.let {
+                        runCatching { it.seriesChapter(record.chapterId) }.getOrNull()
+                    } ?: detail?.copy(pagesRead = 0)
+                    Toast.makeText(ctx, "Marked as unread", Toast.LENGTH_SHORT).show()
+                }.onFailure {
+                    Toast.makeText(ctx, "Could not mark issue as unread", Toast.LENGTH_SHORT).show()
+                }
+                issueActionBusy = false
+            }
+        },
+        onDownload = {},
+        onRemoveDownload = {
+            selectedRecord?.let { deleteDownloaded(it, closeSheet = true) }
+        }
+    )
 }
 
 @Composable
