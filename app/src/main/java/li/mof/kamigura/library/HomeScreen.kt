@@ -1242,7 +1242,7 @@ private fun HomeShelf(
                         series = item,
                         session = session,
                         modifier = Modifier
-                            .fillMaxSize()
+                            .fillMaxWidth()
                             .clickable { onSelectSeries(item) }
                     )
                 }
