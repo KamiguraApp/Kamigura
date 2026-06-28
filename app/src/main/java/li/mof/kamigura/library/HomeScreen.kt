@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuOpen
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CollectionsBookmark
@@ -140,6 +141,22 @@ private enum class HomeDestination(
 
 private val PaginationHeaderJson = Json { ignoreUnknownKeys = true }
 
+enum class HomeShelfKind(
+    val routeValue: String,
+    val title: String,
+    val emptyMessage: String
+) {
+    OnDeck("on-deck", "On Deck", "No on-deck series"),
+    RecentlyUpdated("recently-updated", "Recently Updated Series", "No recently updated series"),
+    NewlyAdded("newly-added", "Newly Added Series", "No newly added series");
+
+    companion object {
+        fun fromRouteValue(value: String?): HomeShelfKind? {
+            return entries.firstOrNull { it.routeValue == value }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(
@@ -149,6 +166,7 @@ fun LibraryScreen(
     onOpenUpdate: (String) -> Unit = {},
     onUpdateNoticeShown: () -> Unit = {},
     onOpenSettings: () -> Unit,
+    onOpenShelf: (HomeShelfKind) -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
     onPickIssue: (
@@ -357,6 +375,7 @@ fun LibraryScreen(
             wantToReadError = wantToReadError,
             downloaded = downloaded,
             onOpenSettings = onOpenSettings,
+            onOpenShelf = onOpenShelf,
             onSelectLibrary = onSelectLibrary,
             onScanLibrary = ::scanLibrary,
             onSelectSeries = onSelectSeries,
@@ -477,6 +496,7 @@ private fun HomeShell(
     wantToReadError: String?,
     downloaded: List<OfflineIssueRecord>,
     onOpenSettings: () -> Unit,
+    onOpenShelf: (HomeShelfKind) -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
     onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
@@ -536,6 +556,7 @@ private fun HomeShell(
                         onSelectLibrary = onSelectLibrary,
                         onScanLibrary = onScanLibrary,
                         onSelectSeries = onSelectSeries,
+                        onOpenShelf = onOpenShelf,
                         onRemoveWantToRead = onRemoveWantToRead,
                         onSelectDownloaded = onSelectDownloaded,
                         onDeleteDownloaded = onDeleteDownloaded,
@@ -567,6 +588,7 @@ private fun HomeShell(
                     onSelectLibrary = onSelectLibrary,
                     onScanLibrary = onScanLibrary,
                     onSelectSeries = onSelectSeries,
+                    onOpenShelf = onOpenShelf,
                     onRemoveWantToRead = onRemoveWantToRead,
                     onSelectDownloaded = onSelectDownloaded,
                     onDeleteDownloaded = onDeleteDownloaded,
@@ -902,6 +924,7 @@ private fun HomeContent(
     onSelectLibrary: (LibraryDto) -> Unit,
     onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
+    onOpenShelf: (HomeShelfKind) -> Unit,
     onRemoveWantToRead: (SeriesDto) -> Unit,
     onSelectDownloaded: (OfflineIssueRecord) -> Unit,
     onDeleteDownloaded: (OfflineIssueRecord) -> Unit,
@@ -933,13 +956,19 @@ private fun HomeContent(
                         verticalArrangement = Arrangement.spacedBy(22.dp)
                     ) {
                         item {
-                            HomeShelf("On Deck", onDeck, session, onSelectSeries)
+                            HomeShelf(HomeShelfKind.OnDeck, onDeck, session, onOpenShelf, onSelectSeries)
                         }
                         item {
-                            HomeShelf("Recently Updated Series", recentlyUpdated, session, onSelectSeries)
+                            HomeShelf(
+                                HomeShelfKind.RecentlyUpdated,
+                                recentlyUpdated,
+                                session,
+                                onOpenShelf,
+                                onSelectSeries
+                            )
                         }
                         item {
-                            HomeShelf("Newly Added Series", newlyAdded, session, onSelectSeries)
+                            HomeShelf(HomeShelfKind.NewlyAdded, newlyAdded, session, onOpenShelf, onSelectSeries)
                         }
                     }
                 }
@@ -1210,13 +1239,33 @@ private fun DownloadedIssueCardMenu(
 
 @Composable
 private fun HomeShelf(
-    title: String,
+    kind: HomeShelfKind,
     series: List<SeriesDto>,
     session: KavitaSession,
+    onOpenShelf: (HomeShelfKind) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit
 ) {
     Column {
-        Text(title, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpenShelf(kind) },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                kind.title,
+                color = Color.White,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "Open ${kind.title}",
+                tint = Color(0xFFE6EAEA)
+            )
+        }
         Spacer(Modifier.height(10.dp))
         if (series.isEmpty()) {
             Text("Nothing here yet", color = Color(0xFF9FA5A5), style = MaterialTheme.typography.bodyMedium)
@@ -1251,6 +1300,71 @@ private fun HomeShelf(
         }
     }
 }
+
+@Composable
+internal fun SeriesShelfScreen(
+    sessionStore: KavitaSessionStore,
+    shelfKind: HomeShelfKind,
+    onBack: () -> Unit,
+    onSelectSeries: (SeriesDto) -> Unit
+) {
+    val ctx = LocalContext.current
+    var series by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
+    var session by remember { mutableStateOf(KavitaSession()) }
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(shelfKind) {
+        loading = true
+        error = null
+        try {
+            session = sessionStore.load()
+            val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
+            series = api.loadShelfSeries(shelfKind)
+        } catch (t: Throwable) {
+            error = t.message ?: t.toString()
+        } finally {
+            loading = false
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .background(Color(0xFF202222))
+    ) {
+        BrowsePageScaffold(title = shelfKind.title, onBack = onBack) {
+            when {
+                loading -> DarkLoadingState()
+                error != null -> DarkMessageState("Could not load ${shelfKind.title}", error ?: "Unknown error")
+                series.isEmpty() -> DarkMessageState(shelfKind.title, shelfKind.emptyMessage)
+                else -> PosterGrid(items = series, key = { it.id }) { item ->
+                    SeriesPosterCard(
+                        series = item,
+                        session = session,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectSeries(item) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private suspend fun KavitaApi.loadShelfSeries(shelfKind: HomeShelfKind): List<SeriesDto> {
+    return when (shelfKind) {
+        HomeShelfKind.OnDeck -> onDeck(pageSize = HomeShelfPageSize)
+        HomeShelfKind.RecentlyUpdated -> recentlyUpdatedSeries(pageSize = HomeShelfPageSize)
+            .map { it.toSeriesDto() }
+            .distinctBy { it.id }
+        HomeShelfKind.NewlyAdded -> recentlyAdded(pageSize = HomeShelfPageSize)
+    }
+}
+
+private const val HomeShelfPageSize = 200
 
 private fun GroupedSeriesDto.toSeriesDto(): SeriesDto {
     return SeriesDto(

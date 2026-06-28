@@ -45,6 +45,8 @@ import li.mof.kamigura.ui.theme.KamiguraTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import li.mof.kamigura.library.LibraryScreen
+import li.mof.kamigura.library.HomeShelfKind
+import li.mof.kamigura.library.SeriesShelfScreen
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.ReaderScreen
 import li.mof.kamigura.series.ChapterPickScreen
@@ -185,6 +187,7 @@ fun AppRoot(
                     },
                     onUpdateNoticeShown = { updateNoticeShown = true },
                     onOpenSettings = { nav.navigate("settings") },
+                    onOpenShelf = { shelfKind -> nav.navigate("shelf/${shelfKind.routeValue}") },
                     onSelectLibrary = { lib -> nav.navigate("series/${lib.id}/${lib.name}") },
                     onSelectSeries = { series ->
                         val libraryId = series.libraryId ?: 0
@@ -192,6 +195,26 @@ fun AppRoot(
                     },
                     onPickIssue = { libraryId, seriesId, volumeId, chapterId, incognito ->
                         nav.navigate("reader/$libraryId/$seriesId/$volumeId/$chapterId?incognito=$incognito")
+                    }
+                )
+            }
+
+            composable(
+                route = "shelf/{shelfKind}",
+                arguments = listOf(
+                    navArgument("shelfKind") { type = NavType.StringType }
+                )
+            ) { backStack ->
+                val shelfKind = HomeShelfKind.fromRouteValue(
+                    backStack.arguments!!.getString("shelfKind")
+                ) ?: HomeShelfKind.OnDeck
+                SeriesShelfScreen(
+                    sessionStore = sessionStore,
+                    shelfKind = shelfKind,
+                    onBack = { nav.popBackStack() },
+                    onSelectSeries = { series ->
+                        val libraryId = series.libraryId ?: 0
+                        nav.navigate("chapters/$libraryId/${series.id}/${series.name}")
                     }
                 )
             }
