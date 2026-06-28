@@ -96,6 +96,7 @@ import li.mof.kamigura.download.OfflineDownloadStatus
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
+import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
@@ -1070,7 +1071,7 @@ private fun SeriesDetailHero(
 private fun SeriesCover(series: SeriesDto, session: KavitaSession, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
-            .aspectRatio(0.68f)
+            .aspectRatio(KavitaCoverAspectRatio)
             .background(Color(0xFF111111)),
         contentAlignment = Alignment.Center
     ) {
@@ -1171,7 +1172,7 @@ private fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCli
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(0.72f)
+                    .aspectRatio(KavitaCoverAspectRatio)
                     .background(Color(0xFF111111)),
                 contentAlignment = Alignment.Center
             ) {

@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.SeriesDto
+import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.seriesCoverUrl
 import li.mof.kamigura.ui.seriesInitial
 import li.mof.kamigura.ui.theme.ReadingProgressInProgress
@@ -123,7 +124,7 @@ internal fun SeriesPosterCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(0.68f)
+                    .aspectRatio(KavitaCoverAspectRatio)
                     .background(Color(0xFF111111)),
                 contentAlignment = Alignment.Center
             ) {

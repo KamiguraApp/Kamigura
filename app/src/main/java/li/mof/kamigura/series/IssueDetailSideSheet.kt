@@ -54,6 +54,7 @@ import li.mof.kamigura.VolumeDto
 import li.mof.kamigura.download.OfflineDownloadStatus
 import li.mof.kamigura.download.OfflineIssueRecord
 import li.mof.kamigura.download.localCoverFile
+import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.ModalSideSheet
 import li.mof.kamigura.ui.theme.ReadingProgressInProgress
 import li.mof.kamigura.ui.theme.ReadingProgressRead
@@ -144,7 +145,7 @@ private fun IssueDetailContent(
                             contentDescription = issueTitle(seriesName, chapter),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(0.72f)
+                                .aspectRatio(KavitaCoverAspectRatio)
                                 .background(MaterialTheme.colorScheme.surfaceContainerLowest),
                             contentScale = ContentScale.Crop
                         )

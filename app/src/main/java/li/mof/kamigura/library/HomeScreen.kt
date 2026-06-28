@@ -120,6 +120,7 @@ import li.mof.kamigura.series.chapterCoverUrl
 import li.mof.kamigura.series.coverActionColor
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
+import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
@@ -1168,7 +1169,7 @@ private fun DownloadedIssueCardMenu(
                     contentDescription = record.issueName,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(0.72f)
+                        .aspectRatio(KavitaCoverAspectRatio)
                         .background(Color(0xFF111111)),
                     contentScale = ContentScale.Crop
                 )
