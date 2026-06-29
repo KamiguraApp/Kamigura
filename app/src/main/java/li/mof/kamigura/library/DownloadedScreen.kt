@@ -50,7 +50,7 @@ import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.download.localCoverFile
 import li.mof.kamigura.series.IssueDetailSideSheet
 import li.mof.kamigura.series.chapterCoverUrl
-import li.mof.kamigura.series.coverActionColor
+import li.mof.kamigura.series.internal.coverActionColor
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold

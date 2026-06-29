@@ -118,7 +118,7 @@ import li.mof.kamigura.download.localCoverFile
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.series.IssueDetailSideSheet
 import li.mof.kamigura.series.chapterCoverUrl
-import li.mof.kamigura.series.coverActionColor
+import li.mof.kamigura.series.internal.coverActionColor
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.KavitaCoverAspectRatio

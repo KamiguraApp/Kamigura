@@ -54,6 +54,9 @@ import li.mof.kamigura.VolumeDto
 import li.mof.kamigura.download.OfflineDownloadStatus
 import li.mof.kamigura.download.OfflineIssueRecord
 import li.mof.kamigura.download.localCoverFile
+import li.mof.kamigura.series.internal.displayName
+import li.mof.kamigura.series.internal.primaryReadActionText
+import li.mof.kamigura.series.internal.readingHoursText
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.ModalSideSheet
 import li.mof.kamigura.ui.theme.ReadingProgressInProgress
