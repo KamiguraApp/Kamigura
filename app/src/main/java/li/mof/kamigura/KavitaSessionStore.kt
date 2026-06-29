@@ -119,6 +119,7 @@ class KavitaSessionStore(private val context: Context) {
         val normalized = session.normalized()
         val existingProfiles = profiles()
         val existing = existingProfiles.firstOrNull { it.id == profileId }
+            ?: existingProfiles.firstOrNull { it.matchesServerIdentity(normalized) }
         val savedSession = if (rememberAuth) {
             normalized
         } else {
@@ -131,7 +132,7 @@ class KavitaSessionStore(private val context: Context) {
             openByDefault = openByDefault ?: existing?.openByDefault ?: existingProfiles.none { it.openByDefault }
         )
         val nextProfiles = existingProfiles
-            .filterNot { it.id == savedProfile.id }
+            .filterNot { it.id == savedProfile.id || it.matchesServerIdentity(normalized) }
             .plus(savedProfile)
             .normalizeDefault(savedProfile.id, savedProfile.openByDefault)
 
@@ -311,6 +312,14 @@ class KavitaSessionStore(private val context: Context) {
             .trimEnd('/')
             .ifBlank { "New Server" }
         return if (username.isBlank()) server else "$server / $username"
+    }
+
+    private fun KavitaServerProfile.matchesServerIdentity(session: KavitaSession): Boolean {
+        if (session.baseUrl.isBlank() || this.session.baseUrl.isBlank()) return false
+        if (!this.session.baseUrl.equals(session.baseUrl, ignoreCase = true)) return false
+        return this.session.username.equals(session.username, ignoreCase = true) ||
+            this.session.username.isBlank() ||
+            session.username.isBlank()
     }
 
     private fun String.isLegacySecret(): Boolean {

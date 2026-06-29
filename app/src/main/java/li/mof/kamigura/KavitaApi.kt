@@ -95,20 +95,20 @@ interface KavitaApi {
         @Query("skipImplicit") skipImplicit: Boolean = false
     ): UserReadingProfileDto
 
-    @GET("api/reader/chapter-info")
+    @GET("api/Reader/chapter-info")
     suspend fun chapterInfo(
         @Query("chapterId") chapterId: Int,
         @Query("includeDimensions") includeDimensions: Boolean = false,
         @Query("extractPdf") extractPdf: Boolean = false
     ): ChapterInfoDto
 
-    @GET("api/reader/get-progress")
+    @GET("api/Reader/get-progress")
     suspend fun getProgress(@Query("chapterId") chapterId: Int): ProgressDto
 
     @GET("api/Reader/continue-point")
     suspend fun continuePoint(@Query("seriesId") seriesId: Int): ChapterDto
 
-    @POST("api/reader/progress")
+    @POST("api/Reader/progress")
     suspend fun saveProgress(@Body dto: ProgressDto)
 
     @POST("api/Reader/mark-chapter-read")

@@ -159,7 +159,7 @@ class KavitaClient(
 
     fun pageImageUrl(baseUrl: String, apiKey: String, chapterId: Int, page: Int): String {
         val root = normalizeBaseUrl(baseUrl)
-        return "$root/api/reader/image?chapterId=$chapterId${apiKeyQuery(apiKey)}&page=$page"
+        return "$root/api/Reader/image?chapterId=$chapterId${apiKeyQuery(apiKey)}&page=$page"
     }
 
     fun seriesCoverUrl(baseUrl: String, apiKey: String, seriesId: Int): String {

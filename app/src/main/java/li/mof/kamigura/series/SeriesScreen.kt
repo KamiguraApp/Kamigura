@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.DropdownMenuPopup
@@ -199,11 +200,10 @@ fun SeriesScreen(
                                 tint = Color.White
                             )
                         }
-                        DropdownMenuPopup(
+                        DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false },
-                            modifier = Modifier.width(220.dp),
-                            offset = DpOffset(x = (-172).dp, y = 0.dp)
+                            modifier = Modifier.width(220.dp)
                         ) {
                             DropdownMenuGroup(
                                 shapes = MenuDefaults.groupShape(index = 0, count = 1)
