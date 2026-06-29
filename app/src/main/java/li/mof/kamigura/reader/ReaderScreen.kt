@@ -90,6 +90,24 @@ import li.mof.kamigura.download.OfflineChapter
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.download.OfflinePage
 import li.mof.kamigura.download.decodeOfflinePage
+import li.mof.kamigura.reader.internal.ReaderDragMode
+import li.mof.kamigura.reader.internal.ReaderInvertCacheKey
+import li.mof.kamigura.reader.internal.ReaderPendingCenterTap
+import li.mof.kamigura.reader.internal.ReaderPrefetchConcurrency
+import li.mof.kamigura.reader.internal.ReaderPrefetchTarget
+import li.mof.kamigura.reader.internal.ReaderTapZone
+import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
+import li.mof.kamigura.reader.internal.ReaderZoomPanState
+import li.mof.kamigura.reader.internal.lerpTo
+import li.mof.kamigura.reader.internal.readerPageLayout
+import li.mof.kamigura.reader.internal.readerPanBoundsPx
+import li.mof.kamigura.reader.internal.readerPrefetchPageIndicesAround
+import li.mof.kamigura.reader.internal.readerPrefetchSlotWidthPx
+import li.mof.kamigura.reader.internal.readerVisiblePageIndices
+import li.mof.kamigura.reader.internal.spreadPagesFor
+import li.mof.kamigura.reader.internal.toPageDimensionMap
+import li.mof.kamigura.reader.internal.withDoubleTapZoom
+import li.mof.kamigura.reader.internal.withTransform
 import li.mof.kamigura.ui.ValueBubbleSlider
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -131,260 +149,7 @@ private const val KavitaReadingDirectionRtl = 1
 // ReadingProfileKind.Default = the user's global default (no per-series direction).
 private const val KavitaReadingProfileKindDefault = 0
 
-private const val ReaderDoubleTapUserZoomScale = 2f
-private const val ReaderMaxZoomScale = 5f
-private const val ReaderZoomEpsilon = 0.01f
-private const val ReaderPrefetchConcurrency = 2
 private const val ReaderProgressSyncDelayMillis = 3_000L
-
-private enum class ReaderDragMode {
-    Pending,
-    HorizontalTurn,
-    VerticalClose,
-    ZoomEdgeTurn
-}
-
-private enum class ReaderTapZone {
-    Left,
-    Center,
-    Right
-}
-
-private data class ReaderPendingCenterTap(
-    val position: Offset,
-    val uptimeMillis: Long
-)
-
-private data class ReaderSpreadPages(
-    val leftPage: Int,
-    val rightPage: Int
-)
-
-private data class ReaderPageLayout(
-    val singlePage: Boolean,
-    val nextStep: Int,
-    val previousStep: Int,
-    val singleAlignment: Alignment
-)
-
-private data class ReaderZoomPanState(
-    val userScale: Float = 1f,
-    val offsetX: Float = 0f,
-    val offsetY: Float = 0f
-)
-
-private fun ReaderZoomPanState.lerpTo(
-    target: ReaderZoomPanState,
-    fraction: Float
-): ReaderZoomPanState {
-    val t = fraction.coerceIn(0f, 1f)
-    return ReaderZoomPanState(
-        userScale = userScale + (target.userScale - userScale) * t,
-        offsetX = offsetX + (target.offsetX - offsetX) * t,
-        offsetY = offsetY + (target.offsetY - offsetY) * t
-    )
-}
-
-private data class ReaderPanBounds(
-    val maxX: Float,
-    val maxY: Float
-)
-
-private data class ReaderInvertCacheKey(
-    val model: Any,
-    val whiteThreshold: Float
-)
-
-private data class ReaderPrefetchTarget(
-    val model: String,
-    val targetWidth: Int,
-    val targetHeight: Int
-)
-
-private fun Map<Int, FileDimensionDto>.pageIsWide(page: Int): Boolean {
-    return page >= 0 && this[page]?.isWidePage() == true
-}
-
-private fun List<FileDimensionDto>.toPageDimensionMap(): Map<Int, FileDimensionDto> {
-    return mapNotNull { dimension ->
-        val page = dimension.pageNumber ?: return@mapNotNull null
-        if (page < 0) null else page to dimension
-    }.toMap()
-}
-
-private fun FileDimensionDto.isWidePage(): Boolean {
-    return isWide
-}
-
-private fun spreadPagesFor(page: Int, rightToLeft: Boolean): ReaderSpreadPages {
-    val firstPage = page
-    val secondPage = page + 1
-    return if (rightToLeft) {
-        ReaderSpreadPages(leftPage = secondPage, rightPage = firstPage)
-    } else {
-        ReaderSpreadPages(leftPage = firstPage, rightPage = secondPage)
-    }
-}
-
-private fun readerPageLayout(
-    page: Int,
-    pageCount: Int,
-    portrait: Boolean,
-    pageDimensions: Map<Int, FileDimensionDto>
-): ReaderPageLayout {
-    if (portrait) {
-        return ReaderPageLayout(
-            singlePage = true,
-            nextStep = 1,
-            previousStep = 1,
-            singleAlignment = Alignment.Center
-        )
-    }
-
-    val currentPageIsWide = pageDimensions.pageIsWide(page)
-    val pairedPageIsWide = pageDimensions.pageIsWide(page + 1)
-    // The cover (page 0) is always shown alone, matching Kavita's pairing, so the
-    // first spread starts at page 1. Foldout/wide misalignment beyond this is still
-    // corrected manually with the Shift +1/-1 buttons.
-    val isCover = page == 0
-    val singlePage = isCover || currentPageIsWide || pairedPageIsWide || page + 1 >= pageCount
-
-    return ReaderPageLayout(
-        singlePage = singlePage,
-        nextStep = if (singlePage) 1 else 2,
-        previousStep = if (currentPageIsWide || pageDimensions.pageIsWide(page - 1) || page - 1 == 0) 1 else 2,
-        singleAlignment = Alignment.Center
-    )
-}
-
-private fun readerVisiblePageIndices(
-    page: Int,
-    pageCount: Int,
-    portrait: Boolean,
-    pageDimensions: Map<Int, FileDimensionDto>
-): List<Int> {
-    if (page !in 0 until pageCount) return emptyList()
-    val layout = readerPageLayout(page, pageCount, portrait, pageDimensions)
-    if (layout.singlePage) return listOf(page)
-    return listOf(page, page + 1).filter { it in 0 until pageCount }
-}
-
-internal fun readerPrefetchPageIndices(
-    page: Int,
-    pageCount: Int,
-    portrait: Boolean,
-    pageDimensions: Map<Int, FileDimensionDto>,
-    turns: Int
-): List<Int> {
-    if (pageCount <= 0 || page !in 0 until pageCount || turns <= 0) return emptyList()
-    val result = LinkedHashSet<Int>()
-    var cursor = page
-    var remainingTurns = turns
-    while (remainingTurns > 0) {
-        val currentLayout = readerPageLayout(cursor, pageCount, portrait, pageDimensions)
-        val next = cursor + currentLayout.nextStep
-        if (next !in 0 until pageCount) break
-        result += readerVisiblePageIndices(next, pageCount, portrait, pageDimensions)
-        cursor = next
-        remainingTurns--
-    }
-    return result.toList()
-}
-
-private fun readerPrefetchPageIndicesAround(
-    page: Int,
-    pageCount: Int,
-    portrait: Boolean,
-    pageDimensions: Map<Int, FileDimensionDto>,
-    turns: Int
-): List<Int> {
-    if (pageCount <= 0 || page !in 0 until pageCount || turns <= 0) return emptyList()
-    val result = LinkedHashSet<Int>()
-    val layout = readerPageLayout(page, pageCount, portrait, pageDimensions)
-    result += readerPrefetchPageIndices(page, pageCount, portrait, pageDimensions, turns)
-    if (page > 0) {
-        val previous = (page - layout.previousStep).coerceAtLeast(0)
-        result += readerVisiblePageIndices(previous, pageCount, portrait, pageDimensions)
-    }
-    return result.toList()
-}
-
-private fun readerPrefetchSlotWidthPx(
-    page: Int,
-    pageCount: Int,
-    portrait: Boolean,
-    pageDimensions: Map<Int, FileDimensionDto>,
-    viewportWidthPx: Float
-): Int {
-    val layout = readerPageLayout(page, pageCount, portrait, pageDimensions)
-    val width = if (layout.singlePage) viewportWidthPx else viewportWidthPx / 2f
-    return width.roundToInt().coerceAtLeast(1)
-}
-
-private fun readerPanBoundsPx(
-    viewportWidthPx: Float,
-    viewportHeightPx: Float,
-    zoomScale: Float
-): ReaderPanBounds {
-    val overflowScale = (zoomScale - 1f).coerceAtLeast(0f)
-    return ReaderPanBounds(
-        maxX = viewportWidthPx * overflowScale / 2f,
-        maxY = viewportHeightPx * overflowScale / 2f
-    )
-}
-
-private fun ReaderZoomPanState.withTransform(
-    zoomChange: Float,
-    panChange: Offset,
-    focalPoint: Offset,
-    baseZoomScale: Float,
-    viewportWidthPx: Float,
-    viewportHeightPx: Float
-): ReaderZoomPanState {
-    val maxUserScale = (ReaderMaxZoomScale / baseZoomScale).coerceAtLeast(1f)
-    val oldTotalScale = baseZoomScale * userScale
-    val nextUserScale = (userScale * zoomChange).coerceIn(1f, maxUserScale)
-    val nextTotalScale = baseZoomScale * nextUserScale
-    val bounds = readerPanBoundsPx(viewportWidthPx, viewportHeightPx, nextTotalScale)
-    val keepOffset = nextTotalScale > 1f + ReaderZoomEpsilon
-    val center = Offset(viewportWidthPx / 2f, viewportHeightPx / 2f)
-    val focalFromCenter = focalPoint - center
-    val previousFocalFromCenter = focalFromCenter - panChange
-    val scaleChange = if (oldTotalScale > 0f) nextTotalScale / oldTotalScale else 1f
-    val nextOffsetX = focalFromCenter.x - (previousFocalFromCenter.x - offsetX) * scaleChange
-    val nextOffsetY = focalFromCenter.y - (previousFocalFromCenter.y - offsetY) * scaleChange
-    return ReaderZoomPanState(
-        userScale = nextUserScale,
-        offsetX = if (keepOffset) nextOffsetX.coerceIn(-bounds.maxX, bounds.maxX) else 0f,
-        offsetY = if (keepOffset) nextOffsetY.coerceIn(-bounds.maxY, bounds.maxY) else 0f
-    )
-}
-
-private fun ReaderZoomPanState.withDoubleTapZoom(
-    tapPosition: Offset,
-    baseZoomScale: Float,
-    viewportWidthPx: Float,
-    viewportHeightPx: Float,
-    initialState: ReaderZoomPanState
-): ReaderZoomPanState {
-    if (userScale > 1f + ReaderZoomEpsilon) return initialState
-
-    val maxUserScale = (ReaderMaxZoomScale / baseZoomScale).coerceAtLeast(1f)
-    val nextUserScale = ReaderDoubleTapUserZoomScale.coerceIn(1f, maxUserScale)
-    if (nextUserScale <= 1f + ReaderZoomEpsilon) return initialState
-
-    val nextTotalScale = baseZoomScale * nextUserScale
-    val bounds = readerPanBoundsPx(viewportWidthPx, viewportHeightPx, nextTotalScale)
-    val center = Offset(viewportWidthPx / 2f, viewportHeightPx / 2f)
-    val tapFromCenter = tapPosition - center
-    return ReaderZoomPanState(
-        userScale = nextUserScale,
-        offsetX = (initialState.offsetX * nextUserScale + tapFromCenter.x * (1f - nextUserScale))
-            .coerceIn(-bounds.maxX, bounds.maxX),
-        offsetY = (initialState.offsetY * nextUserScale + tapFromCenter.y * (1f - nextUserScale))
-            .coerceIn(-bounds.maxY, bounds.maxY)
-    )
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
