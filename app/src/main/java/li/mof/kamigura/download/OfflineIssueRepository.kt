@@ -431,6 +431,7 @@ class OfflineIssueRepository(context: Context) {
             preferences[recordsKey] = encode(decode(preferences[recordsKey]).mapNotNull {
                 if (it.serverKey != key || it.chapterId != chapterId) return@mapNotNull it
                 if (it.progressPending || it.markReadPending || it.markUnreadPending) {
+                    // Keep a tombstone only while remote progress still needs syncing after the archive has been deleted.
                     it.copy(
                         downloadId = 0,
                         archivePath = "",
@@ -458,6 +459,7 @@ class OfflineIssueRepository(context: Context) {
                 "Downloaded file is incomplete (${chapter.pages.size}/${record.expectedPageCount} pages)"
             }
             val coverPath = runCatching {
+                // Persist a small local cover so the Downloaded shelf still has artwork when Coil's online cache is gone.
                 createLocalCover(record, chapter)?.absolutePath
             }.getOrNull().orEmpty()
             update(record.copy(
@@ -593,6 +595,7 @@ class OfflineIssueRepository(context: Context) {
             val coverPageIndex = comicInfoFrontCoverIndex(zip)
                 ?.takeIf { it in pages.indices }
                 ?: 0
+            // ComicInfo front-cover metadata wins over filename order because fan-made archives often mix naming schemes.
             return OfflineChapter(record, pages, dimensions, coverPageIndex)
         }
     }

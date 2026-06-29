@@ -82,6 +82,7 @@ import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
 
 private val PaginationHeaderJson = Json { ignoreUnknownKeys = true }
+
 @Composable
 private fun LibraryHub(
     libraries: List<LibraryDto>,
@@ -194,6 +195,7 @@ private fun LibraryIcon(library: LibraryDto, session: KavitaSession) {
 private fun libraryCoverUrl(session: KavitaSession, libraryId: Int): String {
     val root = normalizeKavitaBaseUrl(session.baseUrl)
     val apiKey = session.apiKey.takeIf { it.isNotBlank() }?.let { "&apiKey=${Uri.encode(it)}" }.orEmpty()
+    // Library icons are user-managed Kavita images, so the fallback initial remains visible until the endpoint proves usable.
     return "$root/api/Image/library-cover?libraryId=$libraryId$apiKey"
 }
 
@@ -227,6 +229,7 @@ private suspend fun KavitaApi.librarySeriesCount(libraryId: Int): Int? {
     )
     if (!response.isSuccessful) return null
 
+    // Request one item and read the pagination total; fetching full series lists here would make Home startup scale poorly.
     val header = response.headers()["Pagination"]
         ?: response.headers()["X-Pagination"]
         ?: return if (response.body().isNullOrEmpty()) 0 else null

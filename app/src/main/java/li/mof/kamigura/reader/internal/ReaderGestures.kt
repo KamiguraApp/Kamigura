@@ -18,6 +18,7 @@ import kotlin.math.hypot
 import li.mof.kamigura.reader.ReaderTurnDirection
 import li.mof.kamigura.reader.readerTurnForDrag
 import li.mof.kamigura.reader.readerTurnProgress
+
 /** Internal to reader, not for external use. */
 @Composable
 internal fun ReaderTapLayer(
@@ -194,6 +195,7 @@ private fun Modifier.readerGestures(
     val latestOnLeftLongPress by rememberUpdatedState(onLeftLongPress)
     val latestOnRightLongPress by rememberUpdatedState(onRightLongPress)
     val latestOnCenterDoubleTap by rememberUpdatedState(onCenterDoubleTap)
+    // Keep the pointerInput key stable; volatile gesture state is read through rememberUpdatedState to avoid restarting mid-swipe.
     return pointerInput(Unit) {
         var totalDragX = 0f
         var gestureDragX = 0f

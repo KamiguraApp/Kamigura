@@ -179,6 +179,7 @@ class KavitaClient(
     private fun normalizeBaseUrl(baseUrl: String): String = normalizeKavitaBaseUrl(baseUrl)
 
     private fun apiKeyQuery(apiKey: String): String {
+        // Coil image requests can be retried outside Retrofit's auth flow, so Kavita image endpoints keep apiKey in the URL.
         return apiKey.takeIf { it.isNotBlank() }?.let { "&apiKey=${Uri.encode(it)}" }.orEmpty()
     }
 }
@@ -187,7 +188,7 @@ private val Ipv4Regex = Regex("""\d{1,3}(\.\d{1,3}){3}""")
 
 /**
  * Normalizes a user-entered Kavita server URL: trims trailing slashes, drops a
- * trailing /api or /login, and—when no scheme is given—prepends one. An explicit
+ * trailing /api or /login, and when no scheme is given, prepends one. An explicit
  * http(s):// is always respected. For scheme-less input the host is used to guess:
  * IP literals and localhost get http://, everything else https://. Shared by the
  * API client and the image-URL builders so covers and API calls use the same host.

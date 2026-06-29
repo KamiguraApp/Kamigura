@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.SeriesDto
+
 /** Internal to series, not for external use. */
 internal fun SeriesDto.coverActionColor(): Color {
     return coverActionColor(primaryColor, secondaryColor, Color(0xFF6A5BB7))
@@ -33,6 +34,7 @@ private fun coverActionColor(primaryColor: String?, secondaryColor: String?, fal
         seed and 0xFF,
         hsv
     )
+    // Kavita's picked cover colors can be too pale or too dark for buttons; clamp them into a readable accent range.
     hsv[1] = hsv[1].coerceIn(0.38f, 0.72f)
     hsv[2] = hsv[2].coerceIn(0.42f, 0.68f)
     return Color(AndroidColor.HSVToColor(hsv))

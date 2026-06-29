@@ -55,6 +55,7 @@ private val NegativeColorFilter = ColorFilter.colorMatrix(
         )
     )
 )
+
 /** Internal to reader, not for external use. */
 @Composable
 internal fun ReaderPageView(
@@ -246,6 +247,7 @@ internal suspend fun preAnalyzeReaderPages(
                 val key = ReaderInvertCacheKey(model, whiteThreshold)
                 if (key !in invertDecisionCache) {
                     try {
+                        // Pre-analyzing Smart Invert keeps page-turn transitions from flashing unfiltered pages.
                         invertDecisionCache[key] = analyzeShouldInvert(
                             context,
                             imageLoader,
