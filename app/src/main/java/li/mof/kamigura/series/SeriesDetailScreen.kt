@@ -106,6 +106,10 @@ import li.mof.kamigura.ui.seriesInitial
 import li.mof.kamigura.ui.theme.ReadingProgressInProgress
 import li.mof.kamigura.ui.theme.ReadingProgressRead
 import li.mof.kamigura.ui.theme.ReadingProgressTrack
+import li.mof.kamigura.series.internal.ChapterCardItem
+import li.mof.kamigura.series.internal.ChapterGridCard
+import li.mof.kamigura.series.internal.ChapterGridHeader
+import li.mof.kamigura.series.internal.ChapterIssueGrid
 import li.mof.kamigura.series.internal.coverActionColor
 import li.mof.kamigura.series.internal.detailMetaLines
 import li.mof.kamigura.series.internal.displayName
@@ -509,60 +513,6 @@ private fun SeriesDetailContent(
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ChapterIssueGrid(
-    chapterCards: List<ChapterCardItem>,
-    session: KavitaSession,
-    onIssueClick: (ChapterCardItem) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 160.dp),
-        modifier = modifier.fillMaxHeight(),
-        contentPadding = PaddingValues(bottom = 18.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            ChapterGridHeader(chapterCards.size)
-        }
-        gridItems(chapterCards, key = { "${it.volume.id}-${it.chapter.id}" }) { item ->
-            ChapterGridCard(
-                item = item,
-                session = session,
-                onClick = { onIssueClick(item) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun ChapterGridHeader(count: Int) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text(
-            text = "Issues",
-            color = Color.White,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold
-        )
-        Surface(
-            color = Color(0xFF596061),
-            shape = MaterialTheme.shapes.small
-        ) {
-            Text(
-                text = count.toString(),
-                color = Color.White,
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-            )
         }
     }
 }
@@ -1008,83 +958,6 @@ private fun DetailFactBlock(title: String, values: List<String>) {
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 3,
             overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-private data class ChapterCardItem(
-    val volume: VolumeDto,
-    val chapter: ChapterDto
-)
-
-@Composable
-private fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onClick: () -> Unit) {
-    val chapter = item.chapter
-    val title = chapter.displayTitle()
-    val label = listOfNotNull(
-        title,
-        item.volume.displayShortName(),
-        chapter.releaseDateText()
-    ).joinToString(" • ")
-    val progress = chapter.readingProgress()
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
-    ) {
-        Column {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(KavitaCoverAspectRatio)
-                    .background(Color(0xFF111111)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (session.baseUrl.isNotBlank() && session.apiKey.isNotBlank()) {
-                    AsyncImage(
-                        model = chapterCoverUrl(session, chapter.id),
-                        contentDescription = title,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text("CH", color = Color(0xFFB9BDBD), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                }
-            }
-            Box(Modifier.fillMaxWidth()) {
-                ReadingProgressBar(
-                    progress = progress,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxWidth()
-                        .height(3.dp)
-                )
-                Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
-                    Text(
-                        text = label,
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ReadingProgressBar(progress: Float?, modifier: Modifier = Modifier) {
-    val boundedProgress = (progress ?: 0f).coerceIn(0f, 1f)
-    val fillColor = if (boundedProgress >= 1f) ReadingProgressRead else ReadingProgressInProgress
-    Box(modifier = modifier.background(ReadingProgressTrack)) {
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(boundedProgress)
-                .background(fillColor)
         )
     }
 }
