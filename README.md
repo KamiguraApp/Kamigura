@@ -24,6 +24,8 @@
   <details>
   <summary>PixelSeries (Emulator)</summary>
 
+  <img src="/docs/tabHome.png" width="600"> .... <img src="/docs/phoneHome.png" width="200">
+
   <img src="/docs/tabSeries.png" width="600"> .... <img src="/docs/phoneSeries.png" width="200">
 
   <img src="/docs/tabDetail.png" width="600"> .... <img src="/docs/phoneDetail.png" width="200">
@@ -32,6 +34,8 @@
   </details>
   <details>
   <summary>OneplusPad3/Oneplus12</summary>
+
+  <img src="/docs/opdHome.jpg" width="600"> .... <img src="/docs/cphHome.jpg" width="200">
   
   <img src="/docs/opdSeries.jpg" width="600"> .... <img src="/docs/cphSeries.jpg" width="200">
 
