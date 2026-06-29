@@ -111,6 +111,7 @@ import li.mof.kamigura.UpdateWantToReadDto
 import li.mof.kamigura.VolumeDto
 import li.mof.kamigura.MarkChapterReadDto
 import li.mof.kamigura.MarkVolumesReadDto
+import li.mof.kamigura.SearchHistoryStore
 import li.mof.kamigura.download.OfflineIssueRecord
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.download.localCoverFile
@@ -167,12 +168,14 @@ fun LibraryScreen(
     onOpenSettings: () -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
     onOpenDownloaded: () -> Unit,
+    onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+    val searchHistoryStore = remember(ctx) { SearchHistoryStore(ctx) }
     val updateSnackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(availableUpdate) {
@@ -309,9 +312,12 @@ fun LibraryScreen(
             wantToRead = wantToRead,
             wantToReadError = wantToReadError,
             downloaded = downloaded,
+            api = api,
+            searchHistoryStore = searchHistoryStore,
             onOpenSettings = onOpenSettings,
             onOpenShelf = onOpenShelf,
             onOpenDownloaded = onOpenDownloaded,
+            onOpenFilteredSeries = onOpenFilteredSeries,
             onSelectLibrary = onSelectLibrary,
             onScanLibrary = ::scanLibrary,
             onSelectSeries = onSelectSeries,
@@ -343,9 +349,12 @@ private fun HomeShell(
     wantToRead: List<SeriesDto>,
     wantToReadError: String?,
     downloaded: List<OfflineIssueRecord>,
+    api: KavitaApi?,
+    searchHistoryStore: SearchHistoryStore,
     onOpenSettings: () -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
     onOpenDownloaded: () -> Unit,
+    onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
     onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
@@ -393,12 +402,15 @@ private fun HomeShell(
                         wantToRead = wantToRead,
                         wantToReadError = wantToReadError,
                         downloaded = downloaded,
+                        api = api,
+                        searchHistoryStore = searchHistoryStore,
                         onSelectLibrary = onSelectLibrary,
                         onScanLibrary = onScanLibrary,
                         onSelectSeries = onSelectSeries,
                         onOpenShelf = onOpenShelf,
                         onRemoveWantToRead = onRemoveWantToRead,
                         onOpenDownloaded = onOpenDownloaded,
+                        onOpenFilteredSeries = onOpenFilteredSeries,
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -421,12 +433,15 @@ private fun HomeShell(
                     wantToRead = wantToRead,
                     wantToReadError = wantToReadError,
                     downloaded = downloaded,
+                    api = api,
+                    searchHistoryStore = searchHistoryStore,
                     onSelectLibrary = onSelectLibrary,
                     onScanLibrary = onScanLibrary,
                     onSelectSeries = onSelectSeries,
                     onOpenShelf = onOpenShelf,
                     onRemoveWantToRead = onRemoveWantToRead,
                     onOpenDownloaded = onOpenDownloaded,
+                    onOpenFilteredSeries = onOpenFilteredSeries,
                     modifier = Modifier.weight(1f)
                 )
                 HomeBottomNavigation(
@@ -753,12 +768,15 @@ private fun HomeContent(
     wantToRead: List<SeriesDto>,
     wantToReadError: String?,
     downloaded: List<OfflineIssueRecord>,
+    api: KavitaApi?,
+    searchHistoryStore: SearchHistoryStore,
     onSelectLibrary: (LibraryDto) -> Unit,
     onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
     onRemoveWantToRead: (SeriesDto) -> Unit,
     onOpenDownloaded: () -> Unit,
+    onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier.fillMaxSize()) {
@@ -838,7 +856,14 @@ private fun HomeContent(
                 )
             }
             HomeDestination.Search -> {
-                HomePlaceholder(destination, Modifier.fillMaxSize())
+                HomeSearchScreen(
+                    api = api,
+                    session = session,
+                    historyStore = searchHistoryStore,
+                    onSelectSeries = onSelectSeries,
+                    onOpenFilteredSeries = onOpenFilteredSeries,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }

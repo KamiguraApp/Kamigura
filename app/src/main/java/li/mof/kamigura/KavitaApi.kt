@@ -44,6 +44,9 @@ interface KavitaApi {
     @GET("api/Series/{seriesId}")
     suspend fun series(@Path("seriesId") id: Int): SeriesDto
 
+    @POST("api/Series/series-by-ids")
+    suspend fun seriesByIds(@Body body: SeriesByIdsDto): List<SeriesDto>
+
     @GET("api/Series/metadata")
     suspend fun seriesMetadata(@Query("seriesId") seriesId: Int): SeriesMetadataDto
 
@@ -72,6 +75,15 @@ interface KavitaApi {
 
     @GET("api/Series/chapter")
     suspend fun seriesChapter(@Query("chapterId") chapterId: Int): ChapterDto
+
+    @GET("api/Search/search")
+    suspend fun search(
+        @Query("queryString") queryString: String,
+        @Query("includeChapterAndFiles") includeChapterAndFiles: Boolean = true
+    ): SearchResultGroupDto
+
+    @GET("api/Search/series-for-chapter")
+    suspend fun seriesForChapter(@Query("chapterId") chapterId: Int): SeriesDto
 
     @GET("api/Download/chapter-size")
     suspend fun chapterSize(@Query("chapterId") chapterId: Int): Long
@@ -125,6 +137,9 @@ interface KavitaApi {
         @Query("includePromoted") includePromoted: Boolean = false,
         @Query("sortByLastModified") sortByLastModified: Boolean = false
     ): List<ReadingListDto>
+
+    @GET("api/ReadingList/items")
+    suspend fun readingListItems(@Query("readingListId") readingListId: Int): List<ReadingListItemDto>
 
     @POST("api/ReadingList/update-by-series")
     suspend fun addSeriesToReadingList(@Body dto: UpdateReadingListBySeriesDto)

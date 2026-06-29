@@ -47,6 +47,8 @@ import kotlinx.coroutines.flow.first
 import li.mof.kamigura.library.DownloadedScreen
 import li.mof.kamigura.library.LibraryScreen
 import li.mof.kamigura.library.HomeShelfKind
+import li.mof.kamigura.library.SearchSeriesScreen
+import li.mof.kamigura.library.SearchSeriesTarget
 import li.mof.kamigura.library.SeriesShelfScreen
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.ReaderScreen
@@ -190,6 +192,9 @@ fun AppRoot(
                     onOpenSettings = { nav.navigate("settings") },
                     onOpenShelf = { shelfKind -> nav.navigate("shelf/${shelfKind.routeValue}") },
                     onOpenDownloaded = { nav.navigate("downloaded") },
+                    onOpenFilteredSeries = { target, id, label ->
+                        nav.navigate("search-series/${target.routeValue}/$id/${Uri.encode(label)}")
+                    },
                     onSelectLibrary = { lib -> nav.navigate("series/${lib.id}/${lib.name}") },
                     onSelectSeries = { series ->
                         val libraryId = series.libraryId ?: 0
@@ -220,6 +225,32 @@ fun AppRoot(
                 SeriesShelfScreen(
                     sessionStore = sessionStore,
                     shelfKind = shelfKind,
+                    onBack = { nav.popBackStack() },
+                    onSelectSeries = { series ->
+                        val libraryId = series.libraryId ?: 0
+                        nav.navigate("chapters/$libraryId/${series.id}/${series.name}")
+                    }
+                )
+            }
+
+            composable(
+                route = "search-series/{target}/{targetId}/{label}",
+                arguments = listOf(
+                    navArgument("target") { type = NavType.StringType },
+                    navArgument("targetId") { type = NavType.IntType },
+                    navArgument("label") { type = NavType.StringType }
+                )
+            ) { backStack ->
+                val target = SearchSeriesTarget.fromRouteValue(
+                    backStack.arguments!!.getString("target")
+                ) ?: SearchSeriesTarget.Genre
+                val targetId = backStack.arguments!!.getInt("targetId")
+                val label = backStack.arguments!!.getString("label") ?: ""
+                SearchSeriesScreen(
+                    sessionStore = sessionStore,
+                    target = target,
+                    targetId = targetId,
+                    label = label,
                     onBack = { nav.popBackStack() },
                     onSelectSeries = { series ->
                         val libraryId = series.libraryId ?: 0

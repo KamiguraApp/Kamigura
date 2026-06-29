@@ -26,7 +26,8 @@ data class UpdateWantToReadDto(
 @Serializable
 data class ReadingListDto(
     val id: Int,
-    val title: String? = null
+    val title: String? = null,
+    val itemCount: Int? = null
 )
 
 @Serializable
@@ -50,6 +51,51 @@ data class LibraryDto(
     val type: Int? = null,
     val coverImage: String? = null,
     val folders: List<String> = emptyList()
+)
+
+@Serializable
+data class SearchResultGroupDto(
+    val series: List<SearchResultDto> = emptyList(),
+    val collections: List<CollectionDto> = emptyList(),
+    val readingLists: List<ReadingListDto> = emptyList(),
+    val persons: List<PersonDto> = emptyList(),
+    val genres: List<GenreTagDto> = emptyList(),
+    val tags: List<TagDto> = emptyList(),
+    val chapters: List<ChapterDto> = emptyList()
+)
+
+@Serializable
+data class SearchResultDto(
+    val seriesId: Int,
+    val name: String,
+    val originalName: String? = null,
+    val sortName: String? = null,
+    val localizedName: String? = null,
+    val libraryName: String? = null,
+    val libraryId: Int? = null,
+    val releaseYear: Int? = null,
+    val volumeCount: Int? = null,
+    val chapterCount: Int? = null
+)
+
+@Serializable
+data class CollectionDto(
+    val id: Int,
+    val title: String,
+    val itemCount: Int? = null
+)
+
+@Serializable
+data class SeriesByIdsDto(
+    val seriesIds: List<Int>
+)
+
+@Serializable
+data class ReadingListItemDto(
+    val id: Int? = null,
+    val seriesId: Int,
+    val seriesName: String? = null,
+    val libraryId: Int? = null
 )
 
 @Serializable
