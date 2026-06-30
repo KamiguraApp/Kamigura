@@ -37,6 +37,7 @@ keystore.properties
 kamigura_*.png
 /screenshots/
 
-# Only README.md is published; keep other Markdown (notes, spec, etc.) local
+# Only README.md and its language variants are published; keep other Markdown (notes, spec, etc.) local
 *.md
 !README.md
+!README.*.md
