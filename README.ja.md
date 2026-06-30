@@ -1,7 +1,6 @@
 # Kamigura 紙倉
-
-> An Android tablet manga reader for [Kavita](https://www.kavitareader.com/),
-> built for self-scanned (自炊) libraries and tablet-first reading.
+> Kavita 向けの Android 漫画リーダー。
+> 自炊本・タブレット読書・見開き体験を重視しています。
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Status: Early Development](https://img.shields.io/badge/Status-Early%20Development-orange.svg)]()
@@ -13,18 +12,17 @@
 
 ## Kamigura とは
 
-**Kamigura** (紙倉, *paper warehouse*) は、Android タブレットで漫画やライトノベルを読むための 3rd party アプリです。
-[Kavita](https://www.kavitareader.com/) サーバに置かれた蔵書に接続します。
+**Kamigura** (紙倉, *paper warehouse*) は、[Kavita](https://www.kavitareader.com/) サーバー上の漫画・ライトノベルを Android 端末で読むためのサードパーティアプリです。
 
-特に想定しているのは、**自分で裁断・スキャンして電子化した本 (自炊本) を、
-タブレットで読みたい人**です。
+特に、自分で裁断・スキャンして電子化した本 (自炊本) を、タブレットで快適に読む用途を重視しています。
 
-> ステータス：**v0.1x (早期版)** ── 利用可能ですが、まだ発展途上です。
+> ステータス: **v0.15 (early)**。実用段階ですが、まだ開発中です。
+
 <details>
-  <summary>ScreenShots</summary>
+  <summary>スクリーンショット</summary>
 
   <details>
-  <summary>PixelSeries (Emulator)</summary>
+  <summary>Pixel series (emulator)</summary>
 
   <img src="/docs/tabHome.png" width="600"> .... <img src="/docs/phoneHome.png" width="200">
 
@@ -32,87 +30,77 @@
 
   <img src="/docs/tabDetail.png" width="600"> .... <img src="/docs/phoneDetail.png" width="200">
 
-  *ブラックジャックによろしく 佐藤秀峰*
+  *ブラックジャックによろしく / 佐藤秀峰*
   </details>
+
   <details>
-  <summary>OneplusPad3/Oneplus12</summary>
+  <summary>OnePlus Pad 3 / OnePlus 12</summary>
 
   <img src="/docs/opdHome.jpg" width="600"> .... <img src="/docs/cphHome.jpg" width="200">
-  
+
   <img src="/docs/opdSeries.jpg" width="600"> .... <img src="/docs/cphSeries.jpg" width="200">
 
   <img src="/docs/opdDetail.jpg" width="600"> .... <img src="/docs/cphDetail.jpg" width="200">
 
-  *ブラックジャックによろしく 佐藤秀峰*
-  
-  > 右上は液晶リフレッシュレートです...
+  *ブラックジャックによろしく / 佐藤秀峰*
+
+  > 右上の表示は端末側のリフレッシュレート表示です。
   </details>
 </details>
 
-## 特色
+## 特徴
 
-Kavita のクライアントアプリはすでにいくつか存在しますが、
-Kamigura は**タブレット/スマホ両対応**・**自炊に強い**という点が違います。
+Kavita クライアントは既に複数ありますが、Kamigura は **タブレット/スマホ両対応** と **自炊本向けの読書体験** を重視しています。
 
-- **タブレット見開き時のズレ補正ボタン**
-  見開き表示で左右ページの組み合わせが 1 ページ分ずれてしまう場合 (表紙や扉で
-  奇偶がずれる等) 、画面端を**長押し** もしくは 中央タップで開くリーダーメニューの **Shift +1 / −1** で
-  1 ページだけ送って、正しい見開きに補正できます。
+- **見開きずれ補正**
+  表紙、扉、横長画像などで見開きの左右が 1 ページずれた場合に、画面端の長押しまたは Reader メニューの **Shift +1 / -1** で 1 ページ単位の補正ができます。
 
 - **Smart Invert (おまかせ白黒反転)**
-  リーダーのメニューから **Off / Smart / Always** で切替。
-  オタク向けの白黒反転モードで、文字中心のページだけを反転し、
-  挿絵やカラーページはそのまま表示します。
-  カラー口絵・挿絵のあるライトノベルを読むときに特に便利です。
-  - Smart の判定しきい値 (白の割合) は **設定で調整可能**。自炊環境 (圧縮設定) の差を吸収できます。
-  
+  Reader メニューから **Off / Smart / Always** を切り替えられます。Smart は文字中心の白いページだけを反転し、カラー口絵や挿絵はそのまま表示します。カラー口絵・挿絵のあるライトノベルを読むときに特に便利です。
+  - 「Smart」の判定しきい値 (白の割合) は **設定で調整可能**。自炊環境 (圧縮設定) の差を吸収できます。
+
 - **検索**
-  Home の検索タブで、シリーズ/人物/ジャンル/タグ/コレクション/読書リスト/チャプター を検索できます。
-  また、著者やメタデータから、絞り込まれたシリーズ一覧 (グリッド表示) へ移動することも可能です。
+  Home の検索タブから シリーズ / 人物 / ジャンル / タグ / コレクション / 読書リスト / チャプター を検索できます。著者やジャンルから絞り込まれたシリーズ一覧 (グリッド表示) へ移動できます。
 
 ## その他の機能
 
-- 複数の Kavita サーバに接続可能
-- 読書進捗同期 (ページめくり毎)、読了後の既読化
-- オフライン読書 (飛行機等) 
-- ページの先読みによるスムーズな読書体験
-- メタデータ更新 (admin role でログイン時: Scan Library および Scan Series → Analyze Files → Refresh Metadata 直列実行)
-- タブレット向けナビゲーションレール / スマホ向けボトムナビ
-- 見開き/単ページ自動切替
-- 右綴じ(縦書き・RTL, デフォルトでは comicinfo.xml に従う)
-- ピンチズームパン・ダブルタップズーム
+- 複数 Kavita サーバーへの接続
+- ページ進捗同期、読了時の mark-as-read
+- オフライン読書 (飛行機等)
+- Reader ページ先読み
+- 管理者向け Scan Library / metadata refresh (admin role でログイン時)
+- タブレット向け Navigation Rail、スマホ向け Bottom Navigation
+- 見開き/単ページの自動切り替え
+- 右綴じ/左綴じ (デフォルトでは ComicInfo.xml に従う)
+- ピンチズーム、パン、ダブルタップズーム
 - タップ/スワイプでのページ送り
-- ページジャンプスライダ
+- スライダーによるページジャンプ
 
 ## インストール
 
-[Releases](https://github.com/KamiguraApp/Kamigura/releases) から APK をダウンロードし、
-Android 8.0+ 端末にサイドロードしてください (「提供元不明のアプリ」のインストール許可が必要) 。
+[Releases](https://github.com/KamiguraApp/Kamigura/releases) から APK をダウンロードし、Android 8.0 以上の端末にサイドロードしてください (「提供元不明のアプリ」のインストール許可が必要)。
 
 ## 使い方
 
-1. 初回画面で Kavita のサーバ URL と Auth Key (x-api-key) を登録。
-2. **Connect** で接続。
-3. ホーム/ライブラリから作品を開いて読書。リーダー中央タップで各種メニュー。
+1. 初回画面または Settings から Kavita サーバー URL と Auth Key (`x-api-key`) を登録します。
+2. **Connect** で認証します。
+3. Home / Libraries / Search から作品を開きます。
+4. Reader では中央タップでメニューを表示できます。
 
 ## ライセンス
 
 [Apache License 2.0](LICENSE) © 2026 KamiguraApp
 
-## ロードマップ
+## Roadmap
 
-- ページめくりアニメーション
-- ある程度の API を実装し、Web版にいちいち行かなくて済むように。
-- アプリアイコン
+- ページめくりアニメーションの polish
+- Kavita Web UI に頼る場面を減らす API 対応
+- アプリアイコンの刷新
 
-## For developers
+## 開発者向け
 
-Kamigura is an Android client for [Kavita](https://www.kavitareader.com/) focused on manga and self-scanned book libraries. Its goal is not to replace the Kavita web UI, but to provide a native reading experience for tablets and phones: fast browsing, strong cover-first navigation, offline reading, page progress sync, and reader controls aimed at scanned Japanese-style books such as right-to-left spreads and one-page spread correction.
+Kamigura は Kotlin 2.x、Jetpack Compose、Material 3 / Material 3 Expressive、Retrofit、kotlinx.serialization、Coil で構成されています。
 
-The app is written in Kotlin 2.x with Jetpack Compose and Material 3 / Material 3 Expressive components. Networking is handled with Retrofit and kotlinx.serialization, while cover and reader-page images are loaded with Coil. The code is split by feature area: library/home/search browsing, series details, issue details, downloads, settings, and the reader.
+Kavita との接点は `app/src/main/java/li/mof/kamigura/KavitaApi.kt` を中心に集約しています。UI 層では Kavita API を直接組み立てず、Kamigura 内部のモデルや repository を通して扱う方針です。
 
-Kavita integration is intentionally centralized. `app/src/main/java/li/mof/kamigura/KavitaApi.kt` is the Retrofit API surface for documented Kavita endpoints; other app layers should consume Kamigura models and repositories rather than constructing Kavita API calls directly. URL-building helpers for image/download endpoints live near the client/session code, but the rest of the UI should treat Kavita as an external service behind this boundary.
-
-Kamigura is licensed under Apache License 2.0. The project also keeps attribution for Apache-2.0 compatible upstream work, including the harism page-curl lineage where applicable.
-
-Most design notes and implementation scratchpads live under `docs/`. Those files are intentionally treated as internal working notes and may be git-ignored, stale, or written for local development rather than public API documentation. For public discussion, bug reports, and feature requests, please use [GitHub issues](https://github.com/KamiguraApp/Kamigura/issues).
+設計メモや実装メモは `docs/` 配下にありますが、多くは内部作業用であり、常に公開ドキュメントとして最新とは限りません。バグ報告や機能要望は [GitHub issues](https://github.com/KamiguraApp/Kamigura/issues) へお願いします。
