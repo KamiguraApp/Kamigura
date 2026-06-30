@@ -12,11 +12,11 @@
 
 ## What is Kamigura
 
-**Kamigura** is a third-party Android app for reading manga and light novels from a [Kavita](https://www.kavitareader.com/) server.
+**Kamigura** (紙倉, *paper warehouse*) is a third-party Android app for reading manga and light novels from a [Kavita](https://www.kavitareader.com/) server.
 
 It is especially focused on people who digitize their own physical books and want a comfortable native reading experience on tablets and phones.
 
-> Status: **v0.15 (early)**. Usable, but still evolving.
+> Status: **v0.1x (early)**. Usable, but still evolving.
 
 <details>
   <summary>Screenshots</summary>
@@ -53,10 +53,11 @@ It is especially focused on people who digitize their own physical books and wan
 Several Kavita clients already exist. Kamigura focuses on **tablet/phone parity** and **reading ergonomics for self-scanned books**.
 
 - **Spread-pair correction**
-  When covers, title pages, or wide illustrations shift a spread by one page, the reader menu provides **Shift +1 / -1** controls to recover the intended pairing.
+  When covers, title pages, or wide illustrations shift a spread by one page, edge long press or the reader menu provides **Shift +1 / -1** controls to recover the intended pairing.
 
 - **Smart Invert**
   The reader can switch between **Off / Smart / Always**. Smart Invert flips mostly-white text pages for night reading while leaving illustrations and color pages untouched.
+  - The "Smart" detection threshold (percentage of white) is **adjustable in the settings**
 
 - **Search**
   The Home Search tab searches Series / Persons / Genres / Tags / Collections / Reading Lists / Chapters and lets you jump from authors or metadata to filtered series grids.
