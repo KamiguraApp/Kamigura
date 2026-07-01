@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,10 +115,12 @@ internal fun <T> PosterGrid(
 internal fun SeriesPosterCard(
     series: SeriesDto,
     session: KavitaSession,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    shape: Shape = MaterialTheme.shapes.small
 ) {
     Card(
         modifier = modifier,
+        shape = shape,
         colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
     ) {
         Column {

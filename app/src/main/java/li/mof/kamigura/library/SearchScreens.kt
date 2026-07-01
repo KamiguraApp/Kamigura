@@ -312,6 +312,7 @@ private fun SearchSeriesSection(
         SearchSectionHeader(title = title)
         Spacer(Modifier.height(10.dp))
         val carouselState = rememberCarouselState { series.size }
+        val cardShape = MaterialTheme.shapes.small
         HorizontalMultiBrowseCarousel(
             state = carouselState,
             preferredItemWidth = SearchCarouselItemWidth,
@@ -327,13 +328,14 @@ private fun SearchSeriesSection(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .maskClip(MaterialTheme.shapes.small)
+                    .maskClip(cardShape)
             ) {
                 SeriesPosterCard(
                     series = item,
                     session = session,
+                    shape = cardShape,
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxSize()
                         .clickable { onSelectSeries(item) }
                 )
             }

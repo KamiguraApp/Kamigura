@@ -534,6 +534,7 @@ private fun HomeShelf(
             Text("Nothing here yet", color = Color(0xFF9FA5A5), style = MaterialTheme.typography.bodyMedium)
         } else {
             val carouselState = rememberCarouselState { series.size }
+            val cardShape = MaterialTheme.shapes.small
             HorizontalMultiBrowseCarousel(
                 state = carouselState,
                 preferredItemWidth = 164.dp,
@@ -549,13 +550,14 @@ private fun HomeShelf(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .maskClip(MaterialTheme.shapes.small)
+                        .maskClip(cardShape)
                 ) {
                     SeriesPosterCard(
                         series = item,
                         session = session,
+                        shape = cardShape,
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .fillMaxSize()
                             .clickable { onSelectSeries(item) }
                     )
                 }
