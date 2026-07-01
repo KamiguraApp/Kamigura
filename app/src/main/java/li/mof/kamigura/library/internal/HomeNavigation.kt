@@ -96,6 +96,7 @@ internal fun HomeShell(
     downloaded: List<OfflineIssueRecord>,
     api: KavitaApi?,
     searchHistoryStore: SearchHistoryStore,
+    initialSearchQuery: String = "",
     onOpenSettings: () -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
     onOpenDownloaded: () -> Unit,
@@ -106,11 +107,16 @@ internal fun HomeShell(
     onRemoveWantToRead: (SeriesDto) -> Unit
 ) {
     var destination by rememberSaveable(
+        initialSearchQuery,
         stateSaver = Saver(
             save = { it.ordinal },
             restore = { HomeDestination.entries[it] }
         )
-    ) { mutableStateOf(HomeDestination.Home) }
+    ) {
+        mutableStateOf(
+            if (initialSearchQuery.isNotBlank()) HomeDestination.Search else HomeDestination.Home
+        )
+    }
 
     fun selectDestination(next: HomeDestination) {
         destination = next
@@ -149,6 +155,7 @@ internal fun HomeShell(
                         downloaded = downloaded,
                         api = api,
                         searchHistoryStore = searchHistoryStore,
+                        initialSearchQuery = initialSearchQuery,
                         onSelectLibrary = onSelectLibrary,
                         onScanLibrary = onScanLibrary,
                         onSelectSeries = onSelectSeries,
@@ -180,6 +187,7 @@ internal fun HomeShell(
                     downloaded = downloaded,
                     api = api,
                     searchHistoryStore = searchHistoryStore,
+                    initialSearchQuery = initialSearchQuery,
                     onSelectLibrary = onSelectLibrary,
                     onScanLibrary = onScanLibrary,
                     onSelectSeries = onSelectSeries,

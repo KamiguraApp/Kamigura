@@ -1,117 +1,77 @@
 package li.mof.kamigura.series
 
-import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
-import androidx.compose.material3.SplitButtonDefaults
-import androidx.compose.material3.SplitButtonLayout
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
-import li.mof.kamigura.MarkChapterReadDto
-import li.mof.kamigura.MarkVolumesReadDto
-import li.mof.kamigura.ReadingListDto
-import li.mof.kamigura.RefreshSeriesDto
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.SeriesFilterStatementDto
 import li.mof.kamigura.SeriesFilterV2Dto
-import li.mof.kamigura.SeriesMetadataDto
-import li.mof.kamigura.UpdateReadingListBySeriesDto
-import li.mof.kamigura.UpdateWantToReadDto
-import li.mof.kamigura.VolumeDto
-import li.mof.kamigura.download.OfflineDownloadStatus
-import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
-import li.mof.kamigura.ui.KavitaCoverAspectRatio
-import li.mof.kamigura.ui.browse.BrowsePageScaffold
-import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
-import li.mof.kamigura.ui.seriesCoverUrl
-import li.mof.kamigura.ui.seriesInitial
-import li.mof.kamigura.ui.theme.ReadingProgressInProgress
-import li.mof.kamigura.ui.theme.ReadingProgressRead
-import li.mof.kamigura.ui.theme.ReadingProgressTrack
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.flowOf
-import kotlin.math.roundToInt
 
 internal fun chapterCoverUrl(session: KavitaSession, chapterId: Int): String {
     val root = normalizeKavitaBaseUrl(session.baseUrl)
@@ -126,10 +86,13 @@ fun SeriesScreen(
     libraryId: Int,
     libraryName: String,
     onBack: () -> Unit,
+    onSearchHome: (String) -> Unit = {},
     onSelect: (SeriesDto) -> Unit
 ) {
     val ctx = LocalContext.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
+    val searchFocusRequester = remember { FocusRequester() }
 
     var series by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -139,6 +102,8 @@ fun SeriesScreen(
     var isAdmin by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     var scanRunning by remember { mutableStateOf(false) }
+    var query by rememberSaveable(libraryId) { mutableStateOf("") }
+    var searchActive by rememberSaveable(libraryId) { mutableStateOf(false) }
 
     LaunchedEffect(libraryId) {
         loading = true
@@ -177,84 +142,289 @@ fun SeriesScreen(
         }
     }
 
-    Box(
-        Modifier
+    val normalizedQuery = remember(query) { query.normalizedSeriesSearchQuery() }
+    val visibleSeries = remember(series, normalizedQuery) {
+        if (normalizedQuery.isBlank()) {
+            series
+        } else {
+            series.filter { it.matchesSeriesTitle(normalizedQuery) }
+        }
+    }
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
+    LaunchedEffect(searchActive) {
+        if (searchActive) {
+            searchFocusRequester.requestFocus()
+            keyboard?.show()
+        }
+    }
+
+    Scaffold(
+        modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .background(Color(0xFF202222))
-    ) {
-        BrowsePageScaffold(
-            title = libraryName,
-            onBack = onBack,
-            actions = {
-                if (isAdmin && api != null) {
-                    Box {
-                        IconButton(
-                            onClick = { menuExpanded = true },
-                            enabled = !scanRunning
-                        ) {
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        containerColor = Color(0xFF202222),
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = Color.White
+                        )
+                    }
+                },
+                title = {
+                    if (searchActive) {
+                        LibrarySearchField(
+                            query = query,
+                            onQueryChange = { query = it },
+                            placeholder = "Search titles",
+                            focusRequester = searchFocusRequester,
+                            onClose = {
+                                if (query.isBlank()) {
+                                    searchActive = false
+                                } else {
+                                    query = ""
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else {
+                        Text(
+                            text = libraryName,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                },
+                actions = {
+                    if (!searchActive) {
+                        IconButton(onClick = { searchActive = true }) {
                             Icon(
-                                imageVector = Icons.Filled.MoreVert,
-                                contentDescription = "Library actions",
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = "Search titles",
                                 tint = Color.White
                             )
                         }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                            modifier = Modifier.width(220.dp)
-                        ) {
-                            DropdownMenuGroup(
-                                shapes = MenuDefaults.groupShape(index = 0, count = 1)
+                    }
+                    if (isAdmin && api != null) {
+                        Box {
+                            IconButton(
+                                onClick = { menuExpanded = true },
+                                enabled = !scanRunning
                             ) {
-                                DropdownMenuItem(
-                                    text = { Text("Scan Library") },
-                                    onClick = {
-                                        menuExpanded = false
-                                        val loadedApi = api ?: return@DropdownMenuItem
-                                        scope.launch {
-                                            scanRunning = true
-                                            runCatching {
-                                                loadedApi.scanLibrary(libraryId)
-                                            }.onSuccess {
-                                                Toast.makeText(
-                                                    ctx,
-                                                    "Library scan requested",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }.onFailure {
-                                                Toast.makeText(
-                                                    ctx,
-                                                    "Could not scan library",
-                                                    Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                            scanRunning = false
-                                        }
-                                    },
-                                    enabled = !scanRunning
+                                Icon(
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = "Library actions",
+                                    tint = Color.White
                                 )
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = { menuExpanded = false },
+                                modifier = Modifier.width(220.dp)
+                            ) {
+                                DropdownMenuGroup(
+                                    shapes = MenuDefaults.groupShape(index = 0, count = 1)
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Scan Library") },
+                                        onClick = {
+                                            menuExpanded = false
+                                            val loadedApi = api ?: return@DropdownMenuItem
+                                            scope.launch {
+                                                scanRunning = true
+                                                runCatching {
+                                                    loadedApi.scanLibrary(libraryId)
+                                                }.onSuccess {
+                                                    Toast.makeText(
+                                                        ctx,
+                                                        "Library scan requested",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }.onFailure {
+                                                    Toast.makeText(
+                                                        ctx,
+                                                        "Could not scan library",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                                scanRunning = false
+                                            }
+                                        },
+                                        enabled = !scanRunning
+                                    )
+                                }
                             }
                         }
                     }
-                }
-            }
+                },
+                scrollBehavior = scrollBehavior,
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF202222),
+                    scrolledContainerColor = Color(0xFF171818),
+                    titleContentColor = Color.White,
+                    navigationIconContentColor = Color.White,
+                    actionIconContentColor = Color.White
+                )
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(Color(0xFF202222))
         ) {
             when {
                 loading -> DarkLoadingState()
                 error != null -> DarkMessageState("Could not load series", error ?: "Unknown error")
                 series.isEmpty() -> DarkMessageState("No series", "This library did not return any visible series.")
-                else -> PosterGrid(items = series, key = { it.id }) { item ->
-                    SeriesPosterCard(
-                        series = item,
-                        session = session,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(item) }
-                    )
-                }
+                else -> SeriesLibraryGrid(
+                    series = visibleSeries,
+                    session = session,
+                    query = normalizedQuery,
+                    onSelect = onSelect,
+                    onSearchHome = onSearchHome
+                )
             }
         }
     }
+}
+
+@Composable
+private fun LibrarySearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    placeholder: String,
+    focusRequester: FocusRequester,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = Color(0xFF2C3030),
+        contentColor = Color.White,
+        shape = MaterialTheme.shapes.extraLarge,
+        modifier = modifier.height(48.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Filled.Search, contentDescription = null)
+            BasicTextField(
+                value = query,
+                onValueChange = onQueryChange,
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
+                cursorBrush = SolidColor(Color(0xFF98D8C0)),
+                decorationBox = { innerTextField ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (query.isBlank()) {
+                            Text(
+                                text = placeholder,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = Color.White.copy(alpha = 0.64f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+            IconButton(onClick = onClose) {
+                Icon(Icons.Filled.Close, contentDescription = "Clear search")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeriesLibraryGrid(
+    series: List<SeriesDto>,
+    session: KavitaSession,
+    query: String,
+    onSelect: (SeriesDto) -> Unit,
+    onSearchHome: (String) -> Unit
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 150.dp),
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        if (series.isEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                DarkMessageState(
+                    title = "No local matches",
+                    body = "This library does not contain a title matching \"$query\"."
+                )
+            }
+        }
+        gridItems(items = series, key = { it.id }) { item ->
+            SeriesPosterCard(
+                series = item,
+                session = session,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(item) }
+            )
+        }
+        if (query.isNotBlank()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                HomeSearchLink(query = query, onSearchHome = onSearchHome)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeSearchLink(query: String, onSearchHome: (String) -> Unit) {
+    Surface(
+        color = Color(0xFF2C3030),
+        contentColor = Color.White,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onSearchHome(query) }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Icon(Icons.Filled.Search, contentDescription = null)
+            Text(
+                text = "Global Search \"$query\"",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null
+            )
+        }
+    }
+}
+
+private fun String.normalizedSeriesSearchQuery(): String {
+    return replace('\u3000', ' ').trim()
+}
+
+private fun SeriesDto.matchesSeriesTitle(query: String): Boolean {
+    return listOfNotNull(name, localizedName, originalName)
+        .any { it.contains(query, ignoreCase = true) }
 }

@@ -277,6 +277,7 @@ internal fun HomeContent(
     downloaded: List<OfflineIssueRecord>,
     api: KavitaApi?,
     searchHistoryStore: SearchHistoryStore,
+    initialSearchQuery: String = "",
     onSelectLibrary: (LibraryDto) -> Unit,
     onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
@@ -367,6 +368,7 @@ internal fun HomeContent(
                     api = api,
                     session = session,
                     historyStore = searchHistoryStore,
+                    initialQuery = initialSearchQuery,
                     onSelectSeries = onSelectSeries,
                     onOpenFilteredSeries = onOpenFilteredSeries,
                     modifier = Modifier.fillMaxSize()

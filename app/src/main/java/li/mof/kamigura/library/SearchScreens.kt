@@ -93,6 +93,7 @@ internal fun HomeSearchScreen(
     api: KavitaApi?,
     session: KavitaSession,
     historyStore: SearchHistoryStore,
+    initialQuery: String = "",
     onSelectSeries: (SeriesDto) -> Unit,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     modifier: Modifier = Modifier
@@ -100,9 +101,13 @@ internal fun HomeSearchScreen(
     val scope = rememberCoroutineScope()
     val recentQueries by historyStore.recentQueries.collectAsState(initial = emptyList())
 
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf(initialQuery) }
     var result by remember { mutableStateOf(SearchResultGroupDto()) }
     var searching by remember { mutableStateOf(false) }
+
+    LaunchedEffect(initialQuery) {
+        if (initialQuery.isNotBlank()) query = initialQuery
+    }
 
     LaunchedEffect(api, query) {
         val trimmed = query.trim()

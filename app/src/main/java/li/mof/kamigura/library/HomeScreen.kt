@@ -152,6 +152,7 @@ enum class HomeShelfKind(
 fun LibraryScreen(
     sessionStore: KavitaSessionStore,
     sessionRevision: Int,
+    initialSearchQuery: String = "",
     availableUpdate: AvailableUpdate? = null,
     onOpenUpdate: (String) -> Unit = {},
     onUpdateNoticeShown: () -> Unit = {},
@@ -304,6 +305,7 @@ fun LibraryScreen(
             downloaded = downloaded,
             api = api,
             searchHistoryStore = searchHistoryStore,
+            initialSearchQuery = initialSearchQuery,
             onOpenSettings = onOpenSettings,
             onOpenShelf = onOpenShelf,
             onOpenDownloaded = onOpenDownloaded,

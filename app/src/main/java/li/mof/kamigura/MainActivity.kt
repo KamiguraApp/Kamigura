@@ -178,10 +178,19 @@ fun AppRoot(
                 )
             }
 
-            composable("libraries") {
+            composable(
+                route = "libraries?search={search}",
+                arguments = listOf(
+                    navArgument("search") {
+                        type = NavType.StringType
+                        defaultValue = ""
+                    }
+                )
+            ) { backStack ->
                 LibraryScreen(
                     sessionStore = sessionStore,
                     sessionRevision = sessionRevision,
+                    initialSearchQuery = backStack.arguments!!.getString("search").orEmpty(),
                     availableUpdate = availableUpdate?.takeUnless { updateNoticeShown },
                     onOpenUpdate = { releaseUrl ->
                         runCatching {
@@ -273,6 +282,9 @@ fun AppRoot(
                     libraryId = libraryId,
                     libraryName = libraryName,
                     onBack = { nav.popBackStack() },
+                    onSearchHome = { query ->
+                        nav.navigate("libraries?search=${Uri.encode(query)}")
+                    },
                     onSelect = { s ->
                         nav.navigate("chapters/$libraryId/${s.id}/${s.name}")
                     }
