@@ -44,7 +44,7 @@ It is especially focused on people who digitize their own physical books and wan
 
   *Black Jack ni Yoroshiku by Shuho Sato*
 
-  > The top-right overlay is the device refresh-rate readout.
+  > The top-left overlay is the device refresh-rate readout.
   </details>
 </details>
 

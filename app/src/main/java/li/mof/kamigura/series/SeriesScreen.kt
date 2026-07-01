@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -194,11 +195,22 @@ fun SeriesScreen(
                             modifier = Modifier.fillMaxWidth(),
                         )
                     } else {
-                        Text(
-                            text = libraryName,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Column(verticalArrangement = Arrangement.Center) {
+                            Text(
+                                text = libraryName,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (!loading && error == null) {
+                                Text(
+                                    text = series.size.seriesCountLabel(),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = Color.White.copy(alpha = 0.68f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
                     }
                 },
                 actions = {
@@ -428,3 +440,5 @@ private fun SeriesDto.matchesSeriesTitle(query: String): Boolean {
     return listOfNotNull(name, localizedName, originalName)
         .any { it.contains(query, ignoreCase = true) }
 }
+
+private fun Int.seriesCountLabel(): String = "$this series"
