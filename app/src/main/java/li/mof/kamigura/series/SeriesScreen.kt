@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -116,6 +118,7 @@ fun SeriesScreen(
     var searchActive by rememberSaveable(libraryId) { mutableStateOf(false) }
     var sort by rememberSaveable(libraryId) { mutableStateOf(SeriesLibrarySort.Title) }
     val pullRefreshState = rememberPullToRefreshState()
+    val gridState = rememberLazyGridState()
 
     suspend fun loadLibrarySeries(initialLoad: Boolean) {
         if (initialLoad) {
@@ -178,6 +181,10 @@ fun SeriesScreen(
             searchFocusRequester.requestFocus()
             keyboard?.show()
         }
+    }
+
+    LaunchedEffect(sort, normalizedQuery) {
+        gridState.scrollToItem(0)
     }
 
     Scaffold(
@@ -384,6 +391,7 @@ fun SeriesScreen(
                             series = visibleSeries,
                             session = session,
                             query = normalizedQuery,
+                            gridState = gridState,
                             onSelect = onSelect,
                             onSearchHome = onSearchHome
                         )
@@ -451,11 +459,13 @@ private fun SeriesLibraryGrid(
     series: List<SeriesDto>,
     session: KavitaSession,
     query: String,
+    gridState: LazyGridState,
     onSelect: (SeriesDto) -> Unit,
     onSearchHome: (String) -> Unit
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 150.dp),
+        state = gridState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
