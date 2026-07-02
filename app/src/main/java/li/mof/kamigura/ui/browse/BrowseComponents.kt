@@ -155,7 +155,11 @@ internal fun SeriesPosterCard(
                     )
                 }
             }
-            Box(Modifier.fillMaxWidth()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(SeriesPosterLabelHeight)
+            ) {
                 SeriesReadingProgressBar(
                     progress = series.readingProgress(),
                     modifier = Modifier
@@ -177,6 +181,8 @@ internal fun SeriesPosterCard(
         }
     }
 }
+
+private val SeriesPosterLabelHeight = 58.dp
 
 @Composable
 private fun SeriesReadingProgressBar(progress: Float?, modifier: Modifier = Modifier) {
