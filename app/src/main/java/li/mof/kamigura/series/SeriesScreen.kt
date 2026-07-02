@@ -23,7 +23,9 @@ import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -108,9 +110,11 @@ fun SeriesScreen(
     var api by remember { mutableStateOf<KavitaApi?>(null) }
     var isAdmin by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var sortMenuExpanded by remember { mutableStateOf(false) }
     var scanRunning by remember { mutableStateOf(false) }
     var query by rememberSaveable(libraryId) { mutableStateOf("") }
     var searchActive by rememberSaveable(libraryId) { mutableStateOf(false) }
+    var sort by rememberSaveable(libraryId) { mutableStateOf(SeriesLibrarySort.Title) }
     val pullRefreshState = rememberPullToRefreshState()
 
     suspend fun loadLibrarySeries(initialLoad: Boolean) {
@@ -120,6 +124,7 @@ fun SeriesScreen(
             api = null
             isAdmin = false
             menuExpanded = false
+            sortMenuExpanded = false
             scanRunning = false
         } else {
             refreshing = true
@@ -158,12 +163,13 @@ fun SeriesScreen(
     }
 
     val normalizedQuery = remember(query) { normalizeSeriesSearchQuery(query) }
-    val visibleSeries = remember(series, normalizedQuery) {
-        if (normalizedQuery.isBlank()) {
+    val visibleSeries = remember(series, normalizedQuery, sort) {
+        val filtered = if (normalizedQuery.isBlank()) {
             series
         } else {
             series.filter { it.matchesSeriesTitle(normalizedQuery) }
         }
+        filtered.sortedForLibrary(sort)
     }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
@@ -235,6 +241,46 @@ fun SeriesScreen(
                                 contentDescription = "Search titles",
                                 tint = Color.White
                             )
+                        }
+                        Box {
+                            IconButton(onClick = { sortMenuExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
+                                    contentDescription = "Sort series",
+                                    tint = Color.White
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = sortMenuExpanded,
+                                onDismissRequest = { sortMenuExpanded = false },
+                                modifier = Modifier.width(220.dp)
+                            ) {
+                                DropdownMenuGroup(
+                                    shapes = MenuDefaults.groupShape(index = 0, count = 1)
+                                ) {
+                                    SeriesLibrarySort.entries.forEach { option ->
+                                        DropdownMenuItem(
+                                            text = { Text(option.label) },
+                                            onClick = {
+                                                sort = option
+                                                sortMenuExpanded = false
+                                            },
+                                            trailingIcon = {
+                                                if (option == sort) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Check,
+                                                        contentDescription = null
+                                                    )
+                                                }
+                                            },
+                                            colors = MenuDefaults.itemColors(
+                                                textColor = Color.White,
+                                                trailingIconColor = Color.White.copy(alpha = 0.68f)
+                                            )
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     if (isAdmin && api != null) {

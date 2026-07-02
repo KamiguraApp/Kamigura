@@ -68,7 +68,68 @@ class SeriesLibraryDataTest {
         assertEquals("35", filter.statements.single().value)
     }
 
-    private fun series(id: Int): SeriesDto {
-        return SeriesDto(id = id, name = "Series $id")
+    @Test
+    fun sortedForLibraryUsesTitleAsDefaultOrder() {
+        val items = listOf(
+            series(1, "Beta"),
+            series(2, "alpha"),
+            series(3, "Gamma")
+        )
+
+        assertEquals(listOf(2, 1, 3), items.sortedForLibrary(SeriesLibrarySort.Title).map { it.id })
+    }
+
+    @Test
+    fun sortedForLibraryCanPromoteUnreadSeries() {
+        val items = listOf(
+            series(1, "Read", pages = 100, pagesRead = 100),
+            series(2, "Unread B", pages = 100, pagesRead = 0),
+            series(3, "Progress", pages = 100, pagesRead = 40),
+            series(4, "Unread A", pages = 100, pagesRead = null)
+        )
+
+        assertEquals(
+            listOf(4, 2, 3, 1),
+            items.sortedForLibrary(SeriesLibrarySort.UnreadFirst).map { it.id }
+        )
+    }
+
+    @Test
+    fun sortedForLibraryCanPromoteInProgressSeries() {
+        val items = listOf(
+            series(1, "Unread", pages = 100, pagesRead = 0),
+            series(2, "Progress B", pages = 100, pagesRead = 40),
+            series(3, "Read", pages = 100, pagesRead = 100),
+            series(4, "Progress A", pages = 100, pagesRead = 1)
+        )
+
+        assertEquals(
+            listOf(4, 2, 3, 1),
+            items.sortedForLibrary(SeriesLibrarySort.InProgressFirst).map { it.id }
+        )
+    }
+
+    @Test
+    fun sortedForLibraryCanPromoteReadSeries() {
+        val items = listOf(
+            series(1, "Unread", pages = 100, pagesRead = 0),
+            series(2, "Read B", pages = 100, pagesRead = 120),
+            series(3, "Progress", pages = 100, pagesRead = 40),
+            series(4, "Read A", pages = 100, pagesRead = 100)
+        )
+
+        assertEquals(
+            listOf(4, 2, 3, 1),
+            items.sortedForLibrary(SeriesLibrarySort.ReadFirst).map { it.id }
+        )
+    }
+
+    private fun series(
+        id: Int,
+        name: String = "Series $id",
+        pages: Int? = null,
+        pagesRead: Int? = null
+    ): SeriesDto {
+        return SeriesDto(id = id, name = name, pages = pages, pagesRead = pagesRead)
     }
 }

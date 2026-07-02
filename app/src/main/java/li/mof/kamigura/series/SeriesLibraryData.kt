@@ -61,4 +61,54 @@ internal fun SeriesDto.matchesSeriesTitle(query: String): Boolean {
         .any { it.contains(query, ignoreCase = true) }
 }
 
+internal enum class SeriesLibrarySort(val label: String) {
+    Title("Title"),
+    UnreadFirst("Unread first"),
+    InProgressFirst("In progress first"),
+    ReadFirst("Read first")
+}
+
+internal fun List<SeriesDto>.sortedForLibrary(sort: SeriesLibrarySort): List<SeriesDto> {
+    return when (sort) {
+        SeriesLibrarySort.Title -> sortedByTitle()
+        SeriesLibrarySort.UnreadFirst -> sortedWith(
+            compareByDescending<SeriesDto> { it.isUnreadSeries() }
+                .thenBy { it.titleSortKey() }
+        )
+        SeriesLibrarySort.InProgressFirst -> sortedWith(
+            compareByDescending<SeriesDto> { it.isInProgressSeries() }
+                .thenBy { it.titleSortKey() }
+        )
+        SeriesLibrarySort.ReadFirst -> sortedWith(
+            compareByDescending<SeriesDto> { it.isReadSeries() }
+                .thenBy { it.titleSortKey() }
+        )
+    }
+}
+
 internal fun Int.seriesCountLabel(): String = "$this series"
+
+private fun List<SeriesDto>.sortedByTitle(): List<SeriesDto> =
+    sortedBy { it.titleSortKey() }
+
+private fun SeriesDto.titleSortKey(): String =
+    listOfNotNull(localizedName, name, originalName)
+        .firstOrNull { it.isNotBlank() }
+        .orEmpty()
+        .lowercase()
+
+private fun SeriesDto.isUnreadSeries(): Boolean {
+    val total = pages ?: return (pagesRead ?: 0) <= 0
+    return total > 0 && (pagesRead ?: 0) <= 0
+}
+
+private fun SeriesDto.isInProgressSeries(): Boolean {
+    val total = pages ?: return false
+    val read = pagesRead ?: 0
+    return total > 0 && read in 1 until total
+}
+
+private fun SeriesDto.isReadSeries(): Boolean {
+    val total = pages ?: return false
+    return total > 0 && (pagesRead ?: 0) >= total
+}
