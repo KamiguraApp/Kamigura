@@ -37,6 +37,9 @@ keystore.properties
 kamigura_*.png
 /screenshots/
 
+# Internal design diagrams (spec anchors referenced from local docs/*.md)
+/docs/pagecurl-*.svg
+
 # Only README.md and its language variants are published; keep other Markdown (notes, spec, etc.) local
 *.md
 !README.md
