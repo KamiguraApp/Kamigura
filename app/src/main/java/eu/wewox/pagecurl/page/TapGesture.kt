@@ -4,6 +4,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import eu.wewox.pagecurl.ExperimentalPageCurlApi
 import eu.wewox.pagecurl.config.PageCurlConfig
@@ -11,12 +12,14 @@ import eu.wewox.pagecurl.utils.multiply
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+// Kamigura fork: tap callbacks receive the tap position so the state can start the curl
+// from the tapped corner.
 @ExperimentalPageCurlApi
 internal fun Modifier.tapGesture(
     config: PageCurlConfig,
     scope: CoroutineScope,
-    onTapForward: suspend () -> Unit,
-    onTapBackward: suspend () -> Unit,
+    onTapForward: suspend (Offset) -> Unit,
+    onTapBackward: suspend (Offset) -> Unit,
 ): Modifier = pointerInput(config) {
     val tapInteraction = config.tapInteraction as? PageCurlConfig.TargetTapInteraction ?: return@pointerInput
 
@@ -34,14 +37,14 @@ internal fun Modifier.tapGesture(
 
         if (config.tapForwardEnabled && tapInteraction.forward.target.multiply(size).contains(up.position)) {
             scope.launch {
-                onTapForward()
+                onTapForward(up.position)
             }
             return@awaitEachGesture
         }
 
         if (config.tapBackwardEnabled && tapInteraction.backward.target.multiply(size).contains(up.position)) {
             scope.launch {
-                onTapBackward()
+                onTapBackward(up.position)
             }
             return@awaitEachGesture
         }

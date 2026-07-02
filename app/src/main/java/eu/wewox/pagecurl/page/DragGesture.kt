@@ -27,21 +27,26 @@ internal fun Modifier.dragGesture(
         val forwardTargetRect by lazy { dragInteraction.forward.target.multiply(size) }
         val backwardTargetRect by lazy { dragInteraction.backward.target.multiply(size) }
 
+        val maxWidthPx = state.constraints.maxWidth.toFloat()
         val forwardConfig = DragConfig(
             edge = state.forward,
             start = state.rightEdge,
-            end = state.leftEdge,
+            // Kamigura fork: settle at the configured turn end (the spine for leaf turns).
+            end = state.forwardEndEdge,
             isEnabled = { isEnabledForward.value },
             isDragSucceed = { start, end -> end.x < start.x },
-            onChange = { onChange(+1) }
+            onChange = { onChange(+1) },
+            creaseRangeX = if (state.leafTurn) state.forwardEndEdge.top.x..maxWidthPx else null
         )
         val backwardConfig = DragConfig(
             edge = state.backward,
             start = state.leftEdge,
-            end = state.rightEdge,
+            end = state.backwardEndEdge,
             isEnabled = { isEnabledBackward.value },
             isDragSucceed = { start, end -> end.x > start.x },
-            onChange = { onChange(-1) }
+            onChange = { onChange(-1) },
+            mirrorInputX = state.leafTurn,
+            creaseRangeX = if (state.leafTurn) 0f..state.backwardEndEdge.top.x else null
         )
 
         detectCurlGestures(

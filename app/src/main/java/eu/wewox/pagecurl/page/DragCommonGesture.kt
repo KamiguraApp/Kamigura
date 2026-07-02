@@ -30,7 +30,42 @@ internal data class DragConfig(
     val isEnabled: () -> Boolean,
     val isDragSucceed: (Offset, Offset) -> Boolean,
     val onChange: () -> Unit,
+    // Kamigura fork: a leaf backward turn is a forward turn in mirrored space, so the
+    // finger is mirrored before the edge creator runs and the produced edge mirrored back.
+    val mirrorInputX: Boolean = false,
+    // Kamigura fork: a leaf is bound at the spine, so its crease can never cross it.
+    val creaseRangeX: ClosedFloatingPointRange<Float>? = null,
 )
+
+private fun Offset.mirrorX(size: IntSize): Offset = Offset(size.width - x, y)
+
+private fun Edge.mirrorX(size: IntSize): Edge =
+    Edge(Offset(size.width - top.x, top.y), Offset(size.width - bottom.x, bottom.y))
+
+/**
+ * Clamps the crease as the full line it will be drawn as: the drawing extends the edge to
+ * its intersections with the top and bottom borders, so those intersections are what must
+ * stay inside the allowed x range, not just the two raw points.
+ */
+private fun Edge.clampLineX(range: ClosedFloatingPointRange<Float>, size: IntSize): Edge {
+    val height = size.height.toFloat()
+    val dy = bottom.y - top.y
+    val xAtTopBorder: Float
+    val xAtBottomBorder: Float
+    if (kotlin.math.abs(dy) < 0.001f) {
+        // Nearly horizontal line cannot be expressed as x(y); fall back to point clamp.
+        xAtTopBorder = top.x
+        xAtBottomBorder = bottom.x
+    } else {
+        val slope = (bottom.x - top.x) / dy
+        xAtTopBorder = top.x + slope * (0f - top.y)
+        xAtBottomBorder = top.x + slope * (height - top.y)
+    }
+    return Edge(
+        Offset(xAtTopBorder.coerceIn(range.start, range.endInclusive), 0f),
+        Offset(xAtBottomBorder.coerceIn(range.start, range.endInclusive), height)
+    )
+}
 
 internal suspend fun PointerInputScope.detectCurlGestures(
     scope: CoroutineScope,
@@ -91,7 +126,11 @@ internal suspend fun PointerInputScope.detectCurlGestures(
                 velocityTracker.addPosition(System.currentTimeMillis(), change.position)
 
                 scope.launch {
-                    val target = newEdgeCreator.createNew(size, startOffset, change.position)
+                    val creatorStart = if (mirrorInputX) startOffset.mirrorX(size) else startOffset
+                    val creatorCurrent = if (mirrorInputX) change.position.mirrorX(size) else change.position
+                    var target = newEdgeCreator.createNew(size, creatorStart, creatorCurrent)
+                    if (mirrorInputX) target = target.mirrorX(size)
+                    creaseRangeX?.let { target = target.clampLineX(it, size) }
                     edge.animateTo(target)
                 }
             }

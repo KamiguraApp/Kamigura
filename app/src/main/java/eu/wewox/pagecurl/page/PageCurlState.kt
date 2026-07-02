@@ -1,3 +1,10 @@
+// Kamigura fork of oleksandrbalan/pagecurl v1.5.1 (Apache-2.0).
+// Modifications:
+// - turnEndFractionX lets the fold stop before the far edge (0.5f = the spine), which
+//   turns a full-page curl into a spread leaf turn.
+// - next()/prev() while an animation is in flight now commit the running turn without
+//   flattening and continue the new turn from the current fold, so rapid taps
+//   accelerate through pages instead of visually resetting.
 package eu.wewox.pagecurl.page
 
 import androidx.compose.animation.core.Animatable
@@ -5,6 +12,7 @@ import androidx.compose.animation.core.AnimationVector4D
 import androidx.compose.animation.core.TwoWayConverter
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -34,16 +42,19 @@ import kotlinx.coroutines.withContext
 @Composable
 public fun rememberPageCurlState(
     initialCurrent: Int = 0,
+    turnEndFractionX: Float = 0f,
 ): PageCurlState =
     rememberSaveable(
         initialCurrent,
+        turnEndFractionX,
         saver = Saver(
             save = { it.current },
-            restore = { PageCurlState(initialCurrent = it) }
+            restore = { PageCurlState(initialCurrent = it, turnEndFractionX = turnEndFractionX) }
         )
     ) {
         PageCurlState(
             initialCurrent = initialCurrent,
+            turnEndFractionX = turnEndFractionX,
         )
     }
 
@@ -120,11 +131,16 @@ public fun rememberPageCurlState(
  *
  * @param initialMax The initial max number of pages.
  * @param initialCurrent The initial current page.
+ * @param turnEndFractionX Kamigura fork: the horizontal fraction of the width where the
+ * fold line stops when a turn completes. 0f keeps the original full-page behavior;
+ * 0.5f makes the fold stop at the centre (spine), i.e. a spread leaf turn where the
+ * flap lands exactly on the other half of the viewport.
  */
 @ExperimentalPageCurlApi
 public class PageCurlState(
     initialMax: Int = 0,
     initialCurrent: Int = 0,
+    private val turnEndFractionX: Float = 0f,
 ) {
     /**
      * The observable current page.
@@ -159,11 +175,20 @@ public class PageCurlState(
 
         val left = Edge(Offset(0f, 0f), Offset(0f, maxHeightPx))
         val right = Edge(Offset(maxWidthPx, 0f), Offset(maxWidthPx, maxHeightPx))
+        // Where the fold settles when a turn commits. Vanilla: far edge. Leaf: the spine.
+        val forwardEnd = Edge(
+            Offset(maxWidthPx * turnEndFractionX, 0f),
+            Offset(maxWidthPx * turnEndFractionX, maxHeightPx)
+        )
+        val backwardEnd = Edge(
+            Offset(maxWidthPx * (1f - turnEndFractionX), 0f),
+            Offset(maxWidthPx * (1f - turnEndFractionX), maxHeightPx)
+        )
 
         val forward = Animatable(right, Edge.VectorConverter, Edge.VisibilityThreshold)
         val backward = Animatable(left, Edge.VectorConverter, Edge.VisibilityThreshold)
 
-        internalState = InternalState(constraints, left, right, forward, backward)
+        internalState = InternalState(constraints, left, right, forwardEnd, backwardEnd, forward, backward)
     }
 
     /**
@@ -179,24 +204,72 @@ public class PageCurlState(
     /**
      * Go forward with an animation.
      *
-     * @param block The animation block to animate a change.
+     * @param block The animation block to animate a change. When null the default keyframe
+     * animation is used; a turn already in flight is committed and continued instead.
+     * @param tapPosition Kamigura fork: the tap that started the turn, if any. In leaf mode
+     * the curl starts from the tapped corner with a restrained, near-vertical crease.
      */
-    public suspend fun next(block: suspend Animatable<Edge, AnimationVector4D>.(Size) -> Unit = DefaultNext) {
-        internalState?.animateTo(
+    public suspend fun next(
+        block: (suspend Animatable<Edge, AnimationVector4D>.(Size) -> Unit)? = null,
+        tapPosition: Offset? = null,
+    ) {
+        val state = internalState ?: return
+        // Kamigura fork: a forward turn already mid-flight is committed as-is and the new
+        // turn continues from the current fold position, so rapid taps read as an
+        // accelerated flip instead of the page snapping flat and starting over.
+        val continuing = state.animateJob?.isActive == true && state.forward.value != state.rightEdge
+        state.animateTo(
             target = { current + 1 },
-            animate = { forward.block(it) }
+            continuing = continuing,
+            animate = {
+                when {
+                    block != null -> forward.block(it)
+                    continuing -> forward.animateTo(forwardEndEdge, tween(ContinuationAnimDuration))
+                    else -> forward.animateTo(
+                        targetValue = forwardEndEdge,
+                        animationSpec = keyframes {
+                            durationMillis = TapAnimDuration
+                            rightEdge at 0
+                            quietMiddle(it, tapPosition, mirrored = false) at TapMidPointDuration
+                        }
+                    )
+                }
+            }
         )
     }
 
     /**
      * Go backward with an animation.
      *
-     * @param block The animation block to animate a change.
+     * @param block The animation block to animate a change. When null the default keyframe
+     * animation is used; a turn already in flight is committed and continued instead.
+     * @param tapPosition Kamigura fork: the tap that started the turn, if any. In leaf mode
+     * the curl starts from the tapped corner with a restrained, near-vertical crease.
      */
-    public suspend fun prev(block: suspend Animatable<Edge, AnimationVector4D>.(Size) -> Unit = DefaultPrev) {
-        internalState?.animateTo(
+    public suspend fun prev(
+        block: (suspend Animatable<Edge, AnimationVector4D>.(Size) -> Unit)? = null,
+        tapPosition: Offset? = null,
+    ) {
+        val state = internalState ?: return
+        val continuing = state.animateJob?.isActive == true && state.backward.value != state.leftEdge
+        state.animateTo(
             target = { current - 1 },
-            animate = { backward.block(it) }
+            continuing = continuing,
+            animate = {
+                when {
+                    block != null -> backward.block(it)
+                    continuing -> backward.animateTo(backwardEndEdge, tween(ContinuationAnimDuration))
+                    // Backward sweeps from the left, so its mid pose is the mirrored one.
+                    else -> backward.animateTo(
+                        targetValue = backwardEndEdge,
+                        animationSpec = keyframes {
+                            durationMillis = TapAnimDuration
+                            leftEdge at 0
+                            quietMiddle(it, tapPosition, mirrored = true) at TapMidPointDuration
+                        }
+                    )
+                }
+            }
         )
     }
 
@@ -204,11 +277,20 @@ public class PageCurlState(
         val constraints: Constraints,
         val leftEdge: Edge,
         val rightEdge: Edge,
+        val forwardEndEdge: Edge,
+        val backwardEndEdge: Edge,
         val forward: Animatable<Edge, AnimationVector4D>,
         val backward: Animatable<Edge, AnimationVector4D>,
     ) {
 
         var animateJob: Job? = null
+
+        // Kamigura fork: set by a successor turn before it cancels the running one, so the
+        // predecessor's commit keeps the fold in place for the successor to continue from.
+        var skipResetOnCommit: Boolean = false
+
+        // Kamigura fork: true when the fold stops before the far edge (spread leaf turn).
+        val leafTurn: Boolean get() = forwardEndEdge != leftEdge
 
         val progress: Float by derivedStateOf {
             if (forward.value != rightEdge) {
@@ -227,23 +309,32 @@ public class PageCurlState(
 
         suspend fun animateTo(
             target: () -> Int,
-            animate: suspend InternalState.(Size) -> Unit
+            animate: suspend InternalState.(Size) -> Unit,
+            continuing: Boolean = false,
         ) {
-            animateJob?.cancel()
+            animateJob?.let { running ->
+                if (continuing) skipResetOnCommit = true
+                running.cancel()
+                // Wait for the predecessor's commit so target() sees the updated page.
+                running.join()
+                skipResetOnCommit = false
+            }
 
             val targetIndex = target()
             if (targetIndex < 0 || targetIndex >= max) {
+                if (continuing) reset()
                 return
             }
 
             coroutineScope {
                 animateJob = launch {
                     try {
-                        reset()
+                        if (!continuing) reset()
                         animate(Size(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat()))
                     } finally {
                         withContext(NonCancellable) {
-                            snapTo(target())
+                            current = target().coerceIn(0, max - 1)
+                            if (!skipResetOnCommit) reset()
                         }
                     }
                 }
@@ -271,36 +362,26 @@ public data class Edge(val top: Offset, val bottom: Offset) {
     }
 }
 
-private val DefaultNext: suspend Animatable<Edge, AnimationVector4D>.(Size) -> Unit = { size ->
-    animateTo(
-        targetValue = size.start,
-        animationSpec = keyframes {
-            durationMillis = DefaultAnimDuration
-            size.end at 0
-            size.middle at DefaultMidPointDuration
-        }
-    )
+// Kamigura fork: duration used when a new turn continues from a fold already in flight.
+private const val ContinuationAnimDuration: Int = 180
+
+// Kamigura fork: tap animation is shorter and calmer than the vanilla 450ms corner sweep
+// (Stage 1.7 H2: reading rhythm beats spectacle). Applies to both single-page and leaf mode.
+private const val TapAnimDuration: Int = 400
+private const val TapMidPointDuration: Int = 140
+
+// Kamigura fork: mid pose for the tap turn. Near-vertical crease with a slight lean
+// so the corner on the tapped half of the screen lifts first (Stage 1.7 H6); no tap
+// position leads with the bottom corner, matching a thumb resting low on a tablet.
+private fun quietMiddle(size: Size, tapPosition: Offset?, mirrored: Boolean): Edge {
+    val topLeads = tapPosition != null && tapPosition.y < size.height / 2f
+    val nearSpineX = size.width * 0.70f
+    val nearEdgeX = size.width * 0.80f
+    val topX = if (topLeads) nearSpineX else nearEdgeX
+    val bottomX = if (topLeads) nearEdgeX else nearSpineX
+    return if (mirrored) {
+        Edge(Offset(size.width - topX, 0f), Offset(size.width - bottomX, size.height))
+    } else {
+        Edge(Offset(topX, 0f), Offset(bottomX, size.height))
+    }
 }
-
-private val DefaultPrev: suspend Animatable<Edge, AnimationVector4D>.(Size) -> Unit = { size ->
-    animateTo(
-        targetValue = size.end,
-        animationSpec = keyframes {
-            durationMillis = DefaultAnimDuration
-            size.start at 0
-            size.middle at DefaultAnimDuration - DefaultMidPointDuration
-        }
-    )
-}
-
-private const val DefaultAnimDuration: Int = 450
-private const val DefaultMidPointDuration: Int = 150
-
-private val Size.start: Edge
-    get() = Edge(Offset(0f, 0f), Offset(0f, height))
-
-private val Size.middle: Edge
-    get() = Edge(Offset(width, height / 2f), Offset(width / 2f, height))
-
-private val Size.end: Edge
-    get() = Edge(Offset(width, height), Offset(width, height))

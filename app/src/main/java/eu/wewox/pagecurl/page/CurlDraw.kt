@@ -1,3 +1,6 @@
+// Kamigura fork of oleksandrbalan/pagecurl v1.5.1 (Apache-2.0).
+// Modifications: added drawCurlFront/drawCurlBack so a custom composable (the real
+// incoming page, not a mirrored copy of the front) can be rendered on the back face.
 package eu.wewox.pagecurl.page
 
 import android.graphics.Bitmap
@@ -79,6 +82,113 @@ internal fun Modifier.drawCurl(
 }
 
 /**
+ * Kamigura fork: draws only the front side of the curled page (clipped content + the
+ * cast shadow of the flap). Pair with [drawCurlBack] on a sibling node that holds the
+ * back-face content. Keeping the shadow here places it under the back flap but over
+ * the page beneath, matching the original z-order.
+ */
+@ExperimentalPageCurlApi
+internal fun Modifier.drawCurlFront(
+    config: PageCurlConfig,
+    posA: Offset,
+    posB: Offset,
+): Modifier = drawWithCache {
+    if (posA == size.toRect().topLeft && posB == size.toRect().bottomLeft) {
+        return@drawWithCache drawNothing()
+    }
+    if (posA == size.toRect().topRight && posB == size.toRect().bottomRight) {
+        return@drawWithCache drawOnlyContent()
+    }
+
+    val topIntersection = lineLineIntersection(
+        Offset(0f, 0f), Offset(size.width, 0f),
+        posA, posB
+    )
+    val bottomIntersection = lineLineIntersection(
+        Offset(0f, size.height), Offset(size.width, size.height),
+        posA, posB
+    )
+    if (topIntersection == null || bottomIntersection == null) {
+        return@drawWithCache drawOnlyContent()
+    }
+
+    val topCurlOffset = Offset(max(0f, topIntersection.x), topIntersection.y)
+    val bottomCurlOffset = Offset(max(0f, bottomIntersection.x), bottomIntersection.y)
+
+    val drawClippedContent = prepareClippedContent(topCurlOffset, bottomCurlOffset)
+    val drawShadow = prepareCurlShadowOnly(config, topCurlOffset, bottomCurlOffset)
+
+    onDrawWithContent {
+        drawClippedContent()
+        drawShadow()
+    }
+}
+
+/**
+ * Kamigura fork: draws only the back face of the curl flap using this node's own
+ * content instead of a mirror of the front page.
+ *
+ * Contract: the content of this node must be laid out at the position it will occupy
+ * once the page has fully landed (upright, as the reader will see it). The modifier
+ * applies the extra centre mirror internally so that mid-fold the content unrolls from
+ * the flap exactly like the printed back of a real sheet.
+ */
+@ExperimentalPageCurlApi
+internal fun Modifier.drawCurlBack(
+    config: PageCurlConfig,
+    posA: Offset,
+    posB: Offset,
+): Modifier = drawWithCache {
+    if (posA == size.toRect().topLeft && posB == size.toRect().bottomLeft) {
+        return@drawWithCache drawNothing()
+    }
+    // Unlike the front, a flat (not yet started) page has no visible back face.
+    if (posA == size.toRect().topRight && posB == size.toRect().bottomRight) {
+        return@drawWithCache drawNothing()
+    }
+
+    val topIntersection = lineLineIntersection(
+        Offset(0f, 0f), Offset(size.width, 0f),
+        posA, posB
+    )
+    val bottomIntersection = lineLineIntersection(
+        Offset(0f, size.height), Offset(size.width, size.height),
+        posA, posB
+    )
+    if (topIntersection == null || bottomIntersection == null) {
+        return@drawWithCache drawNothing()
+    }
+
+    val topCurlOffset = Offset(max(0f, topIntersection.x), topIntersection.y)
+    val bottomCurlOffset = Offset(max(0f, bottomIntersection.x), bottomIntersection.y)
+
+    val polygon = backPagePolygon(topCurlOffset, bottomCurlOffset)
+    val lineVector = topCurlOffset - bottomCurlOffset
+    val angle = Math.PI.toFloat() - atan2(lineVector.y, lineVector.x) * 2
+    val center = Offset(size.width / 2f, size.height / 2f)
+
+    onDrawWithContent {
+        withTransform({
+            scale(-1f, 1f, pivot = bottomCurlOffset)
+            rotateRad(angle, pivot = bottomCurlOffset)
+        }) {
+            clipPath(polygon.toPath()) {
+                // Pre-mirror about the node centre: composed with the fold mirror above,
+                // landed-position content maps to identity when the fold reaches its end.
+                withTransform({ scale(-1f, 1f, pivot = center) }) {
+                    this@onDrawWithContent.drawContent()
+                }
+
+                val overlayAlpha = 1f - config.backPageContentAlpha
+                if (overlayAlpha > 0f) {
+                    drawRect(config.backPageColor.copy(alpha = overlayAlpha))
+                }
+            }
+        }
+    }
+}
+
+/**
  * The simple method to draw the whole unmodified content.
  */
 private fun CacheDrawScope.drawOnlyContent(): DrawResult =
@@ -112,16 +222,17 @@ private fun CacheDrawScope.prepareClippedContent(
     }
 }
 
-@ExperimentalPageCurlApi
-private fun CacheDrawScope.prepareCurl(
-    config: PageCurlConfig,
+/**
+ * Kamigura fork: extracted from [prepareCurl] so [drawCurlBack] can reuse it.
+ * Build a quadrilateral of the part of the page which should be mirrored as the back-page
+ * In all cases polygon should have 4 points, even when back-page is only a small "corner" (with 3 points) due to
+ * the shadow rendering, otherwise it will create a visual artifact when switching between 3 and 4 points polygon
+ */
+private fun CacheDrawScope.backPagePolygon(
     topCurlOffset: Offset,
     bottomCurlOffset: Offset,
-): ContentDrawScope.() -> Unit {
-    // Build a quadrilateral of the part of the page which should be mirrored as the back-page
-    // In all cases polygon should have 4 points, even when back-page is only a small "corner" (with 3 points) due to
-    // the shadow rendering, otherwise it will create a visual artifact when switching between 3 and 4 points polygon
-    val polygon = Polygon(
+): Polygon =
+    Polygon(
         sequence {
             // Find the intersection of the curl line and right side
             // If intersection is found adds to the polygon points list
@@ -153,6 +264,38 @@ private fun CacheDrawScope.prepareCurl(
             }
         }.toList()
     )
+
+/**
+ * Kamigura fork: shadow of the flap without the back-page content, used by [drawCurlFront].
+ */
+@ExperimentalPageCurlApi
+private fun CacheDrawScope.prepareCurlShadowOnly(
+    config: PageCurlConfig,
+    topCurlOffset: Offset,
+    bottomCurlOffset: Offset,
+): ContentDrawScope.() -> Unit {
+    val polygon = backPagePolygon(topCurlOffset, bottomCurlOffset)
+    val lineVector = topCurlOffset - bottomCurlOffset
+    val angle = Math.PI.toFloat() - atan2(lineVector.y, lineVector.x) * 2
+    val drawShadow = prepareShadow(config, polygon, angle)
+
+    return result@{
+        withTransform({
+            scale(-1f, 1f, pivot = bottomCurlOffset)
+            rotateRad(angle, pivot = bottomCurlOffset)
+        }) {
+            this@result.drawShadow()
+        }
+    }
+}
+
+@ExperimentalPageCurlApi
+private fun CacheDrawScope.prepareCurl(
+    config: PageCurlConfig,
+    topCurlOffset: Offset,
+    bottomCurlOffset: Offset,
+): ContentDrawScope.() -> Unit {
+    val polygon = backPagePolygon(topCurlOffset, bottomCurlOffset)
 
     // Calculate the angle in radians between X axis and the curl line, this is used to rotate mirrored content to the
     // right position of the curled back-page
