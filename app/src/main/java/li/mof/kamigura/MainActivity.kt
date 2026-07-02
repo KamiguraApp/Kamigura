@@ -45,6 +45,7 @@ import li.mof.kamigura.ui.theme.KamiguraTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import li.mof.kamigura.library.BookmarksScreen
+import li.mof.kamigura.library.CollectionsScreen
 import li.mof.kamigura.library.DownloadedScreen
 import li.mof.kamigura.library.LibraryScreen
 import li.mof.kamigura.library.HomeShelfKind
@@ -202,6 +203,7 @@ fun AppRoot(
                     onOpenSettings = { nav.navigate("settings") },
                     onOpenShelf = { shelfKind -> nav.navigate("shelf/${shelfKind.routeValue}") },
                     onOpenBookmarks = { nav.navigate("bookmarks") },
+                    onOpenCollections = { nav.navigate("collections") },
                     onOpenDownloaded = { nav.navigate("downloaded") },
                     onOpenFilteredSeries = { target, id, label ->
                         nav.navigate("search-series/${target.routeValue}/$id/${Uri.encode(label)}")
@@ -220,6 +222,19 @@ fun AppRoot(
                     onBack = { nav.popBackStack() },
                     onOpenBookmark = { libraryId, seriesId, volumeId, chapterId, page ->
                         nav.navigate("reader/$libraryId/$seriesId/$volumeId/$chapterId?incognito=false&page=$page")
+                    }
+                )
+            }
+
+            composable("collections") {
+                CollectionsScreen(
+                    sessionStore = sessionStore,
+                    onBack = { nav.popBackStack() },
+                    onOpenCollection = { collection ->
+                        nav.navigate(
+                            "search-series/${SearchSeriesTarget.Collection.routeValue}/" +
+                                "${collection.id}/${Uri.encode(collection.title)}"
+                        )
                     }
                 )
             }

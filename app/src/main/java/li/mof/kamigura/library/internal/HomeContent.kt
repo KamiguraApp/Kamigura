@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -287,6 +288,7 @@ internal fun HomeContent(
     onOpenShelf: (HomeShelfKind) -> Unit,
     onRemoveWantToRead: (SeriesDto) -> Unit,
     onOpenBookmarks: () -> Unit,
+    onOpenCollections: () -> Unit,
     onOpenDownloaded: () -> Unit,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     modifier: Modifier = Modifier
@@ -364,6 +366,7 @@ internal fun HomeContent(
                 BrowseHub(
                     downloadedCount = downloaded.size,
                     onOpenBookmarks = onOpenBookmarks,
+                    onOpenCollections = onOpenCollections,
                     onOpenDownloaded = onOpenDownloaded,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -387,6 +390,7 @@ internal fun HomeContent(
 private fun BrowseHub(
     downloadedCount: Int,
     onOpenBookmarks: () -> Unit,
+    onOpenCollections: () -> Unit,
     onOpenDownloaded: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -402,6 +406,12 @@ private fun BrowseHub(
                 subtitle = "Bookmarked pages",
                 icon = Icons.Filled.BookmarkBorder,
                 onClick = onOpenBookmarks
+            )
+            BrowseHubItem(
+                title = "Collections",
+                subtitle = "Curated series groups",
+                icon = Icons.Filled.CollectionsBookmark,
+                onClick = onOpenCollections
             )
             BrowseHubItem(
                 title = "Downloaded",

@@ -85,6 +85,9 @@ interface KavitaApi {
     @GET("api/Search/series-for-chapter")
     suspend fun seriesForChapter(@Query("chapterId") chapterId: Int): SeriesDto
 
+    @GET("api/Collection")
+    suspend fun collections(): List<CollectionDto>
+
     @GET("api/Download/chapter-size")
     suspend fun chapterSize(@Query("chapterId") chapterId: Int): Long
 
