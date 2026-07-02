@@ -41,6 +41,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -99,6 +102,7 @@ fun SeriesScreen(
     var series by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
     var session by remember { mutableStateOf(KavitaSession()) }
     var api by remember { mutableStateOf<KavitaApi?>(null) }
     var isAdmin by remember { mutableStateOf(false) }
@@ -106,14 +110,19 @@ fun SeriesScreen(
     var scanRunning by remember { mutableStateOf(false) }
     var query by rememberSaveable(libraryId) { mutableStateOf("") }
     var searchActive by rememberSaveable(libraryId) { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
 
-    LaunchedEffect(libraryId) {
-        loading = true
-        error = null
-        api = null
-        isAdmin = false
-        menuExpanded = false
-        scanRunning = false
+    suspend fun loadLibrarySeries(initialLoad: Boolean) {
+        if (initialLoad) {
+            loading = true
+            error = null
+            api = null
+            isAdmin = false
+            menuExpanded = false
+            scanRunning = false
+        } else {
+            refreshing = true
+        }
         try {
             session = sessionStore.load()
             val client = KavitaClient(ctx, sessionStore)
@@ -123,11 +132,25 @@ fun SeriesScreen(
                 loadedApi.currentUser().roles.orEmpty().any { it.equals("Admin", ignoreCase = true) }
             }.getOrDefault(false)
             series = loadedApi.loadAllSeriesForLibrary(libraryId)
+            error = null
         } catch (t: Throwable) {
-            error = t.message ?: t.toString()
+            val message = t.message ?: t.toString()
+            if (initialLoad || series.isEmpty()) {
+                error = message
+            } else {
+                Toast.makeText(ctx, "Could not refresh library", Toast.LENGTH_SHORT).show()
+            }
         } finally {
-            loading = false
+            if (initialLoad) {
+                loading = false
+            } else {
+                refreshing = false
+            }
         }
+    }
+
+    LaunchedEffect(libraryId) {
+        loadLibrarySeries(initialLoad = true)
     }
 
     val normalizedQuery = remember(query) { normalizeSeriesSearchQuery(query) }
@@ -281,15 +304,40 @@ fun SeriesScreen(
         ) {
             when {
                 loading -> DarkLoadingState()
-                error != null -> DarkMessageState("Could not load series", error ?: "Unknown error")
-                series.isEmpty() -> DarkMessageState("No series", "This library did not return any visible series.")
-                else -> SeriesLibraryGrid(
-                    series = visibleSeries,
-                    session = session,
-                    query = normalizedQuery,
-                    onSelect = onSelect,
-                    onSearchHome = onSearchHome
-                )
+                else -> PullToRefreshBox(
+                    isRefreshing = refreshing,
+                    onRefresh = {
+                        if (!refreshing) {
+                            scope.launch { loadLibrarySeries(initialLoad = false) }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    state = pullRefreshState,
+                    indicator = {
+                        PullToRefreshDefaults.LoadingIndicator(
+                            state = pullRefreshState,
+                            isRefreshing = refreshing,
+                            modifier = Modifier.align(Alignment.TopCenter),
+                            containerColor = Color(0xFF24352F),
+                            color = Color(0xFF86D39B)
+                        )
+                    }
+                ) {
+                    when {
+                        error != null -> DarkMessageState("Could not load series", error ?: "Unknown error")
+                        series.isEmpty() -> DarkMessageState(
+                            "No series",
+                            "This library did not return any visible series."
+                        )
+                        else -> SeriesLibraryGrid(
+                            series = visibleSeries,
+                            session = session,
+                            query = normalizedQuery,
+                            onSelect = onSelect,
+                            onSearchHome = onSearchHome
+                        )
+                    }
+                }
             }
         }
     }
