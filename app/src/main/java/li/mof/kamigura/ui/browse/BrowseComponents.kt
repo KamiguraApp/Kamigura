@@ -40,6 +40,7 @@ import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.seriesCoverUrl
 import li.mof.kamigura.ui.seriesInitial
+import li.mof.kamigura.ui.theme.KamiguraBackground
 import li.mof.kamigura.ui.theme.ReadingProgressInProgress
 import li.mof.kamigura.ui.theme.ReadingProgressRead
 import li.mof.kamigura.ui.theme.ReadingProgressTrack
@@ -55,7 +56,7 @@ internal fun BrowsePageScaffold(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF202222))
+            .background(KamiguraBackground)
     ) {
         Row(
             modifier = Modifier

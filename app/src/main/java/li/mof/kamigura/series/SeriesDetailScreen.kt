@@ -103,6 +103,7 @@ import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
 import li.mof.kamigura.ui.seriesCoverUrl
 import li.mof.kamigura.ui.seriesInitial
+import li.mof.kamigura.ui.theme.KamiguraBackground
 import li.mof.kamigura.ui.theme.ReadingProgressInProgress
 import li.mof.kamigura.ui.theme.ReadingProgressRead
 import li.mof.kamigura.ui.theme.ReadingProgressTrack
@@ -317,7 +318,7 @@ fun ChapterPickScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .background(Color(0xFF202222))
+            .background(KamiguraBackground)
     ) {
         when {
             loading -> DarkLoadingState()

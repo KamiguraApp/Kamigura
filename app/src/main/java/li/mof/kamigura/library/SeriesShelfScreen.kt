@@ -125,6 +125,7 @@ import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
+import li.mof.kamigura.ui.theme.KamiguraBackground
 import li.mof.kamigura.update.AvailableUpdate
 
 @Composable
@@ -159,7 +160,7 @@ internal fun SeriesShelfScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .background(Color(0xFF202222))
+            .background(KamiguraBackground)
     ) {
         BrowsePageScaffold(title = shelfKind.title, onBack = onBack) {
             when {

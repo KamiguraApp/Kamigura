@@ -80,6 +80,7 @@ import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
+import li.mof.kamigura.ui.theme.KamiguraSurface
 
 private val PaginationHeaderJson = Json { ignoreUnknownKeys = true }
 
@@ -105,7 +106,7 @@ private fun LibraryHub(
             ) {
                 items(libraries, key = { it.id }) { library ->
                     Surface(
-                        color = Color(0xFF2C3030),
+                        color = KamiguraSurface,
                         contentColor = Color.White,
                         shape = MaterialTheme.shapes.small,
                         modifier = Modifier
@@ -392,7 +393,7 @@ private fun BrowseHub(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Surface(
-                color = Color(0xFF2C3030),
+                color = KamiguraSurface,
                 contentColor = Color.White,
                 shape = MaterialTheme.shapes.small,
                 modifier = Modifier

@@ -61,6 +61,12 @@ private val InverseSurface = Color(0xFFE3E8E5)
 private val InverseOnSurface = Color(0xFF2C312E)
 private val ScrimColor = Color(0xFF000000)
 
+// App-level surfaces that intentionally preserve Kamigura's current browsing
+// UI colors while the Material color scheme remains the neutral baseline.
+val KamiguraBackground = Color(0xFF202222)
+val KamiguraSurface = Color(0xFF2C3030)
+val KamiguraChrome = Color(0xFF171818)
+
 val KamiguraDarkColorScheme = darkColorScheme(
     primary = Primary,
     onPrimary = OnPrimary,

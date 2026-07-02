@@ -70,6 +70,7 @@ import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.seriesCoverUrl
 import li.mof.kamigura.ui.seriesInitial
+import li.mof.kamigura.ui.theme.KamiguraBackground
 /** Internal to series, not for external use. */
 @Composable
 internal fun SeriesDetailSummary(
@@ -90,7 +91,7 @@ internal fun SeriesDetailSummary(
     } ?: chapterCards.firstOrNull()
     val continueButtonText = series.primaryReadActionText()
     val continueButtonColor = series.coverActionColor()
-    val summaryActionColor = continueButtonColor.readableAccentOn(Color(0xFF202222))
+    val summaryActionColor = continueButtonColor.readableAccentOn(KamiguraBackground)
     var summaryExpanded by remember(summary) { mutableStateOf(false) }
     var summaryCanExpand by remember(summary) { mutableStateOf(false) }
 

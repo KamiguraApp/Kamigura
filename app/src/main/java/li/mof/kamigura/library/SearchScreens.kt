@@ -72,6 +72,8 @@ import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
+import li.mof.kamigura.ui.theme.KamiguraBackground
+import li.mof.kamigura.ui.theme.KamiguraSurface
 
 enum class SearchSeriesTarget(val routeValue: String, val titlePrefix: String) {
     Person("person", "by"),
@@ -132,7 +134,7 @@ internal fun HomeSearchScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF202222)),
+            .background(KamiguraBackground),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp)
     ) {
@@ -382,7 +384,7 @@ private fun SearchChapterSection(
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             chapters.forEach { chapter ->
                 Surface(
-                    color = Color(0xFF2C3030),
+                    color = KamiguraSurface,
                     contentColor = Color.White,
                     shape = MaterialTheme.shapes.small,
                     modifier = Modifier
@@ -465,7 +467,7 @@ internal fun SearchSeriesScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .background(Color(0xFF202222))
+            .background(KamiguraBackground)
     ) {
         BrowsePageScaffold(title = "${target.titlePrefix} $label", onBack = onBack) {
             when {

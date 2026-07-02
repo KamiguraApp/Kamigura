@@ -70,6 +70,9 @@ import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.browse.SeriesPosterCard
+import li.mof.kamigura.ui.theme.KamiguraBackground
+import li.mof.kamigura.ui.theme.KamiguraChrome
+import li.mof.kamigura.ui.theme.KamiguraSurface
 import kotlinx.coroutines.launch
 
 internal fun chapterCoverUrl(session: KavitaSession, chapterId: Int): String {
@@ -150,7 +153,7 @@ fun SeriesScreen(
             .statusBarsPadding()
             .navigationBarsPadding()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = Color(0xFF202222),
+        containerColor = KamiguraBackground,
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -261,8 +264,8 @@ fun SeriesScreen(
                 },
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF202222),
-                    scrolledContainerColor = Color(0xFF171818),
+                    containerColor = KamiguraBackground,
+                    scrolledContainerColor = KamiguraChrome,
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White,
                     actionIconContentColor = Color.White
@@ -274,7 +277,7 @@ fun SeriesScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .background(Color(0xFF202222))
+                .background(KamiguraBackground)
         ) {
             when {
                 loading -> DarkLoadingState()
@@ -302,7 +305,7 @@ private fun LibrarySearchField(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        color = Color(0xFF2C3030),
+        color = KamiguraSurface,
         contentColor = Color.White,
         shape = MaterialTheme.shapes.extraLarge,
         modifier = modifier.height(48.dp)
@@ -387,7 +390,7 @@ private fun SeriesLibraryGrid(
 @Composable
 private fun HomeSearchLink(query: String, onSearchHome: (String) -> Unit) {
     Surface(
-        color = Color(0xFF2C3030),
+        color = KamiguraSurface,
         contentColor = Color.White,
         shape = MaterialTheme.shapes.small,
         modifier = Modifier

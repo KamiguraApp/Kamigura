@@ -65,6 +65,8 @@ import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.download.OfflineIssueRecord
 import li.mof.kamigura.library.HomeShelfKind
 import li.mof.kamigura.library.SearchSeriesTarget
+import li.mof.kamigura.ui.theme.KamiguraBackground
+import li.mof.kamigura.ui.theme.KamiguraChrome
 internal enum class HomeDestination(
     val label: String,
     val icon: ImageVector,
@@ -127,7 +129,7 @@ internal fun HomeShell(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .background(Color(0xFF202222))
+            .background(KamiguraBackground)
     ) {
         val wide = maxWidth >= 720.dp
         if (wide) {
@@ -212,7 +214,7 @@ internal fun HomeTopBar(serverName: String, onOpenSettings: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF171818))
+            .background(KamiguraChrome)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -251,7 +253,7 @@ internal fun HomeNavigationRail(
             colors = WideNavigationRailDefaults.colors(
                 containerColor = Color(0xFF181A1A),
                 contentColor = Color.White,
-                modalContainerColor = Color(0xFF202222),
+                modalContainerColor = KamiguraBackground,
                 modalContentColor = Color.White
             ),
             header = {

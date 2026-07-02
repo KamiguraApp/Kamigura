@@ -55,6 +55,7 @@ import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
+import li.mof.kamigura.ui.theme.KamiguraBackground
 @Composable
 private fun DownloadedGrid(
     records: List<OfflineIssueRecord>,
@@ -240,7 +241,7 @@ internal fun DownloadedScreen(
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
-            .background(Color(0xFF202222))
+            .background(KamiguraBackground)
     ) {
         DownloadedGrid(
             records = downloaded,
