@@ -54,6 +54,7 @@ import kotlinx.coroutines.launch
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.CollectionDto
 import li.mof.kamigura.GenreTagDto
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
@@ -126,6 +127,7 @@ internal fun HomeSearchScreen(
                 if (!it.isEmpty()) historyStore.record(trimmed)
             }
             .onFailure {
+                KamiguraLog.w("Could not search Kavita.", it)
                 result = SearchResultGroupDto()
             }
         searching = false
@@ -256,6 +258,9 @@ internal fun HomeSearchScreen(
                         scope.launch {
                             runCatching { currentApi.seriesForChapter(chapter.id) }
                                 .onSuccess { onSelectSeries(it) }
+                                .onFailure {
+                                    KamiguraLog.w("Could not resolve series for chapter ${chapter.id}.", it)
+                                }
                         }
                     }
                 )
@@ -456,6 +461,7 @@ internal fun SearchSeriesScreen(
             val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
             series = api.loadSearchSeries(target, targetId).sortedBy { it.name }
         } catch (t: Throwable) {
+            KamiguraLog.w("Could not load filtered search series for ${target.routeValue}.", t)
             error = t.message ?: t.toString()
         } finally {
             loading = false

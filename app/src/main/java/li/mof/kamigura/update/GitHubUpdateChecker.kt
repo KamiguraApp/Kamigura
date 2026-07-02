@@ -6,6 +6,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import li.mof.kamigura.KamiguraLog
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -55,7 +56,11 @@ internal class GitHubUpdateChecker(context: Context) {
                     }
                     response.isSuccessful -> {
                         val release = response.body?.string()?.let {
-                            runCatching { json.decodeFromString<GitHubRelease>(it) }.getOrNull()
+                            runCatching { json.decodeFromString<GitHubRelease>(it) }
+                                .onFailure { error ->
+                                    KamiguraLog.w("Could not parse GitHub release response.", error)
+                                }
+                                .getOrNull()
                         }
                         if (release == null || !release.releaseUrl.startsWith(ReleaseUrlPrefix)) {
                             preferences.edit().putLong(KeyLastCheck, now).apply()
@@ -76,7 +81,8 @@ internal class GitHubUpdateChecker(context: Context) {
                     }
                 }
             }
-        } catch (_: IOException) {
+        } catch (t: IOException) {
+            KamiguraLog.w("Could not check GitHub releases.", t)
             preferences.edit().putLong(KeyLastCheck, now).apply()
             cached
         }

@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import li.mof.kamigura.CollectionDto
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.ui.DarkLoadingState
@@ -57,6 +58,7 @@ internal fun CollectionsScreen(
             val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
             collections = api.collections().sortedBy { it.title }
         } catch (t: Throwable) {
+            KamiguraLog.w("Could not load collections.", t)
             error = t.message ?: t.toString()
         } finally {
             loading = false

@@ -101,6 +101,7 @@ import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.GroupedSeriesDto
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.LibraryDto
@@ -149,6 +150,7 @@ internal fun SeriesShelfScreen(
             val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
             series = api.loadShelfSeries(shelfKind)
         } catch (t: Throwable) {
+            KamiguraLog.w("Could not load shelf ${shelfKind.routeValue}.", t)
             error = t.message ?: t.toString()
         } finally {
             loading = false

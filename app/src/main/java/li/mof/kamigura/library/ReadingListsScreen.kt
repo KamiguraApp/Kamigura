@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import li.mof.kamigura.CreateReadingListDto
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSessionStore
@@ -56,14 +57,22 @@ internal fun ReadingListsScreen(
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var api by remember { mutableStateOf<KavitaApi?>(null) }
+    var apiError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
-        val (loadedApi, _) = KavitaClient(ctx, sessionStore).buildApi()
-        api = loadedApi
+        try {
+            val (loadedApi, _) = KavitaClient(ctx, sessionStore).buildApi()
+            api = loadedApi
+            apiError = null
+        } catch (t: Throwable) {
+            KamiguraLog.w("Could not create API for Reading Lists.", t)
+            apiError = t.message ?: t.toString()
+        }
     }
 
     ReadingListsPane(
         api = api,
+        apiError = apiError,
         onBack = onBack,
         onOpenReadingList = onOpenReadingList,
         statusBarPadding = statusBarPadding
@@ -73,6 +82,7 @@ internal fun ReadingListsScreen(
 @Composable
 internal fun ReadingListsPane(
     api: KavitaApi?,
+    apiError: String? = null,
     onBack: () -> Unit,
     onOpenReadingList: (ReadingListDto) -> Unit,
     statusBarPadding: Boolean = true
@@ -85,7 +95,12 @@ internal fun ReadingListsPane(
     var createTitle by remember { mutableStateOf("") }
     var creating by remember { mutableStateOf(false) }
 
-    LaunchedEffect(api) {
+    LaunchedEffect(api, apiError) {
+        if (apiError != null) {
+            loading = false
+            error = apiError
+            return@LaunchedEffect
+        }
         val loadedApi = api
         if (loadedApi == null) {
             loading = true
@@ -98,6 +113,7 @@ internal fun ReadingListsPane(
             readingLists = loadedApi.readingLists()
                 .sortedBy { it.title ?: "Reading List ${it.id}" }
         } catch (t: Throwable) {
+            KamiguraLog.w("Could not load reading lists.", t)
             error = t.message ?: t.toString()
         } finally {
             loading = false
@@ -167,6 +183,7 @@ internal fun ReadingListsPane(
                                     .sortedBy { it.title ?: "Reading List ${it.id}" }
                                 createDialog = false
                             } catch (t: Throwable) {
+                                KamiguraLog.w("Could not create reading list.", t)
                                 error = t.message ?: t.toString()
                             } finally {
                                 creating = false

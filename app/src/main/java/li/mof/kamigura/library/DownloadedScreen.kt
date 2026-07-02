@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import li.mof.kamigura.ChapterDto
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
@@ -178,8 +179,11 @@ internal fun DownloadedScreen(
         val loadedSession = sessionStore.load()
         session = loadedSession
         runCatching { offlineRepository.ensureLocalCovers(loadedSession) }
+            .onFailure { KamiguraLog.w("Could not ensure local covers on Downloaded.", it) }
         api = runCatching {
             KavitaClient(ctx, sessionStore).buildApi().first
+        }.onFailure {
+            KamiguraLog.w("Could not create API for Downloaded.", it)
         }.getOrNull()
     }
 
@@ -202,8 +206,12 @@ internal fun DownloadedScreen(
         issueLoading = currentApi != null
         if (currentApi == null) return
         scope.launch {
-            val detail = runCatching { currentApi.seriesChapter(record.chapterId) }.getOrNull()
-            val volume = runCatching { currentApi.volumes(record.seriesId) }.getOrNull()
+            val detail = runCatching { currentApi.seriesChapter(record.chapterId) }
+                .onFailure { KamiguraLog.w("Could not load downloaded issue detail for chapter ${record.chapterId}.", it) }
+                .getOrNull()
+            val volume = runCatching { currentApi.volumes(record.seriesId) }
+                .onFailure { KamiguraLog.w("Could not load downloaded issue volume for series ${record.seriesId}.", it) }
+                .getOrNull()
                 ?.firstOrNull { candidate ->
                     candidate.id == record.volumeId || candidate.chapters.any { it.id == record.chapterId }
                 }
@@ -230,6 +238,7 @@ internal fun DownloadedScreen(
                     Toast.makeText(ctx, "Download deleted", Toast.LENGTH_SHORT).show()
                 }
                 .onFailure {
+                    KamiguraLog.w("Could not delete downloaded chapter ${record.chapterId}.", it)
                     Toast.makeText(ctx, "Could not delete download", Toast.LENGTH_SHORT).show()
                 }
             issueActionBusy = false
@@ -300,10 +309,15 @@ internal fun DownloadedScreen(
                     }
                 }.onSuccess {
                     selectedChapter = currentApi?.let {
-                        runCatching { it.seriesChapter(record.chapterId) }.getOrNull()
+                        runCatching { it.seriesChapter(record.chapterId) }
+                            .onFailure {
+                                KamiguraLog.w("Could not refresh downloaded issue after marking read.", it)
+                            }
+                            .getOrNull()
                     } ?: detail?.copy(pagesRead = detail.pages)
                     Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show()
                 }.onFailure {
+                    KamiguraLog.w("Could not mark downloaded chapter ${record.chapterId} as read.", it)
                     Toast.makeText(ctx, "Could not mark issue as read", Toast.LENGTH_SHORT).show()
                 }
                 issueActionBusy = false
@@ -324,10 +338,15 @@ internal fun DownloadedScreen(
                     }
                 }.onSuccess {
                     selectedChapter = currentApi?.let {
-                        runCatching { it.seriesChapter(record.chapterId) }.getOrNull()
+                        runCatching { it.seriesChapter(record.chapterId) }
+                            .onFailure {
+                                KamiguraLog.w("Could not refresh downloaded issue after marking unread.", it)
+                            }
+                            .getOrNull()
                     } ?: detail?.copy(pagesRead = 0)
                     Toast.makeText(ctx, "Marked as unread", Toast.LENGTH_SHORT).show()
                 }.onFailure {
+                    KamiguraLog.w("Could not mark downloaded chapter ${record.chapterId} as unread.", it)
                     Toast.makeText(ctx, "Could not mark issue as unread", Toast.LENGTH_SHORT).show()
                 }
                 issueActionBusy = false

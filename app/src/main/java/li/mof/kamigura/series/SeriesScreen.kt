@@ -66,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.normalizeKavitaBaseUrl
@@ -130,10 +131,13 @@ fun SeriesScreen(
             api = loadedApi
             isAdmin = runCatching {
                 loadedApi.currentUser().roles.orEmpty().any { it.equals("Admin", ignoreCase = true) }
+            }.onFailure {
+                KamiguraLog.w("Could not load current user roles on Library series screen.", it)
             }.getOrDefault(false)
             series = loadedApi.loadAllSeriesForLibrary(libraryId)
             error = null
         } catch (t: Throwable) {
+            KamiguraLog.w("Could not load library $libraryId series.", t)
             val message = t.message ?: t.toString()
             if (initialLoad || series.isEmpty()) {
                 error = message
@@ -269,6 +273,7 @@ fun SeriesScreen(
                                                         Toast.LENGTH_SHORT
                                                     ).show()
                                                 }.onFailure {
+                                                    KamiguraLog.w("Could not scan library $libraryId from Series screen.", it)
                                                     Toast.makeText(
                                                         ctx,
                                                         "Could not scan library",

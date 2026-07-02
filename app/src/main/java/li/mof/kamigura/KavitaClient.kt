@@ -107,7 +107,8 @@ class KavitaClient(
                 if (body.isBlank()) return null
                 json.decodeFromString(UserDto.serializer(), body).token?.takeIf { it.isNotBlank() }
             }
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            KamiguraLog.w("Could not refresh Kavita JWT from API key.", t)
             null
         }
     }

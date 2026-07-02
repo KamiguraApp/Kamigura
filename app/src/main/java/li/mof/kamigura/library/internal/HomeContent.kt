@@ -63,6 +63,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import li.mof.kamigura.ChapterDto
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.LibraryDto
@@ -213,6 +214,7 @@ internal suspend fun loadLibrarySeriesCounts(
     libraries.map { library ->
         async {
             runCatching { api.librarySeriesCount(library.id) }
+                .onFailure { KamiguraLog.w("Could not load series count for library ${library.id}.", it) }
                 .getOrNull()
                 ?.let { count -> library.id to count }
         }

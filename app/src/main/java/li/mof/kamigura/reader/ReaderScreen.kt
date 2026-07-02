@@ -46,6 +46,7 @@ import li.mof.kamigura.FileDimensionDto
 import li.mof.kamigura.InvertMode
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.MarkChapterReadDto
@@ -171,7 +172,8 @@ fun ReaderScreen(
                 )
             }
             true
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            KamiguraLog.w("Could not save remote reader progress for chapter $chapterId.", t)
             false
         }
     }
@@ -204,6 +206,8 @@ fun ReaderScreen(
                         pageNum = pages - 1
                     )
                 )
+            }.onFailure {
+                KamiguraLog.w("Could not save final reader progress for chapter $chapterId.", it)
             }.isSuccess
             if (progressSaved) {
                 lastRemoteProgressPage = pages - 1
@@ -217,6 +221,8 @@ fun ReaderScreen(
                         generateReadingSession = false
                     )
                 )
+            }.onFailure {
+                KamiguraLog.w("Could not mark chapter $chapterId as read.", it)
             }.isSuccess
             if (offlineChapter != null && loadedSession != null && progressSaved) {
                 offlineRepository.markProgressSynced(
@@ -250,6 +256,8 @@ fun ReaderScreen(
                         chapterIds = listOf(chapterId)
                     )
                 )
+            }.onFailure {
+                KamiguraLog.w("Could not mark chapter $chapterId as unread.", it)
             }.isSuccess
             if (unreadMarked) {
                 lastRemoteProgressPage = 0
@@ -299,6 +307,8 @@ fun ReaderScreen(
         session = loadedSession
         val local = runCatching {
             offlineRepository.localChapter(loadedSession, chapterId)
+        }.onFailure {
+            KamiguraLog.w("Could not load local offline chapter $chapterId.", it)
         }.getOrNull()
         offlineChapter = local
         if (local != null) {
@@ -317,6 +327,7 @@ fun ReaderScreen(
             api = loadedApi
             readerImageLoader = client.buildReaderImageLoader(okHttp)
             runCatching { offlineRepository.syncPending(loadedSession, loadedApi) }
+                .onFailure { KamiguraLog.w("Could not sync pending offline progress from Reader.", it) }
             rightToLeft = try {
                 // A series-specific direction on the server (User/Implicit profile)
                 // wins. When only the global Default profile applies, the series has
@@ -328,7 +339,8 @@ fun ReaderScreen(
                     profile.readingDirection == KavitaReadingDirectionLtr -> false
                     else -> settings.reader.rightToLeft
                 }
-            } catch (_: Throwable) {
+            } catch (t: Throwable) {
+                KamiguraLog.w("Could not load reading direction for series $seriesId.", t)
                 settings.reader.rightToLeft
             }
             if (local == null) {
@@ -340,7 +352,9 @@ fun ReaderScreen(
                 page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
                 lastRemoteProgressPage = page
             } else if (!local.record.progressPending) {
-                val savedPage = runCatching { loadedApi.getProgress(chapterId).pageNum }.getOrNull()
+                val savedPage = runCatching { loadedApi.getProgress(chapterId).pageNum }
+                    .onFailure { KamiguraLog.w("Could not load remote reader progress for chapter $chapterId.", it) }
+                    .getOrNull()
                 val landingPage = initialPage ?: savedPage
                 if (landingPage != null) {
                     page = landingPage.coerceIn(0, pages - 1)
@@ -349,6 +363,7 @@ fun ReaderScreen(
             }
             readerReady = true
         } catch (t: Throwable) {
+            KamiguraLog.w("Could not initialize Reader for chapter $chapterId.", t)
             if (local == null) {
                 error = t.message ?: t.toString()
             }

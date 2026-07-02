@@ -29,6 +29,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import li.mof.kamigura.FileDimensionDto
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.MarkChapterReadDto
@@ -288,7 +289,9 @@ class OfflineIssueRepository(context: Context) {
             val reconciled = reconcile(session, chapterId) ?: return@withContext null
             if (reconciled.status != OfflineDownloadStatus.Ready) return@withContext null
             val archive = File(reconciled.archivePath)
-            val chapter = runCatching { inspectOfflineFile(archive, reconciled) }.getOrNull()
+            val chapter = runCatching { inspectOfflineFile(archive, reconciled) }
+                .onFailure { KamiguraLog.w("Could not inspect local offline chapter $chapterId.", it) }
+                .getOrNull()
             if (chapter == null || chapter.pages.isEmpty()) {
                 update(reconciled.copy(
                     status = OfflineDownloadStatus.Failed,
@@ -309,6 +312,8 @@ class OfflineIssueRepository(context: Context) {
                     val archive = File(record.archivePath)
                     val chapter = inspectOfflineFile(archive, record)
                     createLocalCover(record, chapter)
+                }.onFailure {
+                    KamiguraLog.w("Could not create local cover for chapter ${record.chapterId}.", it)
                 }.getOrNull()?.let { cover ->
                     update(record.copy(coverPath = cover.absolutePath))
                 }
@@ -388,6 +393,8 @@ class OfflineIssueRepository(context: Context) {
                         pageNum = record.localPage
                     )
                 )
+            }.onFailure {
+                KamiguraLog.w("Could not sync pending progress for chapter ${record.chapterId}.", it)
             }.isSuccess
             val readMarked = !record.markReadPending || runCatching {
                 api.markChapterRead(
@@ -397,6 +404,8 @@ class OfflineIssueRepository(context: Context) {
                         generateReadingSession = false
                     )
                 )
+            }.onFailure {
+                KamiguraLog.w("Could not sync pending mark-read for chapter ${record.chapterId}.", it)
             }.isSuccess
             val unreadMarked = !record.markUnreadPending || runCatching {
                 api.markChaptersUnread(
@@ -405,6 +414,8 @@ class OfflineIssueRepository(context: Context) {
                         chapterIds = listOf(record.chapterId)
                     )
                 )
+            }.onFailure {
+                KamiguraLog.w("Could not sync pending mark-unread for chapter ${record.chapterId}.", it)
             }.isSuccess
             if (
                 progressSaved ||
@@ -461,6 +472,8 @@ class OfflineIssueRepository(context: Context) {
             val coverPath = runCatching {
                 // Persist a small local cover so the Downloaded shelf still has artwork when Coil's online cache is gone.
                 createLocalCover(record, chapter)?.absolutePath
+            }.onFailure {
+                KamiguraLog.w("Could not create local cover after download for chapter ${record.chapterId}.", it)
             }.getOrNull().orEmpty()
             update(record.copy(
                 status = OfflineDownloadStatus.Ready,
@@ -469,6 +482,7 @@ class OfflineIssueRepository(context: Context) {
                 errorMessage = null
             ))
         }.getOrElse { error ->
+            KamiguraLog.w("Could not prepare offline issue for chapter ${record.chapterId}.", error)
             update(record.copy(
                 status = if (error is UnsupportedOfflineFormatException) {
                     OfflineDownloadStatus.Unsupported

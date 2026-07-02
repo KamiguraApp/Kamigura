@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import li.mof.kamigura.BookmarkDto
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
@@ -72,6 +73,7 @@ internal fun BookmarksScreen(
                         .thenBy { it.page }
                 )
         } catch (t: Throwable) {
+            KamiguraLog.w("Could not load bookmarks.", t)
             error = t.message ?: t.toString()
         } finally {
             loading = false

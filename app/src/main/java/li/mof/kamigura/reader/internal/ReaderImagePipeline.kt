@@ -34,6 +34,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import li.mof.kamigura.FileDimensionDto
 import li.mof.kamigura.InvertMode
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.download.OfflinePage
 import li.mof.kamigura.download.decodeOfflinePage
 import kotlin.math.max
@@ -224,7 +225,8 @@ internal suspend fun prefetchReaderPages(
                     imageLoader.execute(request)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Throwable) {
+                } catch (t: Throwable) {
+                    KamiguraLog.w("Reader prefetch failed.", t)
                     // Prefetch is opportunistic; the visible page reports its own error.
                 }
             }
@@ -256,7 +258,8 @@ internal suspend fun preAnalyzeReaderPages(
                         )
                     } catch (cancelled: CancellationException) {
                         throw cancelled
-                    } catch (_: Throwable) {
+                    } catch (t: Throwable) {
+                        KamiguraLog.w("Reader Smart Invert pre-analysis failed.", t)
                         // Visible rendering retries the analysis if pre-analysis fails.
                     }
                 }

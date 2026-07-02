@@ -79,6 +79,7 @@ import coil.compose.AsyncImage
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.MarkChapterReadDto
@@ -173,15 +174,23 @@ fun ChapterPickScreen(
             val (loadedApi, _) = client.buildApi()
             api = loadedApi
             runCatching { offlineRepository.syncPending(loadedSession, loadedApi) }
+                .onFailure { KamiguraLog.w("Could not sync pending offline progress from Series detail.", it) }
             isAdmin = runCatching {
                 loadedApi.currentUser().roles.orEmpty().any { it.equals("Admin", ignoreCase = true) }
+            }.onFailure {
+                KamiguraLog.w("Could not load current user roles on Series detail.", it)
             }.getOrDefault(false)
             series = loadedApi.series(seriesId)
-            metadata = runCatching { loadedApi.seriesMetadata(seriesId) }.getOrNull()
-            continueChapter = runCatching { loadedApi.continuePoint(seriesId) }.getOrNull()
+            metadata = runCatching { loadedApi.seriesMetadata(seriesId) }
+                .onFailure { KamiguraLog.w("Could not load metadata for series $seriesId.", it) }
+                .getOrNull()
+            continueChapter = runCatching { loadedApi.continuePoint(seriesId) }
+                .onFailure { KamiguraLog.w("Could not load continue point for series $seriesId.", it) }
+                .getOrNull()
             volumes = loadedApi.volumes(seriesId)
             error = null
         } catch (t: Throwable) {
+            KamiguraLog.w("Could not load series details for series $seriesId.", t)
             val message = t.message ?: t.toString()
             if (initialLoad || series == null) {
                 error = message
@@ -254,8 +263,12 @@ fun ChapterPickScreen(
         issueLoading = true
         scope.launch {
             val chapterId = item.chapter.id
-            val detail = runCatching { currentApi.seriesChapter(chapterId) }.getOrNull()
-            val size = runCatching { currentApi.chapterSize(chapterId) }.getOrNull()
+            val detail = runCatching { currentApi.seriesChapter(chapterId) }
+                .onFailure { KamiguraLog.w("Could not load issue detail for chapter $chapterId.", it) }
+                .getOrNull()
+            val size = runCatching { currentApi.chapterSize(chapterId) }
+                .onFailure { KamiguraLog.w("Could not load issue size for chapter $chapterId.", it) }
+                .getOrNull()
             if (selectedIssue?.chapter?.id == chapterId) {
                 detail?.let(::updateChapter)
                 selectedIssueSize = size
@@ -279,10 +292,14 @@ fun ChapterPickScreen(
                 )
             }.onSuccess {
                 val refreshed = runCatching { currentApi.seriesChapter(item.chapter.id) }
+                    .onFailure {
+                        KamiguraLog.w("Could not refresh issue detail after marking read.", it)
+                    }
                     .getOrElse { item.chapter.copy(pagesRead = item.chapter.pages) }
                 updateChapter(refreshed)
                 Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show()
             }.onFailure {
+                KamiguraLog.w("Could not mark issue ${item.chapter.id} as read.", it)
                 Toast.makeText(ctx, "Could not mark issue as read", Toast.LENGTH_SHORT).show()
             }
             issueActionBusy = false
@@ -303,10 +320,14 @@ fun ChapterPickScreen(
                 )
             }.onSuccess {
                 val refreshed = runCatching { currentApi.seriesChapter(item.chapter.id) }
+                    .onFailure {
+                        KamiguraLog.w("Could not refresh issue detail after marking unread.", it)
+                    }
                     .getOrElse { item.chapter.copy(pagesRead = 0) }
                 updateChapter(refreshed)
                 Toast.makeText(ctx, "Marked as unread", Toast.LENGTH_SHORT).show()
             }.onFailure {
+                KamiguraLog.w("Could not mark issue ${item.chapter.id} as unread.", it)
                 Toast.makeText(ctx, "Could not mark issue as unread", Toast.LENGTH_SHORT).show()
             }
             issueActionBusy = false
@@ -404,6 +425,7 @@ fun ChapterPickScreen(
                         }.onSuccess {
                             Toast.makeText(ctx, "Download queued", Toast.LENGTH_SHORT).show()
                         }.onFailure { error ->
+                            KamiguraLog.w("Could not queue offline download for chapter ${item.chapter.id}.", error)
                             Toast.makeText(
                                 ctx,
                                 error.message ?: "Could not queue download",
@@ -423,6 +445,7 @@ fun ChapterPickScreen(
                                 Toast.makeText(ctx, "Download removed", Toast.LENGTH_SHORT).show()
                             }
                             .onFailure {
+                                KamiguraLog.w("Could not remove offline download for chapter ${item.chapter.id}.", it)
                                 Toast.makeText(ctx, "Could not remove download", Toast.LENGTH_SHORT).show()
                             }
                         issueActionBusy = false

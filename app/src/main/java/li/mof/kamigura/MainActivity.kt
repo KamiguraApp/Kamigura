@@ -120,6 +120,8 @@ fun AppRoot(
                 val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
                 offlineRepository.syncPending(session, api)
             }
+        }.onFailure {
+            KamiguraLog.w("Could not sync pending offline progress during app startup.", it)
         }
     }
 
@@ -134,7 +136,8 @@ fun AppRoot(
                 val (_, okHttp) = client.buildApi()
                 client.buildImageLoader(okHttp)
             }
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            KamiguraLog.w("Could not refresh active server image loader.", t)
             null
         }
         installImageLoader(nextImageLoader)
@@ -197,6 +200,8 @@ fun AppRoot(
                     onOpenUpdate = { releaseUrl ->
                         runCatching {
                             ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl)))
+                        }.onFailure {
+                            KamiguraLog.w("Could not open release URL.", it)
                         }
                     },
                     onUpdateNoticeShown = { updateNoticeShown = true },
@@ -473,7 +478,9 @@ fun LoginScreen(
     }
 
     LaunchedEffect(defaults.autoLogin) {
-        offlineAvailable = runCatching { hasOfflineDownloads() }.getOrDefault(false)
+        offlineAvailable = runCatching { hasOfflineDownloads() }
+            .onFailure { KamiguraLog.w("Could not check offline downloads on login screen.", it) }
+            .getOrDefault(false)
         if (defaults.autoLogin && !busy) {
             attemptDebugLogin()
         } else if (!busy) {

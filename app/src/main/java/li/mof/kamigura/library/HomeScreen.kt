@@ -101,6 +101,7 @@ import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.GroupedSeriesDto
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
+import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.LibraryDto
@@ -222,6 +223,7 @@ fun LibraryScreen(
             serverName = sessionStore.activeProfile()?.name ?: "No server selected"
             session = sessionStore.load()
             runCatching { offlineRepository.ensureLocalCovers(session) }
+                .onFailure { KamiguraLog.w("Could not ensure local covers on Home.", it) }
             val client = KavitaClient(ctx, sessionStore)
             val (loadedApi, _) = client.buildApi()
             api = loadedApi
@@ -231,6 +233,8 @@ fun LibraryScreen(
                 isAdmin = runCatching {
                     loadedApi.currentUser().roles.orEmpty()
                         .any { it.equals("Admin", ignoreCase = true) }
+                }.onFailure {
+                    KamiguraLog.w("Could not load current user roles on Home.", it)
                 }.getOrDefault(false)
             }
             launch {
@@ -243,8 +247,12 @@ fun LibraryScreen(
             newlyAdded = loadedApi.recentlyAdded(pageSize = HomePreviewShelfPageSize)
             runCatching { loadedApi.wantToRead(pageSize = 200) }
                 .onSuccess { wantToRead = it }
-                .onFailure { wantToReadError = it.message ?: it.toString() }
+                .onFailure {
+                    KamiguraLog.w("Could not load Want to Read list.", it)
+                    wantToReadError = it.message ?: it.toString()
+                }
         } catch (t: Throwable) {
+            KamiguraLog.w("Could not load Home.", t)
             error = t.message ?: t.toString()
         } finally {
             loading = false
@@ -260,6 +268,7 @@ fun LibraryScreen(
                 wantToRead = wantToRead.filterNot { it.id == series.id }
                 Toast.makeText(ctx, "Removed from Want to Read", Toast.LENGTH_SHORT).show()
             }.onFailure {
+                KamiguraLog.w("Could not remove series from Want to Read.", it)
                 Toast.makeText(ctx, "Could not update Want to Read", Toast.LENGTH_SHORT).show()
             }
         }
@@ -279,6 +288,7 @@ fun LibraryScreen(
                     Toast.LENGTH_SHORT
                 ).show()
             }.onFailure {
+                KamiguraLog.w("Could not scan library ${library.id}.", it)
                 Toast.makeText(
                     ctx,
                     "Could not scan ${library.name}",
