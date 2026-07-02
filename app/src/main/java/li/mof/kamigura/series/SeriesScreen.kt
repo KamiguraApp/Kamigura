@@ -67,8 +67,6 @@ import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.SeriesDto
-import li.mof.kamigura.SeriesFilterStatementDto
-import li.mof.kamigura.SeriesFilterV2Dto
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.browse.SeriesPosterCard
@@ -121,21 +119,7 @@ fun SeriesScreen(
             isAdmin = runCatching {
                 loadedApi.currentUser().roles.orEmpty().any { it.equals("Admin", ignoreCase = true) }
             }.getOrDefault(false)
-            val all = loadedApi.allSeriesV2(
-                body = SeriesFilterV2Dto(
-                    statements = listOf(
-                        SeriesFilterStatementDto(
-                            comparison = 0,
-                            field = 19,
-                            value = libraryId.toString()
-                        )
-                    )
-                ),
-                pageNumber = 0,
-                pageSize = 300
-            )
-            series = all.filter { it.libraryId == null || it.libraryId == libraryId }
-                .sortedBy { it.name }
+            series = loadedApi.loadAllSeriesForLibrary(libraryId)
         } catch (t: Throwable) {
             error = t.message ?: t.toString()
         } finally {
@@ -143,7 +127,7 @@ fun SeriesScreen(
         }
     }
 
-    val normalizedQuery = remember(query) { query.normalizedSeriesSearchQuery() }
+    val normalizedQuery = remember(query) { normalizeSeriesSearchQuery(query) }
     val visibleSeries = remember(series, normalizedQuery) {
         if (normalizedQuery.isBlank()) {
             series
@@ -431,14 +415,3 @@ private fun HomeSearchLink(query: String, onSearchHome: (String) -> Unit) {
         }
     }
 }
-
-private fun String.normalizedSeriesSearchQuery(): String {
-    return replace('\u3000', ' ').trim()
-}
-
-private fun SeriesDto.matchesSeriesTitle(query: String): Boolean {
-    return listOfNotNull(name, localizedName, originalName)
-        .any { it.contains(query, ignoreCase = true) }
-}
-
-private fun Int.seriesCountLabel(): String = "$this series"
