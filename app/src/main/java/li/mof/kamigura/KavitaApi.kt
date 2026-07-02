@@ -144,6 +144,9 @@ interface KavitaApi {
         @Query("sortByLastModified") sortByLastModified: Boolean = false
     ): List<ReadingListDto>
 
+    @POST("api/ReadingList/create")
+    suspend fun createReadingList(@Body dto: CreateReadingListDto): ReadingListDto
+
     @GET("api/ReadingList/items")
     suspend fun readingListItems(@Query("readingListId") readingListId: Int): List<ReadingListItemDto>
 

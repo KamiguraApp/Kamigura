@@ -31,6 +31,11 @@ data class ReadingListDto(
 )
 
 @Serializable
+data class CreateReadingListDto(
+    val title: String
+)
+
+@Serializable
 data class UpdateReadingListBySeriesDto(
     val seriesId: Int,
     val readingListId: Int

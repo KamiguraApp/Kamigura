@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuGroup
@@ -31,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
 import androidx.compose.material3.Surface
@@ -58,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import li.mof.kamigura.ChapterDto
+import li.mof.kamigura.CreateReadingListDto
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.ReadingListDto
@@ -165,6 +168,8 @@ private fun SeriesReadSplitButton(
     var menuExpanded by remember { mutableStateOf(false) }
     var showingReadingLists by remember { mutableStateOf(false) }
     var readingLists by remember { mutableStateOf<List<ReadingListDto>>(emptyList()) }
+    var createReadingListDialog by remember { mutableStateOf(false) }
+    var newReadingListTitle by remember { mutableStateOf("") }
     var actionRunning by remember { mutableStateOf(false) }
     val colors = ButtonDefaults.buttonColors(
         containerColor = containerColor,
@@ -233,7 +238,7 @@ private fun SeriesReadSplitButton(
                             shapes = MenuDefaults.groupShape(index = 0, count = 1)
                         ) {
                             val labels = if (showingReadingLists) {
-                                listOf("Back") + readingLists.map { list ->
+                                listOf("Back", "New Reading List") + readingLists.map { list ->
                                     list.title?.takeIf { it.isNotBlank() } ?: "Reading List ${list.id}"
                                 }
                             } else {
@@ -252,8 +257,13 @@ private fun SeriesReadSplitButton(
                                         if (showingReadingLists) {
                                             if (index == 0) {
                                                 showingReadingLists = false
+                                            } else if (index == 1) {
+                                                menuExpanded = false
+                                                showingReadingLists = false
+                                                newReadingListTitle = ""
+                                                createReadingListDialog = true
                                             } else {
-                                                val readingList = readingLists[index - 1]
+                                                val readingList = readingLists[index - 2]
                                                 menuExpanded = false
                                                 showingReadingLists = false
                                                 scope.launch {
@@ -312,16 +322,7 @@ private fun SeriesReadSplitButton(
                                                     runCatching { api.readingLists() }
                                                         .onSuccess { lists ->
                                                             readingLists = lists
-                                                            if (lists.isEmpty()) {
-                                                                menuExpanded = false
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    "No reading lists available",
-                                                                    Toast.LENGTH_SHORT
-                                                                ).show()
-                                                            } else {
-                                                                showingReadingLists = true
-                                                            }
+                                                            showingReadingLists = true
                                                         }
                                                         .onFailure {
                                                             menuExpanded = false
@@ -382,6 +383,71 @@ private fun SeriesReadSplitButton(
                 }
             },
             modifier = Modifier.fillMaxWidth()
+        )
+    }
+
+    if (createReadingListDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!actionRunning) createReadingListDialog = false
+            },
+            title = { Text("New Reading List") },
+            text = {
+                OutlinedTextField(
+                    value = newReadingListTitle,
+                    onValueChange = { newReadingListTitle = it },
+                    label = { Text("Title") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !actionRunning && newReadingListTitle.trim().isNotBlank(),
+                    onClick = {
+                        val title = newReadingListTitle.trim()
+                        scope.launch {
+                            actionRunning = true
+                            runCatching {
+                                val list = api.createReadingList(CreateReadingListDto(title))
+                                api.addSeriesToReadingList(
+                                    UpdateReadingListBySeriesDto(
+                                        seriesId = series.id,
+                                        readingListId = list.id
+                                    )
+                                )
+                                list
+                            }.onSuccess { list ->
+                                readingLists = (readingLists + list)
+                                    .distinctBy { it.id }
+                                    .sortedBy { it.title ?: "Reading List ${it.id}" }
+                                createReadingListDialog = false
+                                Toast.makeText(
+                                    context,
+                                    "Added to ${list.title ?: "reading list"}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }.onFailure {
+                                Toast.makeText(
+                                    context,
+                                    "Could not create reading list",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            actionRunning = false
+                        }
+                    }
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !actionRunning,
+                    onClick = { createReadingListDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }
