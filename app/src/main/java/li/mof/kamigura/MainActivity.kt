@@ -44,6 +44,7 @@ import coil.ImageLoader
 import li.mof.kamigura.ui.theme.KamiguraTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import li.mof.kamigura.library.BookmarksScreen
 import li.mof.kamigura.library.DownloadedScreen
 import li.mof.kamigura.library.LibraryScreen
 import li.mof.kamigura.library.HomeShelfKind
@@ -200,6 +201,7 @@ fun AppRoot(
                     onUpdateNoticeShown = { updateNoticeShown = true },
                     onOpenSettings = { nav.navigate("settings") },
                     onOpenShelf = { shelfKind -> nav.navigate("shelf/${shelfKind.routeValue}") },
+                    onOpenBookmarks = { nav.navigate("bookmarks") },
                     onOpenDownloaded = { nav.navigate("downloaded") },
                     onOpenFilteredSeries = { target, id, label ->
                         nav.navigate("search-series/${target.routeValue}/$id/${Uri.encode(label)}")
@@ -208,6 +210,16 @@ fun AppRoot(
                     onSelectSeries = { series ->
                         val libraryId = series.libraryId ?: 0
                         nav.navigate("chapters/$libraryId/${series.id}/${series.name}")
+                    }
+                )
+            }
+
+            composable("bookmarks") {
+                BookmarksScreen(
+                    sessionStore = sessionStore,
+                    onBack = { nav.popBackStack() },
+                    onOpenBookmark = { libraryId, seriesId, volumeId, chapterId, page ->
+                        nav.navigate("reader/$libraryId/$seriesId/$volumeId/$chapterId?incognito=false&page=$page")
                     }
                 )
             }
@@ -308,7 +320,7 @@ fun AppRoot(
             }
 
             composable(
-                route = "reader/{libraryId}/{seriesId}/{volumeId}/{chapterId}?incognito={incognito}",
+                route = "reader/{libraryId}/{seriesId}/{volumeId}/{chapterId}?incognito={incognito}&page={page}",
                 arguments = listOf(
                     navArgument("libraryId") { type = NavType.IntType },
                     navArgument("seriesId") { type = NavType.IntType },
@@ -317,6 +329,10 @@ fun AppRoot(
                     navArgument("incognito") {
                         type = NavType.BoolType
                         defaultValue = false
+                    },
+                    navArgument("page") {
+                        type = NavType.IntType
+                        defaultValue = -1
                     }
                 )
             ) { backStack ->
@@ -325,6 +341,7 @@ fun AppRoot(
                 val volumeId = backStack.arguments!!.getInt("volumeId")
                 val chapterId = backStack.arguments!!.getInt("chapterId")
                 val incognito = backStack.arguments!!.getBoolean("incognito")
+                val initialPage = backStack.arguments!!.getInt("page").takeIf { it >= 0 }
                 ReaderScreen(
                     sessionStore,
                     settingsStore,
@@ -333,6 +350,7 @@ fun AppRoot(
                     volumeId,
                     chapterId,
                     incognito = incognito,
+                    initialPage = initialPage,
                     onBack = { nav.popBackStack() }
                 )
             }

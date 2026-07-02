@@ -97,6 +97,7 @@ fun ReaderScreen(
     volumeId: Int,
     chapterId: Int,
     incognito: Boolean = false,
+    initialPage: Int? = null,
     onBack: () -> Unit
 ) {
     val ctx = LocalContext.current
@@ -303,7 +304,7 @@ fun ReaderScreen(
         if (local != null) {
             pages = local.pages.size
             pageDimensions = local.dimensions
-            page = local.record.localPage.coerceIn(0, (pages - 1).coerceAtLeast(0))
+            page = (initialPage ?: local.record.localPage).coerceIn(0, (pages - 1).coerceAtLeast(0))
             if (!local.record.progressPending) {
                 lastRemoteProgressPage = page
             }
@@ -335,13 +336,14 @@ fun ReaderScreen(
                 val pageCount = info.pages ?: 0
                 pages = pageCount
                 pageDimensions = info.pageDimensions.toPageDimensionMap()
-                val savedPage = loadedApi.getProgress(chapterId).pageNum
+                val savedPage = initialPage ?: loadedApi.getProgress(chapterId).pageNum
                 page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
                 lastRemoteProgressPage = page
             } else if (!local.record.progressPending) {
                 val savedPage = runCatching { loadedApi.getProgress(chapterId).pageNum }.getOrNull()
-                if (savedPage != null) {
-                    page = savedPage.coerceIn(0, pages - 1)
+                val landingPage = initialPage ?: savedPage
+                if (landingPage != null) {
+                    page = landingPage.coerceIn(0, pages - 1)
                     lastRemoteProgressPage = page
                 }
             }

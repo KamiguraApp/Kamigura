@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
@@ -46,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -284,6 +286,7 @@ internal fun HomeContent(
     onSelectSeries: (SeriesDto) -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
     onRemoveWantToRead: (SeriesDto) -> Unit,
+    onOpenBookmarks: () -> Unit,
     onOpenDownloaded: () -> Unit,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     modifier: Modifier = Modifier
@@ -360,6 +363,7 @@ internal fun HomeContent(
             HomeDestination.Browse -> {
                 BrowseHub(
                     downloadedCount = downloaded.size,
+                    onOpenBookmarks = onOpenBookmarks,
                     onOpenDownloaded = onOpenDownloaded,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -382,6 +386,7 @@ internal fun HomeContent(
 @Composable
 private fun BrowseHub(
     downloadedCount: Int,
+    onOpenBookmarks: () -> Unit,
     onOpenDownloaded: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -392,51 +397,72 @@ private fun BrowseHub(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            BrowseHubItem(
+                title = "Bookmarks",
+                subtitle = "Bookmarked pages",
+                icon = Icons.Filled.BookmarkBorder,
+                onClick = onOpenBookmarks
+            )
+            BrowseHubItem(
+                title = "Downloaded",
+                subtitle = when (downloadedCount) {
+                    0 -> "No issues available offline"
+                    1 -> "1 issue available offline"
+                    else -> "$downloadedCount issues available offline"
+                },
+                icon = Icons.Filled.Download,
+                onClick = onOpenDownloaded
+            )
+        }
+    }
+}
+
+@Composable
+private fun BrowseHubItem(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = KamiguraSurface,
+        contentColor = Color.White,
+        shape = MaterialTheme.shapes.small,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
             Surface(
-                color = KamiguraSurface,
-                contentColor = Color.White,
-                shape = MaterialTheme.shapes.small,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpenDownloaded)
+                modifier = Modifier.size(48.dp),
+                color = Color(0xFF273A32),
+                contentColor = Color(0xFFD3EEE3),
+                shape = MaterialTheme.shapes.small
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Surface(
-                        modifier = Modifier.size(48.dp),
-                        color = Color(0xFF273A32),
-                        contentColor = Color(0xFFD3EEE3),
-                        shape = MaterialTheme.shapes.small
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Filled.Download,
-                                contentDescription = null,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = "Downloaded",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            text = when (downloadedCount) {
-                                0 -> "No issues available offline"
-                                1 -> "1 issue available offline"
-                                else -> "$downloadedCount issues available offline"
-                            },
-                            color = Color(0xFFB9BDBD),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    color = Color(0xFFB9BDBD),
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
     }

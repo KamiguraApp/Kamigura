@@ -108,6 +108,9 @@ interface KavitaApi {
     @GET("api/Reader/continue-point")
     suspend fun continuePoint(@Query("seriesId") seriesId: Int): ChapterDto
 
+    @POST("api/Reader/all-bookmarks")
+    suspend fun allBookmarks(@Body body: SeriesFilterV2Dto = SeriesFilterV2Dto()): List<BookmarkDto>
+
     @POST("api/Reader/progress")
     suspend fun saveProgress(@Body dto: ProgressDto)
 

@@ -263,3 +263,16 @@ data class MarkVolumesReadDto(
     val chapterIds: List<Int> = emptyList(),
     val generateReadingSession: Boolean = false
 )
+
+@Serializable
+data class BookmarkDto(
+    val id: Int? = null,
+    val page: Int = 0,
+    val volumeId: Int = 0,
+    val seriesId: Int = 0,
+    val chapterId: Int = 0,
+    val imageOffset: Int? = null,
+    val xPath: String? = null,
+    val series: SeriesDto? = null,
+    val chapterTitle: String? = null
+)
