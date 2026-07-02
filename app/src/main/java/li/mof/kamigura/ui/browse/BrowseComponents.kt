@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -50,11 +51,18 @@ internal fun BrowsePageScaffold(
     title: String,
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
+    statusBarPadding: Boolean = onBack != null,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable BoxScope.() -> Unit
 ) {
+    val scaffoldModifier = if (statusBarPadding) {
+        modifier.statusBarsPadding()
+    } else {
+        modifier
+    }
+
     Column(
-        modifier = modifier
+        modifier = scaffoldModifier
             .fillMaxSize()
             .background(KamiguraBackground)
     ) {

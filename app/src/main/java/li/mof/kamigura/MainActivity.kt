@@ -49,7 +49,6 @@ import li.mof.kamigura.library.CollectionsScreen
 import li.mof.kamigura.library.DownloadedScreen
 import li.mof.kamigura.library.LibraryScreen
 import li.mof.kamigura.library.HomeShelfKind
-import li.mof.kamigura.library.ReadingListsScreen
 import li.mof.kamigura.library.SearchSeriesScreen
 import li.mof.kamigura.library.SearchSeriesTarget
 import li.mof.kamigura.library.SeriesShelfScreen
@@ -205,7 +204,6 @@ fun AppRoot(
                     onOpenShelf = { shelfKind -> nav.navigate("shelf/${shelfKind.routeValue}") },
                     onOpenBookmarks = { nav.navigate("bookmarks") },
                     onOpenCollections = { nav.navigate("collections") },
-                    onOpenReadingLists = { nav.navigate("reading-lists") },
                     onOpenDownloaded = { nav.navigate("downloaded") },
                     onOpenFilteredSeries = { target, id, label ->
                         nav.navigate("search-series/${target.routeValue}/$id/${Uri.encode(label)}")
@@ -236,19 +234,6 @@ fun AppRoot(
                         nav.navigate(
                             "search-series/${SearchSeriesTarget.Collection.routeValue}/" +
                                 "${collection.id}/${Uri.encode(collection.title)}"
-                        )
-                    }
-                )
-            }
-
-            composable("reading-lists") {
-                ReadingListsScreen(
-                    sessionStore = sessionStore,
-                    onBack = { nav.popBackStack() },
-                    onOpenReadingList = { readingList ->
-                        nav.navigate(
-                            "search-series/${SearchSeriesTarget.ReadingList.routeValue}/" +
-                                "${readingList.id}/${Uri.encode(readingList.title ?: "Reading List ${readingList.id}")}"
                         )
                     }
                 )

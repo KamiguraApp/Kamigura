@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import li.mof.kamigura.CreateReadingListDto
+import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.ReadingListDto
@@ -50,9 +51,32 @@ import li.mof.kamigura.ui.theme.KamiguraSurface
 internal fun ReadingListsScreen(
     sessionStore: KavitaSessionStore,
     onBack: () -> Unit,
-    onOpenReadingList: (ReadingListDto) -> Unit
+    onOpenReadingList: (ReadingListDto) -> Unit,
+    statusBarPadding: Boolean = true
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
+    var api by remember { mutableStateOf<KavitaApi?>(null) }
+
+    LaunchedEffect(Unit) {
+        val (loadedApi, _) = KavitaClient(ctx, sessionStore).buildApi()
+        api = loadedApi
+    }
+
+    ReadingListsPane(
+        api = api,
+        onBack = onBack,
+        onOpenReadingList = onOpenReadingList,
+        statusBarPadding = statusBarPadding
+    )
+}
+
+@Composable
+internal fun ReadingListsPane(
+    api: KavitaApi?,
+    onBack: () -> Unit,
+    onOpenReadingList: (ReadingListDto) -> Unit,
+    statusBarPadding: Boolean = true
+) {
     val scope = rememberCoroutineScope()
     var readingLists by remember { mutableStateOf<List<ReadingListDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -61,12 +85,17 @@ internal fun ReadingListsScreen(
     var createTitle by remember { mutableStateOf("") }
     var creating by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(api) {
+        val loadedApi = api
+        if (loadedApi == null) {
+            loading = true
+            error = null
+            return@LaunchedEffect
+        }
         loading = true
         error = null
         try {
-            val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
-            readingLists = api.readingLists()
+            readingLists = loadedApi.readingLists()
                 .sortedBy { it.title ?: "Reading List ${it.id}" }
         } catch (t: Throwable) {
             error = t.message ?: t.toString()
@@ -75,7 +104,11 @@ internal fun ReadingListsScreen(
         }
     }
 
-    BrowsePageScaffold(title = "Reading Lists", onBack = onBack) {
+    BrowsePageScaffold(
+        title = "Reading Lists",
+        onBack = onBack,
+        statusBarPadding = statusBarPadding
+    ) {
         when {
             loading -> DarkLoadingState()
             error != null -> DarkMessageState("Could not load reading lists", error ?: "Unknown error")
@@ -127,8 +160,8 @@ internal fun ReadingListsScreen(
                         scope.launch {
                             creating = true
                             try {
-                                val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
-                                val created = api.createReadingList(CreateReadingListDto(title))
+                                val created = api?.createReadingList(CreateReadingListDto(title))
+                                    ?: throw IllegalStateException("Server is not ready")
                                 readingLists = (readingLists + created)
                                     .distinctBy { it.id }
                                     .sortedBy { it.title ?: "Reading List ${it.id}" }

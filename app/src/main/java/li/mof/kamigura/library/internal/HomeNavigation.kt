@@ -103,7 +103,6 @@ internal fun HomeShell(
     onOpenShelf: (HomeShelfKind) -> Unit,
     onOpenBookmarks: () -> Unit,
     onOpenCollections: () -> Unit,
-    onOpenReadingLists: () -> Unit,
     onOpenDownloaded: () -> Unit,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onSelectLibrary: (LibraryDto) -> Unit,
@@ -168,7 +167,6 @@ internal fun HomeShell(
                         onRemoveWantToRead = onRemoveWantToRead,
                         onOpenBookmarks = onOpenBookmarks,
                         onOpenCollections = onOpenCollections,
-                        onOpenReadingLists = onOpenReadingLists,
                         onOpenDownloaded = onOpenDownloaded,
                         onOpenFilteredSeries = onOpenFilteredSeries,
                         modifier = Modifier.weight(1f)
@@ -203,7 +201,6 @@ internal fun HomeShell(
                     onRemoveWantToRead = onRemoveWantToRead,
                     onOpenBookmarks = onOpenBookmarks,
                     onOpenCollections = onOpenCollections,
-                    onOpenReadingLists = onOpenReadingLists,
                     onOpenDownloaded = onOpenDownloaded,
                     onOpenFilteredSeries = onOpenFilteredSeries,
                     modifier = Modifier.weight(1f)

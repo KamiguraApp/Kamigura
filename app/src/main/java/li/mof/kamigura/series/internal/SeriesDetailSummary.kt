@@ -238,9 +238,9 @@ private fun SeriesReadSplitButton(
                             shapes = MenuDefaults.groupShape(index = 0, count = 1)
                         ) {
                             val labels = if (showingReadingLists) {
-                                listOf("Back", "New Reading List") + readingLists.map { list ->
+                                listOf("Back") + readingLists.map { list ->
                                     list.title?.takeIf { it.isNotBlank() } ?: "Reading List ${list.id}"
-                                }
+                                } + "New Reading List"
                             } else {
                                 mainMenuItems.map { it.label }
                             }
@@ -257,13 +257,13 @@ private fun SeriesReadSplitButton(
                                         if (showingReadingLists) {
                                             if (index == 0) {
                                                 showingReadingLists = false
-                                            } else if (index == 1) {
+                                            } else if (index == labels.lastIndex) {
                                                 menuExpanded = false
                                                 showingReadingLists = false
                                                 newReadingListTitle = ""
                                                 createReadingListDialog = true
                                             } else {
-                                                val readingList = readingLists[index - 2]
+                                                val readingList = readingLists[index - 1]
                                                 menuExpanded = false
                                                 showingReadingLists = false
                                                 scope.launch {

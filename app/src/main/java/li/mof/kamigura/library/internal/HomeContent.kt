@@ -75,6 +75,7 @@ import li.mof.kamigura.VolumeDto
 import li.mof.kamigura.download.OfflineIssueRecord
 import li.mof.kamigura.library.HomeShelfKind
 import li.mof.kamigura.library.HomeSearchScreen
+import li.mof.kamigura.library.ReadingListsPane
 import li.mof.kamigura.library.SearchSeriesTarget
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.series.chapterCoverUrl
@@ -290,11 +291,16 @@ internal fun HomeContent(
     onRemoveWantToRead: (SeriesDto) -> Unit,
     onOpenBookmarks: () -> Unit,
     onOpenCollections: () -> Unit,
-    onOpenReadingLists: () -> Unit,
     onOpenDownloaded: () -> Unit,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var browseDrilldown by remember { mutableStateOf<BrowseDrilldown?>(null) }
+
+    if (destination != HomeDestination.Browse && browseDrilldown != null) {
+        browseDrilldown = null
+    }
+
     Column(modifier.fillMaxSize()) {
         if (destination != HomeDestination.Browse && loading) {
             DarkLoadingState()
@@ -365,14 +371,32 @@ internal fun HomeContent(
                 }
             }
             HomeDestination.Browse -> {
-                BrowseHub(
-                    downloadedCount = downloaded.size,
-                    onOpenBookmarks = onOpenBookmarks,
-                    onOpenCollections = onOpenCollections,
-                    onOpenReadingLists = onOpenReadingLists,
-                    onOpenDownloaded = onOpenDownloaded,
-                    modifier = Modifier.fillMaxSize()
-                )
+                when (browseDrilldown) {
+                    BrowseDrilldown.ReadingLists -> {
+                        ReadingListsPane(
+                            api = api,
+                            onBack = { browseDrilldown = null },
+                            onOpenReadingList = { readingList ->
+                                onOpenFilteredSeries(
+                                    SearchSeriesTarget.ReadingList,
+                                    readingList.id,
+                                    readingList.title ?: "Reading List ${readingList.id}"
+                                )
+                            },
+                            statusBarPadding = false
+                        )
+                    }
+                    null -> {
+                        BrowseHub(
+                            downloadedCount = downloaded.size,
+                            onOpenBookmarks = onOpenBookmarks,
+                            onOpenCollections = onOpenCollections,
+                            onOpenReadingLists = { browseDrilldown = BrowseDrilldown.ReadingLists },
+                            onOpenDownloaded = onOpenDownloaded,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
             }
             HomeDestination.Search -> {
                 HomeSearchScreen(
@@ -435,6 +459,10 @@ private fun BrowseHub(
             )
         }
     }
+}
+
+private enum class BrowseDrilldown {
+    ReadingLists
 }
 
 @Composable
