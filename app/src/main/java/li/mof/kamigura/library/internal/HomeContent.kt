@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.CollectionsBookmark
@@ -289,6 +290,7 @@ internal fun HomeContent(
     onRemoveWantToRead: (SeriesDto) -> Unit,
     onOpenBookmarks: () -> Unit,
     onOpenCollections: () -> Unit,
+    onOpenReadingLists: () -> Unit,
     onOpenDownloaded: () -> Unit,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     modifier: Modifier = Modifier
@@ -367,6 +369,7 @@ internal fun HomeContent(
                     downloadedCount = downloaded.size,
                     onOpenBookmarks = onOpenBookmarks,
                     onOpenCollections = onOpenCollections,
+                    onOpenReadingLists = onOpenReadingLists,
                     onOpenDownloaded = onOpenDownloaded,
                     modifier = Modifier.fillMaxSize()
                 )
@@ -391,6 +394,7 @@ private fun BrowseHub(
     downloadedCount: Int,
     onOpenBookmarks: () -> Unit,
     onOpenCollections: () -> Unit,
+    onOpenReadingLists: () -> Unit,
     onOpenDownloaded: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -412,6 +416,12 @@ private fun BrowseHub(
                 subtitle = "Curated series groups",
                 icon = Icons.Filled.CollectionsBookmark,
                 onClick = onOpenCollections
+            )
+            BrowseHubItem(
+                title = "Reading Lists",
+                subtitle = "Ordered reading queues",
+                icon = Icons.AutoMirrored.Filled.FormatListBulleted,
+                onClick = onOpenReadingLists
             )
             BrowseHubItem(
                 title = "Downloaded",
