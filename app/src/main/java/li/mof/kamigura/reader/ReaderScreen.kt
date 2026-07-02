@@ -124,6 +124,7 @@ fun ReaderScreen(
     var transitionProgress by remember { mutableFloatStateOf(0f) }
     var transitionSettling by remember { mutableStateOf(false) }
     var queuedTurn by remember { mutableStateOf<PendingReaderTurn?>(null) }
+    var pendingZoomLandingDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
     var dragBoundaryDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
     var zoomAnimationJob by remember { mutableStateOf<Job?>(null) }
     var closeDragOffsetY by remember { mutableFloatStateOf(0f) }
@@ -484,10 +485,32 @@ fun ReaderScreen(
         val zoomPanEnabled = totalZoomScale > 1f + ReaderZoomEpsilon
         val initialZoomPanState = ReaderZoomPanState()
 
+        fun zoomTurnLandingOffsetX(direction: ReaderTurnDirection): Float {
+            val physicalSign = readerTurnPhysicalSign(rtl, direction)
+            return (-physicalSign * panBounds.maxX).coerceIn(-panBounds.maxX, panBounds.maxX)
+        }
+
+        fun rememberZoomTurnLanding(direction: ReaderTurnDirection) {
+            if (zoomPan.userScale > 1f + ReaderZoomEpsilon) {
+                pendingZoomLandingDirection = direction
+            }
+        }
+
         LaunchedEffect(page) {
             zoomAnimationJob?.cancel()
             closeAnimationJob?.cancel()
-            zoomPan = initialZoomPanState
+            val landingDirection = pendingZoomLandingDirection
+            pendingZoomLandingDirection = null
+            zoomPan = if (zoomPan.userScale > 1f + ReaderZoomEpsilon) {
+                zoomPan.copy(
+                    offsetX = landingDirection
+                        ?.let(::zoomTurnLandingOffsetX)
+                        ?: zoomPan.offsetX.coerceIn(-panBounds.maxX, panBounds.maxX),
+                    offsetY = zoomPan.offsetY.coerceIn(-panBounds.maxY, panBounds.maxY)
+                )
+            } else {
+                initialZoomPanState
+            }
             closeDragOffsetY = 0f
         }
 
@@ -538,7 +561,10 @@ fun ReaderScreen(
             }
 
             if (!settings.reader.pageTransitionAnimation) {
-                if (commit) page = transition.targetPage
+                if (commit) {
+                    rememberZoomTurnLanding(transition.direction)
+                    page = transition.targetPage
+                }
                 activeTransition = null
                 transitionProgress = 0f
                 transitionSettling = false
@@ -558,6 +584,7 @@ fun ReaderScreen(
                     transitionProgress = value
                 }
                 if (commit) {
+                    rememberZoomTurnLanding(transition.direction)
                     page = transition.targetPage
                     withFrameNanos { }
                 }
@@ -578,6 +605,9 @@ fun ReaderScreen(
                 return@requestTurnLambda
             }
             if (!settings.reader.pageTransitionAnimation) {
+                if (zoomPan.userScale > 1f + ReaderZoomEpsilon) {
+                    pendingZoomLandingDirection = direction
+                }
                 page = target
                 return@requestTurnLambda
             }
@@ -658,7 +688,7 @@ fun ReaderScreen(
 
         val transition = activeTransition
         val transitionVisible =
-            transition != null && settings.reader.pageTransitionAnimation && !zoomPanEnabled
+            transition != null && settings.reader.pageTransitionAnimation
         Box(
             Modifier
                 .fillMaxSize()
@@ -673,6 +703,11 @@ fun ReaderScreen(
                 requireNotNull(transition)
                 val progress = transitionProgress.coerceIn(0f, 1f)
                 val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
+                val targetOffsetX = if (zoomPanEnabled) {
+                    zoomTurnLandingOffsetX(transition.direction)
+                } else {
+                    zoomPan.offsetX
+                }
                 ReaderPageView(
                     cursor = transition.targetPage,
                     pageCount = pages,
@@ -687,7 +722,10 @@ fun ReaderScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            translationX = -physicalSign * viewportWidthPx * (1f - progress)
+                            translationX = -physicalSign * viewportWidthPx * (1f - progress) + targetOffsetX
+                            translationY = zoomPan.offsetY
+                            scaleX = totalZoomScale
+                            scaleY = totalZoomScale
                         }
                 )
                 ReaderPageView(
@@ -704,7 +742,10 @@ fun ReaderScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            translationX = physicalSign * viewportWidthPx * progress
+                            translationX = physicalSign * viewportWidthPx * progress + zoomPan.offsetX
+                            translationY = zoomPan.offsetY
+                            scaleX = totalZoomScale
+                            scaleY = totalZoomScale
                         }
                 )
             } else {
