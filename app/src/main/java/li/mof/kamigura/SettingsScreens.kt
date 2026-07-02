@@ -525,7 +525,11 @@ fun ServerSettingsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
+fun ReaderSettingsScreen(
+    settingsStore: AppSettingsStore,
+    onBack: () -> Unit,
+    onOpenLeafCurlSpike: (() -> Unit)? = null
+) {
     val scope = rememberCoroutineScope()
     val settings by settingsStore.flow.collectAsState(initial = AppSettings())
 
@@ -622,6 +626,16 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
                     valueRange = 0.2f..0.9f,
                     valueLabel = { value -> "${(value * 100f).roundToInt()}%" }
                 )
+            }
+
+            onOpenLeafCurlSpike?.let { openSpike ->
+                Text("Developer", style = MaterialTheme.typography.titleMedium)
+                Button(
+                    onClick = openSpike,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Leaf curl spike (Phase 0)")
+                }
             }
         }
     }
