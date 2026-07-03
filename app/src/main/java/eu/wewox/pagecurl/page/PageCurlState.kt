@@ -294,9 +294,19 @@ public class PageCurlState(
 
         val progress: Float by derivedStateOf {
             if (forward.value != rightEdge) {
-                1f - forward.value.centerX / constraints.maxWidth
+                val range = rightEdge.centerX - forwardEndEdge.centerX
+                if (kotlin.math.abs(range) < 0.001f) {
+                    0f
+                } else {
+                    ((rightEdge.centerX - forward.value.centerX) / range).coerceIn(0f, 1f)
+                }
             } else if (backward.value != leftEdge) {
-                -backward.value.centerX / constraints.maxWidth
+                val range = backwardEndEdge.centerX - leftEdge.centerX
+                if (kotlin.math.abs(range) < 0.001f) {
+                    0f
+                } else {
+                    (-(backward.value.centerX - leftEdge.centerX) / range).coerceIn(-1f, 0f)
+                }
             } else {
                 0f
             }
@@ -373,7 +383,7 @@ private const val TapMidPointDuration: Int = 140
 // Kamigura fork: mid pose for the tap turn. Near-vertical crease with a slight lean
 // so the corner on the tapped half of the screen lifts first (Stage 1.7 H6); no tap
 // position leads with the bottom corner, matching a thumb resting low on a tablet.
-private fun quietMiddle(size: Size, tapPosition: Offset?, mirrored: Boolean): Edge {
+internal fun quietMiddle(size: Size, tapPosition: Offset?, mirrored: Boolean): Edge {
     val topLeads = tapPosition != null && tapPosition.y < size.height / 2f
     val nearSpineX = size.width * 0.70f
     val nearEdgeX = size.width * 0.80f

@@ -37,9 +37,9 @@ internal data class DragConfig(
     val creaseRangeX: ClosedFloatingPointRange<Float>? = null,
 )
 
-private fun Offset.mirrorX(size: IntSize): Offset = Offset(size.width - x, y)
+internal fun Offset.mirrorX(size: IntSize): Offset = Offset(size.width - x, y)
 
-private fun Edge.mirrorX(size: IntSize): Edge =
+internal fun Edge.mirrorX(size: IntSize): Edge =
     Edge(Offset(size.width - top.x, top.y), Offset(size.width - bottom.x, bottom.y))
 
 /**
@@ -47,7 +47,7 @@ private fun Edge.mirrorX(size: IntSize): Edge =
  * its intersections with the top and bottom borders, so those intersections are what must
  * stay inside the allowed x range, not just the two raw points.
  */
-private fun Edge.clampLineX(range: ClosedFloatingPointRange<Float>, size: IntSize): Edge {
+internal fun Edge.clampLineX(range: ClosedFloatingPointRange<Float>, size: IntSize): Edge {
     val height = size.height.toFloat()
     val dy = bottom.y - top.y
     val xAtTopBorder: Float

@@ -111,11 +111,7 @@ fun LeafCurlSpikeScreen(onBack: () -> Unit) {
                             .fillMaxSize()
                             .graphicsLayer { scaleX = mirror },
                         backContent = { current, forward ->
-                            val pageIndex = if (forward) {
-                                (current + 1) * 2
-                            } else {
-                                (current - 1) * 2 + 1
-                            }
+                            val pageIndex = leafCurlSpikeBackPageIndex(current, forward)
                             if (pageIndex in 0 until SpikePageCount) {
                                 Box(Modifier.fillMaxSize()) {
                                     Box(
@@ -144,6 +140,13 @@ fun LeafCurlSpikeScreen(onBack: () -> Unit) {
         }
     }
 }
+
+internal fun leafCurlSpikeBackPageIndex(current: Int, forward: Boolean): Int =
+    if (forward) {
+        (current + 1) * 2
+    } else {
+        (current - 1) * 2 + 1
+    }
 
 private val SpikePageColors = listOf(
     Color(0xFF315C8C),
