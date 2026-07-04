@@ -32,8 +32,8 @@ internal class GitHubUpdateChecker(context: Context) {
     suspend fun check(currentVersion: String): AvailableUpdate? = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
         val cached = cachedUpdate(currentVersion)
-        val lastCheck = preferences.getLong(KeyLastCheck, 0L)
-        if (now - lastCheck < CheckIntervalMillis) return@withContext cached
+        val lastSuccessfulCheck = preferences.getLong(KeyLastSuccessfulCheck, 0L)
+        if (now - lastSuccessfulCheck < CheckIntervalMillis) return@withContext cached
 
         val request = Request.Builder()
             .url(LatestReleaseUrl)
@@ -51,7 +51,7 @@ internal class GitHubUpdateChecker(context: Context) {
             client.newCall(request).execute().use { response ->
                 when {
                     response.code == 304 -> {
-                        preferences.edit().putLong(KeyLastCheck, now).apply()
+                        preferences.edit().putLong(KeyLastSuccessfulCheck, now).apply()
                         cached
                     }
                     response.isSuccessful -> {
@@ -63,11 +63,10 @@ internal class GitHubUpdateChecker(context: Context) {
                                 .getOrNull()
                         }
                         if (release == null || !release.releaseUrl.startsWith(ReleaseUrlPrefix)) {
-                            preferences.edit().putLong(KeyLastCheck, now).apply()
                             cached
                         } else {
                             preferences.edit()
-                                .putLong(KeyLastCheck, now)
+                                .putLong(KeyLastSuccessfulCheck, now)
                                 .putString(KeyEtag, response.header("ETag"))
                                 .putString(KeyTagName, release.tagName)
                                 .putString(KeyReleaseUrl, release.releaseUrl)
@@ -76,14 +75,12 @@ internal class GitHubUpdateChecker(context: Context) {
                         }
                     }
                     else -> {
-                        preferences.edit().putLong(KeyLastCheck, now).apply()
                         cached
                     }
                 }
             }
         } catch (t: IOException) {
             KamiguraLog.w("Could not check GitHub releases.", t)
-            preferences.edit().putLong(KeyLastCheck, now).apply()
             cached
         }
     }
@@ -110,7 +107,7 @@ internal class GitHubUpdateChecker(context: Context) {
 
     private companion object {
         const val PreferencesName = "github_update_check"
-        const val KeyLastCheck = "last_check"
+        const val KeyLastSuccessfulCheck = "last_successful_check"
         const val KeyEtag = "etag"
         const val KeyTagName = "tag_name"
         const val KeyReleaseUrl = "release_url"
