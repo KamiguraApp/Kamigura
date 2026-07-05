@@ -12,12 +12,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.hypot
 import li.mof.kamigura.reader.ReaderTurnDirection
+import li.mof.kamigura.reader.readerLockedTurnProgress
 import li.mof.kamigura.reader.readerTurnForDrag
-import li.mof.kamigura.reader.readerTurnProgress
 
 /** Internal to reader, not for external use. */
 @Composable
@@ -35,8 +36,9 @@ internal fun ReaderTapLayer(
     panMaxX: Float = 0f,
     panMaxY: Float = 0f,
     onPan: (Float, Float) -> Unit = { _, _ -> },
-    onTurnDrag: (ReaderTurnDirection, Float) -> Unit = { _, _ -> },
-    onTurnDragEnd: () -> Unit = {},
+    onTurnDragStart: (ReaderTurnDirection, Offset) -> Unit = { _, _ -> },
+    onTurnDrag: (ReaderTurnDirection, Float, Offset) -> Unit = { _, _, _ -> },
+    onTurnDragEnd: (Float) -> Unit = {},
     onTurnDragCancel: () -> Unit = {},
     closeSwipeEnabled: Boolean = false,
     closeVisualDistancePx: Float = 1f,
@@ -66,6 +68,7 @@ internal fun ReaderTapLayer(
                 panMaxX = panMaxX,
                 panMaxY = panMaxY,
                 onPan = onPan,
+                onTurnDragStart = onTurnDragStart,
                 onTurnDrag = onTurnDrag,
                 onTurnDragEnd = onTurnDragEnd,
                 onTurnDragCancel = onTurnDragCancel,
@@ -158,8 +161,9 @@ private fun Modifier.readerGestures(
     panMaxX: Float = 0f,
     panMaxY: Float = 0f,
     onPan: (Float, Float) -> Unit = { _, _ -> },
-    onTurnDrag: (ReaderTurnDirection, Float) -> Unit,
-    onTurnDragEnd: () -> Unit,
+    onTurnDragStart: (ReaderTurnDirection, Offset) -> Unit,
+    onTurnDrag: (ReaderTurnDirection, Float, Offset) -> Unit,
+    onTurnDragEnd: (Float) -> Unit,
     onTurnDragCancel: () -> Unit,
     closeSwipeEnabled: Boolean = false,
     closeVisualDistancePx: Float = 1f,
@@ -183,6 +187,7 @@ private fun Modifier.readerGestures(
     val latestCloseSwipeEnabled by rememberUpdatedState(closeSwipeEnabled)
     val latestCloseVisualDistancePx by rememberUpdatedState(closeVisualDistancePx)
     val latestOnPan by rememberUpdatedState(onPan)
+    val latestOnTurnDragStart by rememberUpdatedState(onTurnDragStart)
     val latestOnTurnDrag by rememberUpdatedState(onTurnDrag)
     val latestOnTurnDragEnd by rememberUpdatedState(onTurnDragEnd)
     val latestOnTurnDragCancel by rememberUpdatedState(onTurnDragCancel)
@@ -206,6 +211,9 @@ private fun Modifier.readerGestures(
         var activePanY = 0f
         var dragStartedAtNegativePanEdge = false
         var dragStartedAtPositivePanEdge = false
+        var gestureStartPosition = Offset.Zero
+        var velocityTracker = VelocityTracker()
+        var lockedTurnDirection: ReaderTurnDirection? = null
         val panEdgeTolerancePx = 1f
         val horizontalIntentSlopPx = 8f
         val directionLockSlopPx = 4f
@@ -230,6 +238,7 @@ private fun Modifier.readerGestures(
             activePanY = latestPanOffsetY
             dragStartedAtNegativePanEdge = activePanX <= -latestPanMaxX + panEdgeTolerancePx
             dragStartedAtPositivePanEdge = activePanX >= latestPanMaxX - panEdgeTolerancePx
+            lockedTurnDirection = null
         }
 
         fun finishDrag() {
@@ -238,7 +247,7 @@ private fun Modifier.readerGestures(
                     latestOnCloseDragEnd(closeDragOffsetY >= closeCommitDistancePx())
                 }
                 ReaderDragMode.HorizontalTurn,
-                ReaderDragMode.ZoomEdgeTurn -> latestOnTurnDragEnd()
+                ReaderDragMode.ZoomEdgeTurn -> latestOnTurnDragEnd(velocityTracker.calculateVelocity().x)
                 ReaderDragMode.Pending -> Unit
             }
         }
@@ -313,9 +322,18 @@ private fun Modifier.readerGestures(
             if (latestZoomPanEnabled) {
                 if (dragMode == ReaderDragMode.ZoomEdgeTurn) {
                     totalDragX += dragAmount.x
+                    val direction = lockedTurnDirection
+                        ?: readerTurnForDrag(totalDragX, latestRightToLeft)
+                            .also { lockedTurnDirection = it }
                     latestOnTurnDrag(
-                        readerTurnForDrag(totalDragX, latestRightToLeft),
-                        readerTurnProgress(totalDragX, latestTurnVisualDistancePx)
+                        direction,
+                        readerLockedTurnProgress(
+                            dragX = totalDragX,
+                            rightToLeft = latestRightToLeft,
+                            direction = direction,
+                            visualDistancePx = latestTurnVisualDistancePx
+                        ),
+                        change.position
                     )
                     change.consume()
                     return
@@ -345,9 +363,18 @@ private fun Modifier.readerGestures(
 
                 totalDragX = gestureDragX
                 dragMode = ReaderDragMode.ZoomEdgeTurn
+                val direction = readerTurnForDrag(totalDragX, latestRightToLeft)
+                lockedTurnDirection = direction
+                latestOnTurnDragStart(direction, gestureStartPosition)
                 latestOnTurnDrag(
-                    readerTurnForDrag(totalDragX, latestRightToLeft),
-                    readerTurnProgress(totalDragX, latestTurnVisualDistancePx)
+                    direction,
+                    readerLockedTurnProgress(
+                        dragX = totalDragX,
+                        rightToLeft = latestRightToLeft,
+                        direction = direction,
+                        visualDistancePx = latestTurnVisualDistancePx
+                    ),
+                    change.position
                 )
                 change.consume()
                 return
@@ -362,9 +389,18 @@ private fun Modifier.readerGestures(
 
             if (dragMode == ReaderDragMode.HorizontalTurn) {
                 totalDragX += dragAmount.x
+                val direction = lockedTurnDirection
+                    ?: readerTurnForDrag(totalDragX, latestRightToLeft)
+                        .also { lockedTurnDirection = it }
                 latestOnTurnDrag(
-                    readerTurnForDrag(totalDragX, latestRightToLeft),
-                    readerTurnProgress(totalDragX, latestTurnVisualDistancePx)
+                    direction,
+                    readerLockedTurnProgress(
+                        dragX = totalDragX,
+                        rightToLeft = latestRightToLeft,
+                        direction = direction,
+                        visualDistancePx = latestTurnVisualDistancePx
+                    ),
+                    change.position
                 )
                 change.consume()
                 return
@@ -390,9 +426,18 @@ private fun Modifier.readerGestures(
                 else -> {
                     totalDragX = gestureDragX
                     dragMode = ReaderDragMode.HorizontalTurn
+                    val direction = readerTurnForDrag(totalDragX, latestRightToLeft)
+                    lockedTurnDirection = direction
+                    latestOnTurnDragStart(direction, gestureStartPosition)
                     latestOnTurnDrag(
-                        readerTurnForDrag(totalDragX, latestRightToLeft),
-                        readerTurnProgress(totalDragX, latestTurnVisualDistancePx)
+                        direction,
+                        readerLockedTurnProgress(
+                            dragX = totalDragX,
+                            rightToLeft = latestRightToLeft,
+                            direction = direction,
+                            visualDistancePx = latestTurnVisualDistancePx
+                        ),
+                        change.position
                     )
                 }
             }
@@ -422,6 +467,9 @@ private fun Modifier.readerGestures(
                 }
             }
             resetDragState()
+            gestureStartPosition = down.position
+            velocityTracker = VelocityTracker()
+            velocityTracker.addPosition(down.uptimeMillis, down.position)
             var previousPosition = down.position
             val pointerId = down.id
             var lastEventUptimeMillis = down.uptimeMillis
@@ -470,6 +518,7 @@ private fun Modifier.readerGestures(
                     break
                 }
                 lastEventUptimeMillis = change.uptimeMillis
+                velocityTracker.addPosition(change.uptimeMillis, change.position)
 
                 val dragAmount = change.position - previousPosition
                 previousPosition = change.position

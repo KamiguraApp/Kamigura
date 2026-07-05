@@ -17,6 +17,9 @@ internal data class PendingReaderTurn(
     val completeWhenPastEnd: Boolean
 )
 
+private const val ReaderTurnCommitProgressThreshold = 0.12f
+private const val ReaderTurnFlingMinimumProgress = 0.04f
+
 internal fun readerTurnPhysicalSign(
     rightToLeft: Boolean,
     direction: ReaderTurnDirection
@@ -41,4 +44,26 @@ internal fun readerTurnProgress(
     visualDistancePx: Float
 ): Float = (kotlin.math.abs(dragX) / visualDistancePx.coerceAtLeast(1f)).coerceIn(0f, 1f)
 
-internal fun shouldCommitReaderTurn(progress: Float): Boolean = progress >= 0.12f
+internal fun readerLockedTurnProgress(
+    dragX: Float,
+    rightToLeft: Boolean,
+    direction: ReaderTurnDirection,
+    visualDistancePx: Float
+): Float {
+    val directionalDrag = dragX * readerTurnPhysicalSign(rightToLeft, direction)
+    return (directionalDrag.coerceAtLeast(0f) / visualDistancePx.coerceAtLeast(1f)).coerceIn(0f, 1f)
+}
+
+internal fun shouldCommitReaderTurn(
+    progress: Float,
+    velocityX: Float = 0f,
+    direction: ReaderTurnDirection? = null,
+    rightToLeft: Boolean = true,
+    minimumFlingVelocity: Float = Float.POSITIVE_INFINITY
+): Boolean {
+    if (progress >= ReaderTurnCommitProgressThreshold) return true
+    if (progress < ReaderTurnFlingMinimumProgress) return false
+    val turnDirection = direction ?: return false
+    val flingVelocity = minimumFlingVelocity.takeIf { it.isFinite() } ?: return false
+    return velocityX * readerTurnPhysicalSign(rightToLeft, turnDirection) >= flingVelocity
+}

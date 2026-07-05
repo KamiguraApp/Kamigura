@@ -1,5 +1,6 @@
 package li.mof.kamigura.reader
 
+import android.view.ViewConfiguration
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -40,6 +41,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import coil.ImageLoader
 import coil.imageLoader
+import eu.wewox.pagecurl.ExperimentalPageCurlApi
+import eu.wewox.pagecurl.config.rememberPageCurlConfig
+import eu.wewox.pagecurl.page.PageCurl
+import eu.wewox.pagecurl.page.PageCurlState
+import eu.wewox.pagecurl.page.PageCurlTurnDirection
 import li.mof.kamigura.AppSettings
 import li.mof.kamigura.AppSettingsStore
 import li.mof.kamigura.FileDimensionDto
@@ -51,6 +57,7 @@ import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.MarkChapterReadDto
 import li.mof.kamigura.MarkVolumesReadDto
+import li.mof.kamigura.PageTurnMode
 import li.mof.kamigura.ProgressDto
 import li.mof.kamigura.download.OfflineChapter
 import li.mof.kamigura.download.OfflineIssueRepository
@@ -88,7 +95,7 @@ private const val KavitaReadingProfileKindDefault = 0
 
 private const val ReaderProgressSyncDelayMillis = 3_000L
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPageCurlApi::class)
 @Composable
 fun ReaderScreen(
     sessionStore: KavitaSessionStore,
@@ -125,6 +132,9 @@ fun ReaderScreen(
     var activeTransition by remember { mutableStateOf<ReaderPageTransition?>(null) }
     var transitionProgress by remember { mutableFloatStateOf(0f) }
     var transitionSettling by remember { mutableStateOf(false) }
+    var activeCurlDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
+    var curlDragStartPointer by remember { mutableStateOf<Offset?>(null) }
+    var curlDragProgress by remember { mutableFloatStateOf(0f) }
     var queuedTurn by remember { mutableStateOf<PendingReaderTurn?>(null) }
     var pendingZoomLandingDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
     var dragBoundaryDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
@@ -133,6 +143,9 @@ fun ReaderScreen(
     var closeAnimationJob by remember { mutableStateOf<Job?>(null) }
     val invertDecisionCache = remember { mutableStateMapOf<ReaderInvertCacheKey, Boolean>() }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+    val minimumFlingVelocity = remember(ctx) {
+        ViewConfiguration.get(ctx).scaledMinimumFlingVelocity.toFloat()
+    }
     var pendingRemoteProgressPage by remember { mutableStateOf<Int?>(null) }
     var lastRemoteProgressPage by remember { mutableStateOf<Int?>(null) }
 
@@ -433,6 +446,16 @@ fun ReaderScreen(
             portrait = portrait,
             pageDimensions = pageDimensions
         )
+        val curlState = remember(chapterId) { PageCurlState(initialCurrent = page) }
+        val curlBackPageColor = if (settings.reader.invertMode == InvertMode.Off) {
+            Color(0xFFFAF7F2)
+        } else {
+            Color(0xFF101010)
+        }
+        val curlConfig = rememberPageCurlConfig(backPageColor = curlBackPageColor)
+        LaunchedEffect(curlBackPageColor) {
+            curlConfig.backPageColor = curlBackPageColor
+        }
         fun prefetchTargetsFor(indices: List<Int>): List<ReaderPrefetchTarget> {
             return indices.mapNotNull { index ->
                 val model = pageModel(index) as? String ?: return@mapNotNull null
@@ -500,7 +523,27 @@ fun ReaderScreen(
         val totalZoomScale = baseZoomScale * zoomPan.userScale
         val panBounds = readerPanBoundsPx(viewportWidthPx, viewportHeightPx, totalZoomScale)
         val zoomPanEnabled = totalZoomScale > 1f + ReaderZoomEpsilon
+        val usePortraitCurl =
+            settings.reader.pageTurnMode == PageTurnMode.Curl &&
+                settings.reader.pageTransitionAnimation &&
+                portrait &&
+                layout.singlePage &&
+                !zoomPanEnabled
         val initialZoomPanState = ReaderZoomPanState()
+
+        LaunchedEffect(page, pages, usePortraitCurl) {
+            if (usePortraitCurl && pages > 0 && curlState.current != page) {
+                curlState.snapTo(page)
+            }
+        }
+
+        LaunchedEffect(usePortraitCurl) {
+            if (!usePortraitCurl) {
+                activeCurlDirection = null
+                curlDragStartPointer = null
+                curlDragProgress = 0f
+            }
+        }
 
         fun zoomTurnLandingOffsetX(direction: ReaderTurnDirection): Float {
             val physicalSign = readerTurnPhysicalSign(rtl, direction)
@@ -562,6 +605,31 @@ fun ReaderScreen(
 
         lateinit var requestTurn: (ReaderTurnDirection, Int, Boolean) -> Unit
 
+        fun pageCurlDirection(direction: ReaderTurnDirection): PageCurlTurnDirection =
+            when (direction) {
+                ReaderTurnDirection.Next -> PageCurlTurnDirection.Forward
+                ReaderTurnDirection.Previous -> PageCurlTurnDirection.Backward
+            }
+
+        fun curlPointer(position: Offset): Offset =
+            if (rtl) Offset(viewportWidthPx - position.x, position.y) else position
+
+        fun requestCurlTurn(direction: ReaderTurnDirection, completeWhenPastEnd: Boolean) {
+            val target = turnTarget(direction, 1, completeWhenPastEnd)
+            if (target == null) {
+                runBoundaryAction(direction, completeWhenPastEnd)
+                return
+            }
+            scope.launch {
+                when (pageCurlDirection(direction)) {
+                    PageCurlTurnDirection.Forward -> curlState.next()
+                    PageCurlTurnDirection.Backward -> curlState.prev()
+                }
+                rememberZoomTurnLanding(direction)
+                page = curlState.current.coerceIn(0, (pages - 1).coerceAtLeast(0))
+            }
+        }
+
         fun settleTransition(
             commit: Boolean,
             completeWhenPastEnd: Boolean
@@ -612,6 +680,10 @@ fun ReaderScreen(
         }
 
         requestTurn = requestTurnLambda@{ direction, step, completeWhenPastEnd ->
+            if (usePortraitCurl && step == 1) {
+                requestCurlTurn(direction, completeWhenPastEnd)
+                return@requestTurnLambda
+            }
             if (transitionSettling || activeTransition != null) {
                 queuedTurn = PendingReaderTurn(direction, step, completeWhenPastEnd)
                 return@requestTurnLambda
@@ -645,7 +717,36 @@ fun ReaderScreen(
             }
         }
 
-        fun updateTurnDrag(direction: ReaderTurnDirection, progress: Float) {
+        fun beginTurnDrag(direction: ReaderTurnDirection, pointer: Offset) {
+            if (usePortraitCurl) {
+                curlDragStartPointer = pointer
+                curlDragProgress = 0f
+                return
+            }
+        }
+
+        fun updateTurnDrag(direction: ReaderTurnDirection, progress: Float, pointer: Offset) {
+            if (usePortraitCurl) {
+                if (activeCurlDirection != direction) {
+                    val target = turnTarget(direction, 1, direction == ReaderTurnDirection.Next && showingFinalPage)
+                    dragBoundaryDirection = if (target == null) direction else null
+                    activeCurlDirection = direction
+                    val start = curlDragStartPointer ?: pointer
+                    if (target != null) {
+                        scope.launch {
+                            if (curlState.beginTurn(pageCurlDirection(direction), curlPointer(start))) {
+                                curlState.dragTurnTo(curlPointer(pointer))
+                            }
+                        }
+                    }
+                } else {
+                    scope.launch {
+                        curlState.dragTurnTo(curlPointer(pointer))
+                    }
+                }
+                curlDragProgress = progress
+                return
+            }
             if (transitionSettling) return
             if (activeTransition?.direction != direction) {
                 val step = if (direction == ReaderTurnDirection.Next) {
@@ -661,6 +762,62 @@ fun ReaderScreen(
                 dragBoundaryDirection = if (target == null) direction else null
             }
             transitionProgress = progress
+        }
+
+        fun settleTurnDrag(velocityX: Float) {
+            val curlDirection = activeCurlDirection
+            if (usePortraitCurl && curlDirection != null) {
+                val commit = shouldCommitReaderTurn(
+                    progress = curlDragProgress,
+                    velocityX = velocityX,
+                    direction = curlDirection,
+                    rightToLeft = rtl,
+                    minimumFlingVelocity = minimumFlingVelocity
+                )
+                val boundaryDirection = dragBoundaryDirection
+                activeCurlDirection = null
+                curlDragStartPointer = null
+                curlDragProgress = 0f
+                dragBoundaryDirection = null
+                if (commit && boundaryDirection != null) {
+                    runBoundaryAction(
+                        boundaryDirection,
+                        completeWhenPastEnd = boundaryDirection == ReaderTurnDirection.Next && showingFinalPage
+                    )
+                    return
+                }
+                scope.launch {
+                    curlState.settleTurn(commit)
+                    if (commit) {
+                        rememberZoomTurnLanding(curlDirection)
+                        page = curlState.current.coerceIn(0, (pages - 1).coerceAtLeast(0))
+                    }
+                }
+                return
+            }
+            settleTransition(
+                commit = shouldCommitReaderTurn(
+                    progress = transitionProgress,
+                    velocityX = velocityX,
+                    direction = activeTransition?.direction ?: dragBoundaryDirection,
+                    rightToLeft = rtl,
+                    minimumFlingVelocity = minimumFlingVelocity
+                ),
+                completeWhenPastEnd = dragBoundaryDirection == ReaderTurnDirection.Next &&
+                    showingFinalPage
+            )
+        }
+
+        fun cancelTurnDrag() {
+            if (usePortraitCurl && activeCurlDirection != null) {
+                activeCurlDirection = null
+                curlDragStartPointer = null
+                curlDragProgress = 0f
+                dragBoundaryDirection = null
+                scope.launch { curlState.settleTurn(commit = false) }
+                return
+            }
+            settleTransition(commit = false, completeWhenPastEnd = false)
         }
 
         LaunchedEffect(
@@ -705,7 +862,7 @@ fun ReaderScreen(
 
         val transition = activeTransition
         val transitionVisible =
-            transition != null && settings.reader.pageTransitionAnimation
+            !usePortraitCurl && transition != null && settings.reader.pageTransitionAnimation
         Box(
             Modifier
                 .fillMaxSize()
@@ -716,7 +873,42 @@ fun ReaderScreen(
                     alpha = (1f - closeDragOffsetY / safeViewportHeight * 0.35f).coerceIn(0.65f, 1f)
                 }
         ) {
-            if (transitionVisible) {
+            if (usePortraitCurl) {
+                val curlMirror = if (rtl) -1f else 1f
+                PageCurl(
+                    count = pages,
+                    state = curlState,
+                    config = curlConfig,
+                    interactionsEnabled = false,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = curlMirror
+                        }
+                ) { cursor ->
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = curlMirror
+                            }
+                    ) {
+                        ReaderPageView(
+                            cursor = cursor,
+                            pageCount = pages,
+                            portrait = portrait,
+                            pageDimensions = pageDimensions,
+                            rightToLeft = rtl,
+                            pageModel = ::pageModel,
+                            imageLoader = activeImageLoader,
+                            invertMode = settings.reader.invertMode,
+                            whiteThreshold = settings.reader.invertWhiteThreshold,
+                            invertDecisionCache = invertDecisionCache,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            } else if (transitionVisible) {
                 requireNotNull(transition)
                 val progress = transitionProgress.coerceIn(0f, 1f)
                 val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
@@ -798,8 +990,20 @@ fun ReaderScreen(
                 onPreviousSpread = {
                     requestTurn(ReaderTurnDirection.Previous, previousPageTurnStep, false)
                 },
-                onNextSingle = { requestTurn(ReaderTurnDirection.Next, 1, page >= pages - 1) },
-                onPreviousSingle = { requestTurn(ReaderTurnDirection.Previous, 1, false) },
+                onNextSingle = {
+                    if (usePortraitCurl) {
+                        nextSingle()
+                    } else {
+                        requestTurn(ReaderTurnDirection.Next, 1, page >= pages - 1)
+                    }
+                },
+                onPreviousSingle = {
+                    if (usePortraitCurl) {
+                        prevSingle()
+                    } else {
+                        requestTurn(ReaderTurnDirection.Previous, 1, false)
+                    }
+                },
                 onCenterTap = { showReaderMenu = !showReaderMenu },
                 turnVisualDistancePx = turnVisualDistancePx,
                 zoomPanEnabled = zoomPanEnabled,
@@ -811,18 +1015,14 @@ fun ReaderScreen(
                     zoomAnimationJob?.cancel()
                     zoomPan = zoomPan.copy(offsetX = x, offsetY = y)
                 },
+                onTurnDragStart = ::beginTurnDrag,
                 onTurnDrag = ::updateTurnDrag,
-                onTurnDragEnd = {
-                    settleTransition(
-                        commit = shouldCommitReaderTurn(transitionProgress),
-                        completeWhenPastEnd = dragBoundaryDirection == ReaderTurnDirection.Next &&
-                            showingFinalPage
-                    )
-                },
-                onTurnDragCancel = {
-                    settleTransition(commit = false, completeWhenPastEnd = false)
-                },
-                closeSwipeEnabled = activeTransition == null && !transitionSettling && !showReaderMenu,
+                onTurnDragEnd = ::settleTurnDrag,
+                onTurnDragCancel = ::cancelTurnDrag,
+                closeSwipeEnabled = activeTransition == null &&
+                    activeCurlDirection == null &&
+                    !transitionSettling &&
+                    !showReaderMenu,
                 closeVisualDistancePx = viewportHeightPx,
                 onCloseDrag = { offset ->
                     closeAnimationJob?.cancel()

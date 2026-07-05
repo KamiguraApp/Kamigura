@@ -29,4 +29,87 @@ class ReaderTransitionTest {
         assertFalse(shouldCommitReaderTurn(0.119f))
         assertTrue(shouldCommitReaderTurn(0.12f))
     }
+
+    @Test
+    fun lockedProgressOnlyCountsDragInInitialDirection() {
+        assertEquals(
+            0.5f,
+            readerLockedTurnProgress(
+                dragX = 500f,
+                rightToLeft = true,
+                direction = ReaderTurnDirection.Next,
+                visualDistancePx = 1000f
+            ),
+            0.001f
+        )
+        assertEquals(
+            0f,
+            readerLockedTurnProgress(
+                dragX = -500f,
+                rightToLeft = true,
+                direction = ReaderTurnDirection.Next,
+                visualDistancePx = 1000f
+            ),
+            0.001f
+        )
+        assertEquals(
+            0.5f,
+            readerLockedTurnProgress(
+                dragX = -500f,
+                rightToLeft = false,
+                direction = ReaderTurnDirection.Next,
+                visualDistancePx = 1000f
+            ),
+            0.001f
+        )
+    }
+
+    @Test
+    fun flingCommitFollowsPhysicalReadingDirection() {
+        assertFalse(
+            shouldCommitReaderTurn(
+                progress = 0f,
+                velocityX = 5_000f,
+                direction = ReaderTurnDirection.Next,
+                rightToLeft = true,
+                minimumFlingVelocity = 500f
+            )
+        )
+        assertFalse(
+            shouldCommitReaderTurn(
+                progress = 0.039f,
+                velocityX = 5_000f,
+                direction = ReaderTurnDirection.Next,
+                rightToLeft = true,
+                minimumFlingVelocity = 500f
+            )
+        )
+        assertTrue(
+            shouldCommitReaderTurn(
+                progress = 0.05f,
+                velocityX = 600f,
+                direction = ReaderTurnDirection.Next,
+                rightToLeft = true,
+                minimumFlingVelocity = 500f
+            )
+        )
+        assertFalse(
+            shouldCommitReaderTurn(
+                progress = 0.05f,
+                velocityX = -600f,
+                direction = ReaderTurnDirection.Next,
+                rightToLeft = true,
+                minimumFlingVelocity = 500f
+            )
+        )
+        assertTrue(
+            shouldCommitReaderTurn(
+                progress = 0.05f,
+                velocityX = -600f,
+                direction = ReaderTurnDirection.Next,
+                rightToLeft = false,
+                minimumFlingVelocity = 500f
+            )
+        )
+    }
 }
