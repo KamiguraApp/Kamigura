@@ -27,6 +27,7 @@ import eu.wewox.pagecurl.config.rememberPageCurlConfig
  * @param modifier The modifier for this composable.
  * @param state The state of the PageCurl. Use this to programmatically change the current page or observe changes.
  * @param config The configuration for PageCurl.
+ * @param interactionsEnabled Kamigura fork: when false, PageCurl draws only and attaches no native tap/drag handlers.
  * @param backContent Kamigura fork: when provided, the flap shows this composable instead
  * of a mirrored copy of the front page. Receives (current, forward): the current page index
  * and the turn direction. The composable must lay out the arriving page at the position it
@@ -42,6 +43,7 @@ public fun PageCurl(
     modifier: Modifier = Modifier,
     state: PageCurlState = rememberPageCurlState(),
     config: PageCurlConfig = rememberPageCurlConfig(),
+    interactionsEnabled: Boolean = true,
     backContent: (@Composable (current: Int, forward: Boolean) -> Unit)? = null,
     content: @Composable (Int) -> Unit
 ) {
@@ -55,38 +57,48 @@ public fun PageCurl(
 
         val updatedConfig by rememberUpdatedState(config)
 
-        val dragGestureModifier = when (val interaction = updatedConfig.dragInteraction) {
-            is PageCurlConfig.GestureDragInteraction ->
-                Modifier
-                    .dragGesture(
-                        dragInteraction = interaction,
-                        state = internalState,
-                        enabledForward = updatedConfig.dragForwardEnabled && updatedCurrent < state.max - 1,
-                        enabledBackward = updatedConfig.dragBackwardEnabled && updatedCurrent > 0,
-                        scope = scope,
-                        onChange = { state.current = updatedCurrent + it }
-                    )
+        val dragGestureModifier = if (interactionsEnabled) {
+            when (val interaction = updatedConfig.dragInteraction) {
+                is PageCurlConfig.GestureDragInteraction ->
+                    Modifier
+                        .dragGesture(
+                            dragInteraction = interaction,
+                            state = internalState,
+                            enabledForward = updatedConfig.dragForwardEnabled && updatedCurrent < state.max - 1,
+                            enabledBackward = updatedConfig.dragBackwardEnabled && updatedCurrent > 0,
+                            scope = scope,
+                            onChange = { state.current = updatedCurrent + it }
+                        )
 
-            is PageCurlConfig.StartEndDragInteraction ->
-                Modifier
-                    .dragStartEnd(
-                        dragInteraction = interaction,
-                        state = internalState,
-                        enabledForward = updatedConfig.dragForwardEnabled && updatedCurrent < state.max - 1,
-                        enabledBackward = updatedConfig.dragBackwardEnabled && updatedCurrent > 0,
-                        scope = scope,
-                        onChange = { state.current = updatedCurrent + it }
-                    )
+                is PageCurlConfig.StartEndDragInteraction ->
+                    Modifier
+                        .dragStartEnd(
+                            dragInteraction = interaction,
+                            state = internalState,
+                            enabledForward = updatedConfig.dragForwardEnabled && updatedCurrent < state.max - 1,
+                            enabledBackward = updatedConfig.dragBackwardEnabled && updatedCurrent > 0,
+                            scope = scope,
+                            onChange = { state.current = updatedCurrent + it }
+                        )
+            }
+        } else {
+            Modifier
         }
 
         Box(
             Modifier
                 .then(dragGestureModifier)
-                .tapGesture(
-                    config = updatedConfig,
-                    scope = scope,
-                    onTapForward = { position -> state.next(tapPosition = position) },
-                    onTapBackward = { position -> state.prev(tapPosition = position) },
+                .then(
+                    if (interactionsEnabled) {
+                        Modifier.tapGesture(
+                            config = updatedConfig,
+                            scope = scope,
+                            onTapForward = { position -> state.next(tapPosition = position) },
+                            onTapBackward = { position -> state.prev(tapPosition = position) },
+                        )
+                    } else {
+                        Modifier
+                    }
                 )
         ) {
             // Wrap in key to synchronize state updates
@@ -170,6 +182,7 @@ public fun PageCurl(
     modifier: Modifier = Modifier,
     state: PageCurlState = rememberPageCurlState(),
     config: PageCurlConfig = rememberPageCurlConfig(),
+    interactionsEnabled: Boolean = true,
     content: @Composable (Int) -> Unit
 ) {
     var lastKey by remember(state.current) { mutableStateOf(if (count > 0) key(state.current) else null) }
@@ -188,6 +201,7 @@ public fun PageCurl(
         count = count,
         state = state,
         config = config,
+        interactionsEnabled = interactionsEnabled,
         content = content,
         modifier = modifier,
     )

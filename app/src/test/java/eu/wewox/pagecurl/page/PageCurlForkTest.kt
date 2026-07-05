@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntSize
 import eu.wewox.pagecurl.ExperimentalPageCurlApi
+import eu.wewox.pagecurl.config.PageCurlConfig.DragInteraction.PointerBehavior
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -63,6 +64,46 @@ class PageCurlForkTest {
         assertEquals(700f, bottomTap.bottom.x, 0.001f)
         assertEquals(300f, mirroredTopTap.top.x, 0.001f)
         assertEquals(200f, mirroredTopTap.bottom.x, 0.001f)
+    }
+
+    @Test
+    fun interactiveCurlEdgeMatchesForwardDefaultCreator() {
+        val size = IntSize(width = 1000, height = 1200)
+
+        val edge = interactiveCurlEdgeForPointer(
+            direction = PageCurlTurnDirection.Forward,
+            pointerBehavior = PointerBehavior.Default,
+            startOffset = Offset(900f, 900f),
+            currentOffset = Offset(500f, 700f),
+            size = size,
+            leafTurn = false,
+            forwardEndX = 0f,
+            backwardEndX = 1000f
+        )
+
+        assertEquals(700f, edge.top.x, 0.001f)
+        assertEquals(200f, edge.top.y, 0.001f)
+        assertEquals(300f, edge.bottom.x, 0.001f)
+        assertEquals(1200f, edge.bottom.y, 0.001f)
+    }
+
+    @Test
+    fun interactiveCurlEdgeMirrorsAndClampsLeafBackward() {
+        val size = IntSize(width = 1000, height = 1200)
+
+        val edge = interactiveCurlEdgeForPointer(
+            direction = PageCurlTurnDirection.Backward,
+            pointerBehavior = PointerBehavior.Default,
+            startOffset = Offset(100f, 900f),
+            currentOffset = Offset(600f, 700f),
+            size = size,
+            leafTurn = true,
+            forwardEndX = 500f,
+            backwardEndX = 500f
+        )
+
+        assertTrue(edge.top.x <= 500f)
+        assertTrue(edge.bottom.x <= 500f)
     }
 
     @Test

@@ -23,8 +23,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.IntSize
 import eu.wewox.pagecurl.ExperimentalPageCurlApi
 import eu.wewox.pagecurl.config.PageCurlConfig
+import eu.wewox.pagecurl.config.PageCurlConfig.DragInteraction.PointerBehavior
 import eu.wewox.pagecurl.config.rememberPageCurlConfig
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -137,6 +139,12 @@ public fun rememberPageCurlState(
  * flap lands exactly on the other half of the viewport.
  */
 @ExperimentalPageCurlApi
+public enum class PageCurlTurnDirection {
+    Forward,
+    Backward
+}
+
+@ExperimentalPageCurlApi
 public class PageCurlState(
     initialMax: Int = 0,
     initialCurrent: Int = 0,
@@ -159,6 +167,8 @@ public class PageCurlState(
 
     internal var internalState: InternalState? by mutableStateOf(null)
         private set
+
+    private var interactiveTurn: InteractiveTurn? = null
 
     internal fun setup(count: Int, constraints: Constraints) {
         max = count
@@ -198,7 +208,67 @@ public class PageCurlState(
      */
     public suspend fun snapTo(value: Int) {
         current = value.coerceIn(0, max - 1)
+        interactiveTurn = null
         internalState?.reset()
+    }
+
+    public suspend fun beginTurn(
+        direction: PageCurlTurnDirection,
+        pointer: Offset,
+        pointerBehavior: PointerBehavior = PointerBehavior.Default,
+    ): Boolean {
+        val state = internalState ?: return false
+        val targetIndex = current + direction.pageDelta
+        if (targetIndex < 0 || targetIndex >= max) return false
+
+        state.animateJob?.let { running ->
+            running.cancel()
+            running.join()
+        }
+        state.reset()
+        interactiveTurn = InteractiveTurn(direction, pointer, pointerBehavior)
+        return true
+    }
+
+    public suspend fun dragTurnTo(pointer: Offset) {
+        val state = internalState ?: return
+        val turn = interactiveTurn ?: return
+        val size = IntSize(state.constraints.maxWidth, state.constraints.maxHeight)
+        val edge = interactiveCurlEdgeForPointer(
+            direction = turn.direction,
+            pointerBehavior = turn.pointerBehavior,
+            startOffset = turn.startPointer,
+            currentOffset = pointer,
+            size = size,
+            leafTurn = state.leafTurn,
+            forwardEndX = state.forwardEndEdge.top.x,
+            backwardEndX = state.backwardEndEdge.top.x,
+        )
+        when (turn.direction) {
+            PageCurlTurnDirection.Forward -> state.forward.snapTo(edge)
+            PageCurlTurnDirection.Backward -> state.backward.snapTo(edge)
+        }
+    }
+
+    public suspend fun settleTurn(commit: Boolean) {
+        val state = internalState ?: return
+        val turn = interactiveTurn ?: return
+        interactiveTurn = null
+        val targetIndex = current + turn.direction.pageDelta
+        state.animateTo(
+            target = { if (commit) targetIndex else current },
+            continuing = true,
+            animate = {
+                when (turn.direction) {
+                    PageCurlTurnDirection.Forward -> {
+                        forward.animateTo(if (commit) forwardEndEdge else rightEdge, tween(InteractiveSettleAnimDuration))
+                    }
+                    PageCurlTurnDirection.Backward -> {
+                        backward.animateTo(if (commit) backwardEndEdge else leftEdge, tween(InteractiveSettleAnimDuration))
+                    }
+                }
+            }
+        )
     }
 
     /**
@@ -374,6 +444,7 @@ public data class Edge(val top: Offset, val bottom: Offset) {
 
 // Kamigura fork: duration used when a new turn continues from a fold already in flight.
 private const val ContinuationAnimDuration: Int = 180
+private const val InteractiveSettleAnimDuration: Int = 180
 
 // Kamigura fork: tap animation is shorter and calmer than the vanilla 450ms corner sweep
 // (Stage 1.7 H2: reading rhythm beats spectacle). Applies to both single-page and leaf mode.
@@ -394,4 +465,48 @@ internal fun quietMiddle(size: Size, tapPosition: Offset?, mirrored: Boolean): E
     } else {
         Edge(Offset(topX, 0f), Offset(bottomX, size.height))
     }
+}
+
+@ExperimentalPageCurlApi
+private data class InteractiveTurn(
+    val direction: PageCurlTurnDirection,
+    val startPointer: Offset,
+    val pointerBehavior: PointerBehavior,
+)
+
+@ExperimentalPageCurlApi
+private val PageCurlTurnDirection.pageDelta: Int
+    get() = when (this) {
+        PageCurlTurnDirection.Forward -> 1
+        PageCurlTurnDirection.Backward -> -1
+    }
+
+@ExperimentalPageCurlApi
+internal fun interactiveCurlEdgeForPointer(
+    direction: PageCurlTurnDirection,
+    pointerBehavior: PointerBehavior,
+    startOffset: Offset,
+    currentOffset: Offset,
+    size: IntSize,
+    leafTurn: Boolean,
+    forwardEndX: Float,
+    backwardEndX: Float,
+): Edge {
+    val creator = when (pointerBehavior) {
+        PointerBehavior.Default -> NewEdgeCreator.Default()
+        PointerBehavior.PageEdge -> NewEdgeCreator.PageEdge()
+    }
+    val mirror = direction == PageCurlTurnDirection.Backward && leafTurn
+    val creatorStart = if (mirror) startOffset.mirrorX(size) else startOffset
+    val creatorCurrent = if (mirror) currentOffset.mirrorX(size) else currentOffset
+    var target = creator.createNew(size, creatorStart, creatorCurrent)
+    if (mirror) target = target.mirrorX(size)
+    if (leafTurn) {
+        val maxWidthPx = size.width.toFloat()
+        target = when (direction) {
+            PageCurlTurnDirection.Forward -> target.clampLineX(forwardEndX..maxWidthPx, size)
+            PageCurlTurnDirection.Backward -> target.clampLineX(0f..backwardEndX, size)
+        }
+    }
+    return target
 }
