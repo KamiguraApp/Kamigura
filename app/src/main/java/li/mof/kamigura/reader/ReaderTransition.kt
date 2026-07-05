@@ -44,6 +44,18 @@ internal fun readerTurnProgress(
     visualDistancePx: Float
 ): Float = (kotlin.math.abs(dragX) / visualDistancePx.coerceAtLeast(1f)).coerceIn(0f, 1f)
 
+internal fun readerTurnDirectionForDrag(
+    dragX: Float,
+    rightToLeft: Boolean,
+    lockedDirection: ReaderTurnDirection?,
+    directionLockEnabled: Boolean
+): ReaderTurnDirection =
+    if (directionLockEnabled && lockedDirection != null) {
+        lockedDirection
+    } else {
+        readerTurnForDrag(dragX, rightToLeft)
+    }
+
 internal fun readerLockedTurnProgress(
     dragX: Float,
     rightToLeft: Boolean,
@@ -53,6 +65,19 @@ internal fun readerLockedTurnProgress(
     val directionalDrag = dragX * readerTurnPhysicalSign(rightToLeft, direction)
     return (directionalDrag.coerceAtLeast(0f) / visualDistancePx.coerceAtLeast(1f)).coerceIn(0f, 1f)
 }
+
+internal fun readerTurnProgressForDrag(
+    dragX: Float,
+    rightToLeft: Boolean,
+    direction: ReaderTurnDirection,
+    visualDistancePx: Float,
+    directionLockEnabled: Boolean
+): Float =
+    if (directionLockEnabled) {
+        readerLockedTurnProgress(dragX, rightToLeft, direction, visualDistancePx)
+    } else {
+        readerTurnProgress(dragX, visualDistancePx)
+    }
 
 internal fun shouldCommitReaderTurn(
     progress: Float,

@@ -65,6 +65,52 @@ class ReaderTransitionTest {
     }
 
     @Test
+    fun unlockedDragCanChooseDirectionEveryFrame() {
+        val direction = readerTurnDirectionForDrag(
+            dragX = -500f,
+            rightToLeft = true,
+            lockedDirection = ReaderTurnDirection.Next,
+            directionLockEnabled = false
+        )
+
+        assertEquals(ReaderTurnDirection.Previous, direction)
+        assertEquals(
+            0.5f,
+            readerTurnProgressForDrag(
+                dragX = -500f,
+                rightToLeft = true,
+                direction = direction,
+                visualDistancePx = 1000f,
+                directionLockEnabled = false
+            ),
+            0.001f
+        )
+    }
+
+    @Test
+    fun lockedDragKeepsInitialDirectionAndCancelsReverseMotion() {
+        val direction = readerTurnDirectionForDrag(
+            dragX = -500f,
+            rightToLeft = true,
+            lockedDirection = ReaderTurnDirection.Next,
+            directionLockEnabled = true
+        )
+
+        assertEquals(ReaderTurnDirection.Next, direction)
+        assertEquals(
+            0f,
+            readerTurnProgressForDrag(
+                dragX = -500f,
+                rightToLeft = true,
+                direction = direction,
+                visualDistancePx = 1000f,
+                directionLockEnabled = true
+            ),
+            0.001f
+        )
+    }
+
+    @Test
     fun flingCommitFollowsPhysicalReadingDirection() {
         assertFalse(
             shouldCommitReaderTurn(

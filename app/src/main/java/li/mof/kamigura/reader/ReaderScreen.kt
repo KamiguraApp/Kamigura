@@ -1019,6 +1019,7 @@ fun ReaderScreen(
                 onTurnDrag = ::updateTurnDrag,
                 onTurnDragEnd = ::settleTurnDrag,
                 onTurnDragCancel = ::cancelTurnDrag,
+                directionLockEnabled = usePortraitCurl,
                 closeSwipeEnabled = activeTransition == null &&
                     activeCurlDirection == null &&
                     !transitionSettling &&
