@@ -107,11 +107,16 @@ internal fun readerTurnTargetPage(
 internal fun readerSpreadCurlBackPageIndex(
     targetPage: Int,
     pageCount: Int,
-    direction: ReaderTurnDirection
+    direction: ReaderTurnDirection,
+    targetIsWide: Boolean = false
 ): Int =
-    when (direction) {
-        ReaderTurnDirection.Next -> targetPage
-        ReaderTurnDirection.Previous -> (targetPage + 1).coerceAtMost((pageCount - 1).coerceAtLeast(0))
+    when {
+        // A wide page is one sheet printed across the whole spread, so the flap back
+        // face is the wide page itself (its near half emerges from the fold) in both
+        // turn directions.
+        targetIsWide -> targetPage
+        direction == ReaderTurnDirection.Next -> targetPage
+        else -> (targetPage + 1).coerceAtMost((pageCount - 1).coerceAtLeast(0))
     }.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
 
 internal fun shouldCommitReaderTurn(

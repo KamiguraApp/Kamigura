@@ -254,4 +254,26 @@ class ReaderTransitionTest {
             )
         )
     }
+
+    @Test
+    fun spreadCurlBackFaceIsTheWidePageItselfInBothDirections() {
+        assertEquals(
+            12,
+            readerSpreadCurlBackPageIndex(
+                targetPage = 12,
+                pageCount = 30,
+                direction = ReaderTurnDirection.Next,
+                targetIsWide = true
+            )
+        )
+        assertEquals(
+            10,
+            readerSpreadCurlBackPageIndex(
+                targetPage = 10,
+                pageCount = 30,
+                direction = ReaderTurnDirection.Previous,
+                targetIsWide = true
+            )
+        )
+    }
 }

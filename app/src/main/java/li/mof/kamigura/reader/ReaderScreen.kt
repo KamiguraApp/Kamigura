@@ -74,6 +74,7 @@ import li.mof.kamigura.reader.internal.ReaderTapLayer
 import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
+import li.mof.kamigura.reader.internal.pageIsWide
 import li.mof.kamigura.reader.internal.preAnalyzeReaderPages
 import li.mof.kamigura.reader.internal.prefetchReaderPages
 import li.mof.kamigura.reader.internal.readerPageLayout
@@ -548,7 +549,11 @@ fun ReaderScreen(
             settings.reader.pageTurnMode == PageTurnMode.Curl &&
                 settings.reader.pageTransitionAnimation &&
                 !portrait &&
-                !layout.singlePage &&
+                // A wide page is one sheet printed across the whole spread, so it turns as
+                // a full-width leaf with the fold at the centre. Other landscape singles
+                // (cover, chapter end, the page displayed alone next to a wide one) sit
+                // centred with no spine under them, so they fall back to Slide.
+                (!layout.singlePage || pageDimensions.pageIsWide(page)) &&
                 !zoomPanEnabled
         val useCurl = usePortraitCurl || useSpreadCurl
         val initialZoomPanState = ReaderZoomPanState()
@@ -644,6 +649,15 @@ fun ReaderScreen(
             } else {
                 1
             }
+
+        // A leaf can land on a spread or on a wide page (a full-width sheet), but not on a
+        // centred landscape single (cover, chapter end, the lone page beside a wide one):
+        // there is no spine under those, so such turns use the Slide path instead.
+        fun curlTurnTargetEligible(target: Int): Boolean {
+            if (!useSpreadCurl) return true
+            val targetLayout = readerPageLayout(target, pages, portrait, pageDimensions)
+            return !targetLayout.singlePage || pageDimensions.pageIsWide(target)
+        }
 
         fun requestCurlTurn(
             direction: ReaderTurnDirection,
@@ -752,8 +766,15 @@ fun ReaderScreen(
             settleTransition(commit = true, completeWhenPastEnd = completeWhenPastEnd)
         }
 
+        fun curlRouteForTurn(direction: ReaderTurnDirection, step: Int, completeWhenPastEnd: Boolean): Boolean {
+            if (!(useCurl && (useSpreadCurl || step == 1))) return false
+            val target = turnTarget(direction, step, completeWhenPastEnd)
+            // Boundary turns (null target) stay on the curl path for the edge resistance.
+            return target == null || curlTurnTargetEligible(target)
+        }
+
         requestTurn = requestTurnLambda@{ direction, step, completeWhenPastEnd ->
-            if (useCurl && (useSpreadCurl || step == 1)) {
+            if (curlRouteForTurn(direction, step, completeWhenPastEnd)) {
                 requestCurlTurn(direction, step, completeWhenPastEnd)
                 return@requestTurnLambda
             }
@@ -766,11 +787,27 @@ fun ReaderScreen(
             completeWhenPastEnd: Boolean,
             tapPosition: Offset
         ) {
-            if (useCurl && (useSpreadCurl || step == 1)) {
+            if (curlRouteForTurn(direction, step, completeWhenPastEnd)) {
                 requestCurlTurn(direction, step, completeWhenPastEnd, tapPosition)
             } else {
                 requestSlideTurn(direction, step, completeWhenPastEnd)
             }
+        }
+
+        // Spread shift (long-press / menu ±1) re-pairs the spread rather than turning a
+        // leaf. In Curl mode apply it instantly: animating it bounces the renderer between
+        // the curl and slide branches, which made the images thrash.
+        fun requestSingleStep(direction: ReaderTurnDirection, completeWhenPastEnd: Boolean) {
+            if (useCurl) {
+                val target = turnTarget(direction, 1, completeWhenPastEnd)
+                if (target == null) {
+                    runBoundaryAction(direction, completeWhenPastEnd)
+                } else {
+                    page = target
+                }
+                return
+            }
+            requestSlideTurn(direction, 1, completeWhenPastEnd)
         }
 
         LaunchedEffect(activeTransition, transitionSettling, queuedTurn, page) {
@@ -795,9 +832,15 @@ fun ReaderScreen(
 
         fun updateTurnDrag(direction: ReaderTurnDirection, progress: Float, pointer: Offset) {
             if (useCurl) {
+                var fallThroughToSlide = false
                 if (activeCurlDirection != direction) {
                     val step = curlTurnStep(direction)
                     val target = turnTarget(direction, step, direction == ReaderTurnDirection.Next && showingFinalPage)
+                    if (target != null && !curlTurnTargetEligible(target)) {
+                        // Turning towards a centred landscape single: this drag runs as a
+                        // Slide transition below instead of a leaf curl.
+                        fallThroughToSlide = true
+                    } else {
                     dragBoundaryDirection = if (target == null) direction else null
                     activeCurlDirection = direction
                     activeCurlTargetPage = target
@@ -822,14 +865,17 @@ fun ReaderScreen(
                             }
                         }
                     }
+                    }
                 } else {
                     val curlState = if (useSpreadCurl) spreadCurlState else portraitCurlState
                     scope.launch {
                         curlState.dragTurnTo(curlPointer(pointer))
                     }
                 }
-                curlDragProgress = progress
-                return
+                if (!fallThroughToSlide) {
+                    curlDragProgress = progress
+                    return
+                }
             }
             if (transitionSettling) return
             if (activeTransition?.direction != direction) {
@@ -1042,11 +1088,40 @@ fun ReaderScreen(
                             scaleX = curlMirror
                         },
                     backContent = { _, forward ->
+                        val targetIsWide = pageDimensions.pageIsWide(underPage)
                         val backPage = readerSpreadCurlBackPageIndex(
                             targetPage = underPage,
                             pageCount = pages,
-                            direction = if (forward) ReaderTurnDirection.Next else ReaderTurnDirection.Previous
+                            direction = if (forward) ReaderTurnDirection.Next else ReaderTurnDirection.Previous,
+                            targetIsWide = targetIsWide
                         )
+                        if (targetIsWide) {
+                            // A wide page lands spanning the whole spread, so its back-face
+                            // content is laid out full width; the fold clip reveals the near
+                            // half of the artwork as the leaf turns.
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        scaleX = curlMirror
+                                    }
+                            ) {
+                                ReaderPageView(
+                                    cursor = backPage,
+                                    pageCount = pages,
+                                    portrait = false,
+                                    pageDimensions = pageDimensions,
+                                    rightToLeft = rtl,
+                                    pageModel = ::pageModel,
+                                    imageLoader = activeImageLoader,
+                                    invertMode = settings.reader.invertMode,
+                                    whiteThreshold = settings.reader.invertWhiteThreshold,
+                                    invertDecisionCache = invertDecisionCache,
+                                    pageBackground = curlBackPageColor,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        } else {
                         val backPageAlignment = if (forward == rtl) {
                             Alignment.CenterStart
                         } else {
@@ -1083,6 +1158,7 @@ fun ReaderScreen(
                                     )
                                 }
                             }
+                        }
                         }
                     }
                 ) { cursor ->
@@ -1197,10 +1273,10 @@ fun ReaderScreen(
                     requestTurnFromTap(ReaderTurnDirection.Previous, previousPageTurnStep, false, position)
                 },
                 onNextSingle = {
-                    requestSlideTurn(ReaderTurnDirection.Next, 1, page >= pages - 1)
+                    requestSingleStep(ReaderTurnDirection.Next, page >= pages - 1)
                 },
                 onPreviousSingle = {
-                    requestSlideTurn(ReaderTurnDirection.Previous, 1, false)
+                    requestSingleStep(ReaderTurnDirection.Previous, false)
                 },
                 onCenterTap = { showReaderMenu = !showReaderMenu },
                 turnVisualDistancePx = turnVisualDistancePx,
@@ -1315,10 +1391,10 @@ fun ReaderScreen(
                 invertMode = settings.reader.invertMode,
                 onSetInvertMode = { mode -> scope.launch { settingsStore.setInvertMode(mode) } },
                 onNextSingle = {
-                    requestSlideTurn(ReaderTurnDirection.Next, 1, page >= pages - 1)
+                    requestSingleStep(ReaderTurnDirection.Next, page >= pages - 1)
                 },
                 onPreviousSingle = {
-                    requestSlideTurn(ReaderTurnDirection.Previous, 1, false)
+                    requestSingleStep(ReaderTurnDirection.Previous, false)
                 },
                 onJumpToPage = { jumpToPage(it) }
             )
