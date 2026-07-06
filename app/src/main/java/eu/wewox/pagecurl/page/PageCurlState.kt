@@ -230,7 +230,7 @@ public class PageCurlState(
         return true
     }
 
-    public suspend fun dragTurnTo(pointer: Offset, animate: Boolean = false) {
+    public suspend fun dragTurnTo(pointer: Offset) {
         val state = internalState ?: return
         val turn = interactiveTurn ?: return
         val size = IntSize(state.constraints.maxWidth, state.constraints.maxHeight)
@@ -244,17 +244,13 @@ public class PageCurlState(
             forwardEndX = state.forwardEndEdge.top.x,
             backwardEndX = state.backwardEndEdge.top.x,
         )
+        // Match the library's native drag (DragCommonGesture): every pointer event starts a
+        // spring animateTo towards the new edge, each cancelling the previous one. The paper
+        // pursues the finger with a springy lag — the tactile feel the spike validated (A8) —
+        // instead of rigidly snapping to it.
         when (turn.direction) {
-            PageCurlTurnDirection.Forward -> if (animate) {
-                state.forward.animateTo(edge, tween(InteractiveCatchUpAnimDuration))
-            } else {
-                state.forward.snapTo(edge)
-            }
-            PageCurlTurnDirection.Backward -> if (animate) {
-                state.backward.animateTo(edge, tween(InteractiveCatchUpAnimDuration))
-            } else {
-                state.backward.snapTo(edge)
-            }
+            PageCurlTurnDirection.Forward -> state.forward.animateTo(edge)
+            PageCurlTurnDirection.Backward -> state.backward.animateTo(edge)
         }
     }
 
@@ -452,7 +448,6 @@ public data class Edge(val top: Offset, val bottom: Offset) {
 
 // Kamigura fork: duration used when a new turn continues from a fold already in flight.
 private const val ContinuationAnimDuration: Int = 180
-private const val InteractiveCatchUpAnimDuration: Int = 90
 private const val InteractiveSettleAnimDuration: Int = 180
 
 // Kamigura fork: tap animation is shorter and calmer than the vanilla 450ms corner sweep

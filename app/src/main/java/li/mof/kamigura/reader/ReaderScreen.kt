@@ -645,7 +645,12 @@ fun ReaderScreen(
                 1
             }
 
-        fun requestCurlTurn(direction: ReaderTurnDirection, step: Int, completeWhenPastEnd: Boolean) {
+        fun requestCurlTurn(
+            direction: ReaderTurnDirection,
+            step: Int,
+            completeWhenPastEnd: Boolean,
+            tapPosition: Offset? = null
+        ) {
             val target = turnTarget(direction, step, completeWhenPastEnd)
             if (target == null) {
                 runBoundaryAction(direction, completeWhenPastEnd)
@@ -655,10 +660,12 @@ fun ReaderScreen(
             val spreadCurl = useSpreadCurl
             activeCurlDirection = direction
             activeCurlTargetPage = target
+            // The tap position picks which corner leads the fold (fork quietMiddle).
+            val curlTapPosition = tapPosition?.let(::curlPointer)
             scope.launch {
                 when (pageCurlDirection(direction)) {
-                    PageCurlTurnDirection.Forward -> curlState.next()
-                    PageCurlTurnDirection.Backward -> curlState.prev()
+                    PageCurlTurnDirection.Forward -> curlState.next(tapPosition = curlTapPosition)
+                    PageCurlTurnDirection.Backward -> curlState.prev(tapPosition = curlTapPosition)
                 }
                 rememberZoomTurnLanding(direction)
                 page = target
@@ -753,6 +760,19 @@ fun ReaderScreen(
             requestSlideTurn(direction, step, completeWhenPastEnd)
         }
 
+        fun requestTurnFromTap(
+            direction: ReaderTurnDirection,
+            step: Int,
+            completeWhenPastEnd: Boolean,
+            tapPosition: Offset
+        ) {
+            if (useCurl && (useSpreadCurl || step == 1)) {
+                requestCurlTurn(direction, step, completeWhenPastEnd, tapPosition)
+            } else {
+                requestSlideTurn(direction, step, completeWhenPastEnd)
+            }
+        }
+
         LaunchedEffect(activeTransition, transitionSettling, queuedTurn, page) {
             val pending = queuedTurn
             if (activeTransition == null && !transitionSettling && pending != null) {
@@ -785,12 +805,20 @@ fun ReaderScreen(
                     if (target != null) {
                         val curlState = if (useSpreadCurl) spreadCurlState else portraitCurlState
                         val spreadCurl = useSpreadCurl
+                        // The spike validated PageEdge for the spread leaf (paper edge anchored
+                        // to the finger, crease at the midpoint, stops at the spine on its own)
+                        // and the library default for portrait single pages (Stage 1 feel).
+                        val pointerBehavior = if (spreadCurl) {
+                            PageCurlConfig.DragInteraction.PointerBehavior.PageEdge
+                        } else {
+                            PageCurlConfig.DragInteraction.PointerBehavior.Default
+                        }
                         scope.launch {
                             if (spreadCurl) {
                                 curlState.snapTo(ReaderSpreadCurlVisualCurrent)
                             }
-                            if (curlState.beginTurn(pageCurlDirection(direction), curlPointer(start))) {
-                                curlState.dragTurnTo(curlPointer(pointer), animate = true)
+                            if (curlState.beginTurn(pageCurlDirection(direction), curlPointer(start), pointerBehavior)) {
+                                curlState.dragTurnTo(curlPointer(pointer))
                             }
                         }
                     }
@@ -843,7 +871,10 @@ fun ReaderScreen(
                 curlDragStartPointer = null
                 curlDragProgress = 0f
                 dragBoundaryDirection = null
-                activeCurlTargetPage = if (commit) target else page
+                // Keep the in-flight target through the settle animation (commit or cancel):
+                // the revealed area under the flap must keep showing the incoming spread
+                // while the paper returns, or the content pops at release.
+                activeCurlTargetPage = target
                 if (commit && boundaryDirection != null) {
                     activeCurlTargetPage = null
                     runBoundaryAction(
@@ -883,7 +914,8 @@ fun ReaderScreen(
                 val curlState = if (useSpreadCurl) spreadCurlState else portraitCurlState
                 val spreadCurl = useSpreadCurl
                 activeCurlDirection = null
-                activeCurlTargetPage = page
+                // activeCurlTargetPage stays as set by the drag so the revealed area keeps
+                // showing the incoming spread while the paper settles back; cleared below.
                 curlDragStartPointer = null
                 curlDragProgress = 0f
                 dragBoundaryDirection = null
@@ -942,7 +974,6 @@ fun ReaderScreen(
         val transition = activeTransition
         val transitionVisible =
             transition != null && settings.reader.pageTransitionAnimation
-        val curlVisualActive = activeCurlDirection != null || activeCurlTargetPage != null
         Box(
             Modifier
                 .fillMaxSize()
@@ -953,7 +984,11 @@ fun ReaderScreen(
                     alpha = (1f - closeDragOffsetY / safeViewportHeight * 0.35f).coerceIn(0.65f, 1f)
                 }
         ) {
-            if (usePortraitCurl && !transitionVisible && curlVisualActive) {
+            // Keep PageCurl mounted whenever the curl mode is active (not just during a
+            // turn): the neighbour pages it composes at rest are exactly the images the
+            // next turn needs, so the gesture starts warm instead of kicking off image
+            // loads on its first frame.
+            if (usePortraitCurl && !transitionVisible) {
                 val curlMirror = if (rtl) -1f else 1f
                 PageCurl(
                     count = pages,
@@ -989,9 +1024,13 @@ fun ReaderScreen(
                         )
                     }
                 }
-            } else if (useSpreadCurl && !transitionVisible && curlVisualActive) {
+            } else if (useSpreadCurl && !transitionVisible) {
                 val curlMirror = if (rtl) -1f else 1f
-                val visualTargetPage = activeCurlTargetPage
+                // During a turn the under/flap pages come from the in-flight target; at rest
+                // they pre-render the forward target spread (the likely next turn), which
+                // warms its images while the reader sits on the current spread.
+                val forwardRestTargetPage = turnTarget(ReaderTurnDirection.Next, nextPageTurnStep, false) ?: page
+                val underPage = activeCurlTargetPage ?: forwardRestTargetPage
                 PageCurl(
                     count = ReaderSpreadCurlVisualPageCount,
                     state = spreadCurlState,
@@ -1003,9 +1042,8 @@ fun ReaderScreen(
                             scaleX = curlMirror
                         },
                     backContent = { _, forward ->
-                        val targetPage = visualTargetPage ?: page
                         val backPage = readerSpreadCurlBackPageIndex(
-                            targetPage = targetPage,
+                            targetPage = underPage,
                             pageCount = pages,
                             direction = if (forward) ReaderTurnDirection.Next else ReaderTurnDirection.Previous
                         )
@@ -1048,11 +1086,8 @@ fun ReaderScreen(
                         }
                     }
                 ) { cursor ->
-                    val renderPage = if (
-                        visualTargetPage != null &&
-                        cursor != spreadCurlState.current
-                    ) {
-                        visualTargetPage
+                    val renderPage = if (cursor != spreadCurlState.current) {
+                        underPage
                     } else {
                         page
                     }
@@ -1155,11 +1190,11 @@ fun ReaderScreen(
         key(page, rtl, nextPageTurnStep, previousPageTurnStep, showingFinalPage) {
             ReaderTapLayer(
                 rightToLeft = rtl,
-                onNextSpread = {
-                    requestTurn(ReaderTurnDirection.Next, nextPageTurnStep, showingFinalPage)
+                onNextSpread = { position ->
+                    requestTurnFromTap(ReaderTurnDirection.Next, nextPageTurnStep, showingFinalPage, position)
                 },
-                onPreviousSpread = {
-                    requestTurn(ReaderTurnDirection.Previous, previousPageTurnStep, false)
+                onPreviousSpread = { position ->
+                    requestTurnFromTap(ReaderTurnDirection.Previous, previousPageTurnStep, false, position)
                 },
                 onNextSingle = {
                     requestSlideTurn(ReaderTurnDirection.Next, 1, page >= pages - 1)

@@ -25,8 +25,10 @@ import li.mof.kamigura.reader.readerTurnProgressForDrag
 @Composable
 internal fun ReaderTapLayer(
     rightToLeft: Boolean,
-    onNextSpread: () -> Unit,
-    onPreviousSpread: () -> Unit,
+    // Tap callbacks carry the tap position so the Curl path can start the fold
+    // from the tapped corner (quietMiddle in the vendored fork).
+    onNextSpread: (Offset) -> Unit,
+    onPreviousSpread: (Offset) -> Unit,
     onNextSingle: () -> Unit,
     onPreviousSingle: () -> Unit,
     onCenterTap: () -> Unit,
@@ -80,15 +82,15 @@ internal fun ReaderTapLayer(
                 onCloseDrag = onCloseDrag,
                 onCloseDragEnd = onCloseDragEnd,
                 onCloseDragCancel = onCloseDragCancel,
-                onLeftTap = {
+                onLeftTap = { position ->
                     if (!zoomPanEnabled) {
-                        if (rightToLeft) latestOnNextSpread() else latestOnPreviousSpread()
+                        if (rightToLeft) latestOnNextSpread(position) else latestOnPreviousSpread(position)
                     }
                 },
                 onCenterTap = latestOnCenterTap,
-                onRightTap = {
+                onRightTap = { position ->
                     if (!zoomPanEnabled) {
-                        if (rightToLeft) latestOnPreviousSpread() else latestOnNextSpread()
+                        if (rightToLeft) latestOnPreviousSpread(position) else latestOnNextSpread(position)
                     }
                 },
                 onLeftLongPress = {
@@ -174,9 +176,9 @@ private fun Modifier.readerGestures(
     onCloseDrag: (Float) -> Unit = {},
     onCloseDragEnd: (Boolean) -> Unit = {},
     onCloseDragCancel: () -> Unit = {},
-    onLeftTap: () -> Unit = {},
+    onLeftTap: (Offset) -> Unit = {},
     onCenterTap: () -> Unit = {},
-    onRightTap: () -> Unit = {},
+    onRightTap: (Offset) -> Unit = {},
     onLeftLongPress: () -> Unit = {},
     onRightLongPress: () -> Unit = {},
     onCenterDoubleTap: (Offset) -> Unit = {}
@@ -290,11 +292,11 @@ private fun Modifier.readerGestures(
             when (tapZone(position)) {
                 ReaderTapZone.Left -> {
                     flushPendingCenterTap()
-                    latestOnLeftTap()
+                    latestOnLeftTap(position)
                 }
                 ReaderTapZone.Right -> {
                     flushPendingCenterTap()
-                    latestOnRightTap()
+                    latestOnRightTap(position)
                 }
                 ReaderTapZone.Center -> {
                     val pending = pendingCenterTap
