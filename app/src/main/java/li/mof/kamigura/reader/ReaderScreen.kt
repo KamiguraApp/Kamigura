@@ -99,6 +99,7 @@ private const val KavitaReadingProfileKindDefault = 0
 private const val ReaderProgressSyncDelayMillis = 3_000L
 private const val ReaderSpreadCurlVisualPageCount = 3
 private const val ReaderSpreadCurlVisualCurrent = 1
+private const val ReaderSpreadCurlTurnEndFractionX = 0.5f
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPageCurlApi::class)
 @Composable
@@ -454,7 +455,10 @@ fun ReaderScreen(
         )
         val portraitCurlState = remember(chapterId) { PageCurlState(initialCurrent = page) }
         val spreadCurlState = remember(chapterId) {
-            PageCurlState(initialCurrent = ReaderSpreadCurlVisualCurrent)
+            PageCurlState(
+                initialCurrent = ReaderSpreadCurlVisualCurrent,
+                turnEndFractionX = ReaderSpreadCurlTurnEndFractionX
+            )
         }
         val curlBackPageColor = if (settings.reader.invertMode == InvertMode.Off) {
             Color(0xFFFAF7F2)
@@ -1016,6 +1020,11 @@ fun ReaderScreen(
                                         whiteThreshold = settings.reader.invertWhiteThreshold,
                                         invertDecisionCache = invertDecisionCache,
                                         pageBackground = curlBackPageColor,
+                                        singlePageAlignmentOverride = if (forward) {
+                                            Alignment.CenterEnd
+                                        } else {
+                                            Alignment.CenterStart
+                                        },
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }

@@ -71,6 +71,7 @@ internal fun ReaderPageView(
     whiteThreshold: Float,
     invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>,
     pageBackground: Color = Color(0xFF111111),
+    singlePageAlignmentOverride: Alignment? = null,
     modifier: Modifier = Modifier
 ) {
     val layout = readerPageLayout(
@@ -87,7 +88,7 @@ internal fun ReaderPageView(
                     model = pageModel(cursor),
                     imageLoader = imageLoader,
                     label = "Page $cursor",
-                    alignment = layout.singleAlignment,
+                    alignment = singlePageAlignmentOverride ?: layout.singleAlignment,
                     invertMode = invertMode,
                     whiteThreshold = whiteThreshold,
                     invertDecisionCache = invertDecisionCache,

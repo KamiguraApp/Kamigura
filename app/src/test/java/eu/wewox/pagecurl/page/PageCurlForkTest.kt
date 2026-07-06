@@ -121,6 +121,21 @@ class PageCurlForkTest {
     }
 
     @Test
+    fun turnEndFractionControlsForwardTerminalFoldEdge() {
+        val spreadState = PageCurlState(initialMax = 5, initialCurrent = 2, turnEndFractionX = 0.5f)
+        spreadState.setup(count = 5, constraints = Constraints.fixed(width = 1000, height = 1200))
+
+        assertEquals(500f, spreadState.internalState!!.forwardEndEdge.top.x, 0.001f)
+        assertEquals(500f, spreadState.internalState!!.forwardEndEdge.bottom.x, 0.001f)
+
+        val fullPageState = PageCurlState(initialMax = 5, initialCurrent = 2, turnEndFractionX = 0f)
+        fullPageState.setup(count = 5, constraints = Constraints.fixed(width = 1000, height = 1200))
+
+        assertEquals(0f, fullPageState.internalState!!.forwardEndEdge.top.x, 0.001f)
+        assertEquals(0f, fullPageState.internalState!!.forwardEndEdge.bottom.x, 0.001f)
+    }
+
+    @Test
     fun rapidForwardTapCommitsRunningTurnBeforeContinuing() = runBlocking {
         val state = PageCurlState(initialMax = 5, initialCurrent = 0, turnEndFractionX = 0.5f)
         state.setup(count = 5, constraints = Constraints.fixed(width = 1000, height = 1200))
