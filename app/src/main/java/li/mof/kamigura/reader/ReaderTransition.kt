@@ -79,6 +79,40 @@ internal fun readerTurnProgressForDrag(
         readerTurnProgress(dragX, visualDistancePx)
     }
 
+internal fun readerTurnTargetPage(
+    currentPage: Int,
+    pageCount: Int,
+    direction: ReaderTurnDirection,
+    step: Int,
+    completeWhenPastEnd: Boolean
+): Int? {
+    if (pageCount <= 0) return null
+    return when (direction) {
+        ReaderTurnDirection.Next -> {
+            val rawTarget = currentPage + step
+            when {
+                rawTarget < pageCount -> rawTarget
+                completeWhenPastEnd -> null
+                currentPage < pageCount - 1 -> pageCount - 1
+                else -> null
+            }
+        }
+        ReaderTurnDirection.Previous -> {
+            if (currentPage == 0) null else (currentPage - step).coerceAtLeast(0)
+        }
+    }
+}
+
+internal fun readerSpreadCurlBackPageIndex(
+    targetPage: Int,
+    pageCount: Int,
+    direction: ReaderTurnDirection
+): Int =
+    when (direction) {
+        ReaderTurnDirection.Next -> targetPage
+        ReaderTurnDirection.Previous -> (targetPage + 1).coerceAtMost((pageCount - 1).coerceAtLeast(0))
+    }.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
+
 internal fun shouldCommitReaderTurn(
     progress: Float,
     velocityX: Float = 0f,

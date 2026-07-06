@@ -70,6 +70,7 @@ internal fun ReaderPageView(
     invertMode: InvertMode,
     whiteThreshold: Float,
     invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>,
+    pageBackground: Color = Color(0xFF111111),
     modifier: Modifier = Modifier
 ) {
     val layout = readerPageLayout(
@@ -89,7 +90,8 @@ internal fun ReaderPageView(
                     alignment = layout.singleAlignment,
                     invertMode = invertMode,
                     whiteThreshold = whiteThreshold,
-                    invertDecisionCache = invertDecisionCache
+                    invertDecisionCache = invertDecisionCache,
+                    pageBackground = pageBackground
                 )
             }
         } else {
@@ -101,7 +103,8 @@ internal fun ReaderPageView(
                     alignment = Alignment.CenterEnd,
                     invertMode = invertMode,
                     whiteThreshold = whiteThreshold,
-                    invertDecisionCache = invertDecisionCache
+                    invertDecisionCache = invertDecisionCache,
+                    pageBackground = pageBackground
                 )
             }
             key(spread.rightPage) {
@@ -112,7 +115,8 @@ internal fun ReaderPageView(
                     alignment = Alignment.CenterStart,
                     invertMode = invertMode,
                     whiteThreshold = whiteThreshold,
-                    invertDecisionCache = invertDecisionCache
+                    invertDecisionCache = invertDecisionCache,
+                    pageBackground = pageBackground
                 )
             }
         }
@@ -128,7 +132,8 @@ private fun RowScope.PageImage(
     contentScale: ContentScale = ContentScale.Fit,
     invertMode: InvertMode = InvertMode.Off,
     whiteThreshold: Float = 0.5f,
-    invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>
+    invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>,
+    pageBackground: Color = Color(0xFF111111)
 ) {
     val ctx = LocalContext.current
     val density = LocalDensity.current
@@ -137,7 +142,7 @@ private fun RowScope.PageImage(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
-            .background(Color(0xFF111111))
+            .background(pageBackground)
             .clipToBounds(),
         contentAlignment = Alignment.Center
     ) {

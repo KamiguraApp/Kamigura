@@ -158,4 +158,100 @@ class ReaderTransitionTest {
             )
         )
     }
+
+    @Test
+    fun turnTargetUsesLayoutStepInsteadOfHardcodedSpreadStep() {
+        assertEquals(
+            12,
+            readerTurnTargetPage(
+                currentPage = 10,
+                pageCount = 30,
+                direction = ReaderTurnDirection.Next,
+                step = 2,
+                completeWhenPastEnd = false
+            )
+        )
+        assertEquals(
+            11,
+            readerTurnTargetPage(
+                currentPage = 10,
+                pageCount = 30,
+                direction = ReaderTurnDirection.Next,
+                step = 1,
+                completeWhenPastEnd = false
+            )
+        )
+        assertEquals(
+            9,
+            readerTurnTargetPage(
+                currentPage = 10,
+                pageCount = 30,
+                direction = ReaderTurnDirection.Previous,
+                step = 1,
+                completeWhenPastEnd = false
+            )
+        )
+    }
+
+    @Test
+    fun turnTargetHandlesReaderBoundaries() {
+        assertEquals(
+            14,
+            readerTurnTargetPage(
+                currentPage = 13,
+                pageCount = 15,
+                direction = ReaderTurnDirection.Next,
+                step = 2,
+                completeWhenPastEnd = false
+            )
+        )
+        assertEquals(
+            null,
+            readerTurnTargetPage(
+                currentPage = 13,
+                pageCount = 15,
+                direction = ReaderTurnDirection.Next,
+                step = 2,
+                completeWhenPastEnd = true
+            )
+        )
+        assertEquals(
+            null,
+            readerTurnTargetPage(
+                currentPage = 0,
+                pageCount = 15,
+                direction = ReaderTurnDirection.Previous,
+                step = 2,
+                completeWhenPastEnd = false
+            )
+        )
+    }
+
+    @Test
+    fun spreadCurlBackFaceUsesIncomingNearPage() {
+        assertEquals(
+            12,
+            readerSpreadCurlBackPageIndex(
+                targetPage = 12,
+                pageCount = 30,
+                direction = ReaderTurnDirection.Next
+            )
+        )
+        assertEquals(
+            11,
+            readerSpreadCurlBackPageIndex(
+                targetPage = 10,
+                pageCount = 30,
+                direction = ReaderTurnDirection.Previous
+            )
+        )
+        assertEquals(
+            14,
+            readerSpreadCurlBackPageIndex(
+                targetPage = 14,
+                pageCount = 15,
+                direction = ReaderTurnDirection.Previous
+            )
+        )
+    }
 }

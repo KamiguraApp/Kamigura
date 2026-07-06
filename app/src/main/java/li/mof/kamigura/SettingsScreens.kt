@@ -585,7 +585,7 @@ fun ReaderSettingsScreen(
 
             Text("Page turn", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Slide is the stable reader. Curl is experimental and currently applies to portrait single-page reading.",
+                "Slide is the stable reader. Curl is experimental and applies to portrait single-page and landscape spread reading.",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.Gray
             )
