@@ -207,6 +207,14 @@ public class PageCurlState(
      * @param value The page to snap to.
      */
     public suspend fun snapTo(value: Int) {
+        // Kamigura fork: before setup() runs, max is 0 and coerceIn(0, -1) throws on an
+        // empty range (an upstream latent bug). The host may snap while the composable is
+        // not yet mounted (e.g. a slide transition still covers it), so bail out instead;
+        // setup() clamps current when it eventually runs.
+        if (max <= 0) {
+            interactiveTurn = null
+            return
+        }
         current = value.coerceIn(0, max - 1)
         interactiveTurn = null
         internalState?.reset()

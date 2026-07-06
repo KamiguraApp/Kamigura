@@ -107,6 +107,17 @@ class PageCurlForkTest {
     }
 
     @Test
+    fun snapToBeforeSetupDoesNotThrow() = runBlocking {
+        // Regression: the host may snap while the composable is not yet mounted (a slide
+        // transition still covering it), when max is 0; coerceIn(0, -1) used to throw.
+        val state = PageCurlState()
+
+        state.snapTo(1)
+
+        assertEquals(0, state.current)
+    }
+
+    @Test
     fun leafTurnProgressNormalizesSpineEndAsCompleteTurn() = runBlocking {
         val state = PageCurlState(initialMax = 5, initialCurrent = 2, turnEndFractionX = 0.5f)
         state.setup(count = 5, constraints = Constraints.fixed(width = 1000, height = 1200))
