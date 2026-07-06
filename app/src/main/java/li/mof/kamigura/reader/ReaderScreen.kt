@@ -1,5 +1,6 @@
 package li.mof.kamigura.reader
 
+import android.os.SystemClock
 import android.view.ViewConfiguration
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -154,6 +155,7 @@ fun ReaderScreen(
         ViewConfiguration.get(ctx).scaledMinimumFlingVelocity.toFloat()
     }
     var pendingRemoteProgressPage by remember { mutableStateOf<Int?>(null) }
+    var pendingRemoteProgressSinceMillis by remember { mutableStateOf<Long?>(null) }
     var lastRemoteProgressPage by remember { mutableStateOf<Int?>(null) }
 
     DisposableEffect(readerImageLoader) {
@@ -167,7 +169,10 @@ fun ReaderScreen(
         if (incognito) return false
         if (pages <= 0 || targetPage !in 0 until pages) return false
         if (lastRemoteProgressPage == targetPage) {
-            if (pendingRemoteProgressPage == targetPage) pendingRemoteProgressPage = null
+            if (pendingRemoteProgressPage == targetPage) {
+                pendingRemoteProgressPage = null
+                pendingRemoteProgressSinceMillis = null
+            }
             return true
         }
         val loadedApi = api ?: return false
@@ -183,7 +188,10 @@ fun ReaderScreen(
                 )
             )
             lastRemoteProgressPage = targetPage
-            if (pendingRemoteProgressPage == targetPage) pendingRemoteProgressPage = null
+            if (pendingRemoteProgressPage == targetPage) {
+                pendingRemoteProgressPage = null
+                pendingRemoteProgressSinceMillis = null
+            }
             if (offlineChapter != null && loadedSession != null) {
                 offlineRepository.markProgressSynced(
                     session = loadedSession,
@@ -407,13 +415,20 @@ fun ReaderScreen(
         if (api == null) return@LaunchedEffect
         if (lastRemoteProgressPage == page) return@LaunchedEffect
         pendingRemoteProgressPage = page
+        pendingRemoteProgressSinceMillis = SystemClock.elapsedRealtime()
         delay(ReaderProgressSyncDelayMillis)
         saveRemoteProgress(page)
     }
 
     val latestFlushProgress by rememberUpdatedState<suspend () -> Unit>({
-        val targetPage = pendingRemoteProgressPage ?: page
-        saveRemoteProgress(targetPage)
+        val targetPage = pendingRemoteProgressPage
+        val pendingSince = pendingRemoteProgressSinceMillis
+        if (targetPage != null && pendingSince != null) {
+            val pendingAge = SystemClock.elapsedRealtime() - pendingSince
+            if (pendingAge >= ReaderProgressSyncDelayMillis) {
+                saveRemoteProgress(targetPage)
+            }
+        }
     })
 
     DisposableEffect(lifecycleOwner) {
