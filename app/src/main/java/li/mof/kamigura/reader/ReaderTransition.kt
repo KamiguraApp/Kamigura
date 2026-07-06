@@ -14,7 +14,8 @@ internal data class ReaderPageTransition(
 internal data class PendingReaderTurn(
     val direction: ReaderTurnDirection,
     val step: Int,
-    val completeWhenPastEnd: Boolean
+    val completeWhenPastEnd: Boolean,
+    val slideOnly: Boolean = false
 )
 
 private const val ReaderTurnCommitProgressThreshold = 0.12f
