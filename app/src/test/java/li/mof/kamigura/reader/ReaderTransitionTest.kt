@@ -266,6 +266,48 @@ class ReaderTransitionTest {
     }
 
     @Test
+    fun shiftStripRolesFollowDirection() {
+        assertEquals(
+            Triple(7, 6, 5),
+            readerShiftStripPages(outgoingPage = 5, targetPage = 6, direction = ReaderTurnDirection.Next)
+        )
+        assertEquals(
+            Triple(5, 6, 7),
+            readerShiftStripPages(outgoingPage = 6, targetPage = 5, direction = ReaderTurnDirection.Previous)
+        )
+    }
+
+    @Test
+    fun shiftStripGeometryGluesEdgesAndLandsOnTheSpine() {
+        // physicalSign +1 (e.g. RTL forward): the staying page starts hugging the spine
+        // from the left and travels right by exactly its own width.
+        val g = readerShiftStripGeometry(
+            physicalSign = 1f,
+            halfViewportPx = 500f,
+            stayWidthPx = 400f,
+            enterWidthPx = 400f,
+            exitWidthPx = 400f
+        )
+        assertEquals(400f, g.travelPx, 0.001f)
+        assertEquals(100f, g.stayStartLeftPx, 0.001f)
+        // Glued at start: enter's right edge (-300 + 400) meets stay's left edge (100).
+        assertEquals(-300f, g.enterStartLeftPx, 0.001f)
+        assertEquals(500f, g.exitStartLeftPx, 0.001f)
+
+        val mirrored = readerShiftStripGeometry(
+            physicalSign = -1f,
+            halfViewportPx = 500f,
+            stayWidthPx = 400f,
+            enterWidthPx = 400f,
+            exitWidthPx = 400f
+        )
+        assertEquals(-400f, mirrored.travelPx, 0.001f)
+        assertEquals(500f, mirrored.stayStartLeftPx, 0.001f)
+        assertEquals(900f, mirrored.enterStartLeftPx, 0.001f)
+        assertEquals(100f, mirrored.exitStartLeftPx, 0.001f)
+    }
+
+    @Test
     fun spreadCurlBackFaceIsTheWidePageItselfInBothDirections() {
         assertEquals(
             12,

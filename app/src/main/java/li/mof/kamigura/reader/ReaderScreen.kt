@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -1243,6 +1244,75 @@ fun ReaderScreen(
                 } else {
                     zoomPan.offsetX
                 }
+                if (transition.distanceFraction < 1f && !zoomPanEnabled) {
+                    // Spread shift: the two whole-spread layers cannot slide seamlessly
+                    // because each hugs the pages to its own spine — at the layer seam the
+                    // outer margins meet and open a gap at the spine. Instead draw one
+                    // paper background and the three page images (enter / stay / exit)
+                    // glued edge-to-edge, all travelling by the staying page's rendered
+                    // width; the leaving page fades out.
+                    fun halfPageWidthPx(pageIndex: Int): Float {
+                        val dims = pageDimensions[pageIndex] ?: return viewportWidthPx / 2f
+                        val w = dims.width?.toFloat() ?: return viewportWidthPx / 2f
+                        val h = dims.height?.toFloat() ?: return viewportWidthPx / 2f
+                        if (w <= 0f || h <= 0f) return viewportWidthPx / 2f
+                        return minOf(viewportWidthPx / 2f, viewportHeightPx * (w / h))
+                    }
+
+                    val (enterPage, stayPage, exitPage) = readerShiftStripPages(
+                        outgoingPage = transition.outgoingPage,
+                        targetPage = transition.targetPage,
+                        direction = transition.direction
+                    )
+                    val geometry = readerShiftStripGeometry(
+                        physicalSign = physicalSign,
+                        halfViewportPx = viewportWidthPx / 2f,
+                        stayWidthPx = halfPageWidthPx(stayPage),
+                        enterWidthPx = halfPageWidthPx(enterPage),
+                        exitWidthPx = halfPageWidthPx(exitPage)
+                    )
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(readerPageBackground)
+                    ) {
+                        listOf(
+                            Triple(enterPage, geometry.enterStartLeftPx, 1f),
+                            Triple(stayPage, geometry.stayStartLeftPx, 1f),
+                            Triple(exitPage, geometry.exitStartLeftPx, 1f - progress)
+                        ).forEach { (stripPage, startLeftPx, pageAlpha) ->
+                            if (stripPage in 0 until pages) {
+                                val widthDp = with(density) { halfPageWidthPx(stripPage).toDp() }
+                                key(stripPage) {
+                                    Box(
+                                        Modifier
+                                            .fillMaxHeight()
+                                            .width(widthDp)
+                                            .graphicsLayer {
+                                                translationX = startLeftPx + geometry.travelPx * progress
+                                                alpha = pageAlpha
+                                            }
+                                    ) {
+                                        ReaderPageView(
+                                            cursor = stripPage,
+                                            pageCount = pages,
+                                            portrait = true,
+                                            pageDimensions = pageDimensions,
+                                            rightToLeft = rtl,
+                                            pageModel = ::pageModel,
+                                            imageLoader = activeImageLoader,
+                                            invertMode = settings.reader.invertMode,
+                                            whiteThreshold = settings.reader.invertWhiteThreshold,
+                                            invertDecisionCache = invertDecisionCache,
+                                            pageBackground = readerPageBackground,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
                 ReaderPageView(
                     cursor = transition.targetPage,
                     pageCount = pages,
@@ -1285,6 +1355,7 @@ fun ReaderScreen(
                             scaleY = totalZoomScale
                         }
                 )
+                }
             }
         }
 

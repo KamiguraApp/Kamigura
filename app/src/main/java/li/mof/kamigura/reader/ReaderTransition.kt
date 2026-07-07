@@ -21,6 +21,53 @@ internal fun readerSlideDistanceFraction(
     currentSinglePage: Boolean
 ): Float = if (step == 1 && !portrait && !currentSinglePage) 0.5f else 1f
 
+/**
+ * Page roles during a spread shift: one page enters, one stays on screen and crosses
+ * the spine, one leaves. Returned as (enter, stay, exit).
+ */
+internal fun readerShiftStripPages(
+    outgoingPage: Int,
+    targetPage: Int,
+    direction: ReaderTurnDirection
+): Triple<Int, Int, Int> =
+    if (direction == ReaderTurnDirection.Next) {
+        Triple(targetPage + 1, targetPage, outgoingPage)
+    } else {
+        Triple(targetPage, outgoingPage, outgoingPage + 1)
+    }
+
+internal data class ReaderShiftStripGeometry(
+    val travelPx: Float,
+    val enterStartLeftPx: Float,
+    val stayStartLeftPx: Float,
+    val exitStartLeftPx: Float
+)
+
+/**
+ * Start positions (left edges) and common travel for the three shift-strip pages.
+ * All pages translate together by the staying page's rendered width, so their edges
+ * stay glued for the whole slide and the staying page lands exactly where the real
+ * spread will draw it — no spine gap mid-slide and no jump at the handoff.
+ */
+internal fun readerShiftStripGeometry(
+    physicalSign: Float,
+    halfViewportPx: Float,
+    stayWidthPx: Float,
+    enterWidthPx: Float,
+    exitWidthPx: Float
+): ReaderShiftStripGeometry {
+    val travel = physicalSign * stayWidthPx
+    val stayStart = if (physicalSign > 0f) halfViewportPx - stayWidthPx else halfViewportPx
+    val enterFinal = if (physicalSign > 0f) halfViewportPx - enterWidthPx else halfViewportPx
+    val exitStart = if (physicalSign > 0f) halfViewportPx else halfViewportPx - exitWidthPx
+    return ReaderShiftStripGeometry(
+        travelPx = travel,
+        enterStartLeftPx = enterFinal - travel,
+        stayStartLeftPx = stayStart,
+        exitStartLeftPx = exitStart
+    )
+}
+
 internal data class PendingReaderTurn(
     val direction: ReaderTurnDirection,
     val step: Int,
