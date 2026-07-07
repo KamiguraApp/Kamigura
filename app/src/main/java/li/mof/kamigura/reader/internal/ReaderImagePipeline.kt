@@ -215,15 +215,17 @@ internal suspend fun prefetchReaderPages(
     targets: List<ReaderPrefetchTarget>
 ) = coroutineScope {
     val semaphore = Semaphore(ReaderPrefetchConcurrency)
-    targets.mapIndexed { index, target ->
+    targets.map { target ->
         launch {
             semaphore.withPermit {
+                // Every prefetched page goes into the memory cache: a spread turn consumes
+                // two pages, so capping the decoded set (an earlier index < 4 policy) meant
+                // pages hit only the disk cache after two turns and every display paid a
+                // full-resolution decode. The LRU cache evicts under pressure anyway.
                 val request = ImageRequest.Builder(context)
                     .data(target.model)
                     .size(target.targetWidth, target.targetHeight)
-                    .memoryCachePolicy(
-                        if (index < 4) CachePolicy.ENABLED else CachePolicy.DISABLED
-                    )
+                    .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .networkCachePolicy(CachePolicy.ENABLED)
                     .build()

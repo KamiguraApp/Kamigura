@@ -146,7 +146,10 @@ class KavitaClient(
             .okHttpClient(okHttp)
             .memoryCache {
                 MemoryCache.Builder(context)
-                    .maxSizePercent(0.20)
+                    // Spread reading keeps ~10 prefetched pages plus the curl pre-render
+                    // decoded; at 20% they evicted within a couple of turns and every
+                    // display paid a full-resolution decode.
+                    .maxSizePercent(0.30)
                     .build()
             }
             .diskCache {
