@@ -1480,6 +1480,7 @@ fun ReaderScreen(
                 page = page,
                 pages = pages,
                 rightToLeft = rtl,
+                showSpreadShift = !portrait,
                 onBack = onBack,
                 onDismiss = { showReaderMenu = false },
                 onToggleDirection = {

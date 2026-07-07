@@ -9,10 +9,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
@@ -38,6 +43,9 @@ internal fun ReaderMenuOverlay(
     page: Int,
     pages: Int,
     rightToLeft: Boolean,
+    // Spread shift only means something while spreads are shown; portrait hides the row
+    // (a single-page ±1 there is just a page turn).
+    showSpreadShift: Boolean,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
     onToggleDirection: () -> Unit,
@@ -77,16 +85,43 @@ internal fun ReaderMenuOverlay(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Button(onClick = onBack) { Text("Back") }
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White
+                )
+            }
             Text(
                 text = "${page + 1} / $pages",
                 color = Color.White,
                 modifier = Modifier.weight(1f)
             )
-            Button(onClick = onToggleDirection) {
-                Text(if (rightToLeft) "Right-to-left" else "Left-to-right")
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+            ) {
+                // Same selected-segment pattern as the Invert group below, so the current
+                // reading direction is visible at a glance instead of hidden in a toggle.
+                ToggleButton(
+                    checked = rightToLeft,
+                    onCheckedChange = { if (!rightToLeft) onToggleDirection() },
+                    modifier = Modifier.semantics { role = Role.RadioButton },
+                    shapes = ButtonGroupDefaults.connectedLeadingButtonShapes()
+                ) { Text("RTL") }
+                ToggleButton(
+                    checked = !rightToLeft,
+                    onCheckedChange = { if (rightToLeft) onToggleDirection() },
+                    modifier = Modifier.semantics { role = Role.RadioButton },
+                    shapes = ButtonGroupDefaults.connectedTrailingButtonShapes()
+                ) { Text("LTR") }
             }
-            Button(onClick = onDismiss) { Text("Close") }
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Close menu",
+                    tint = Color.White
+                )
+            }
         }
 
         Column(
@@ -155,28 +190,39 @@ internal fun ReaderMenuOverlay(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (rightToLeft) {
-                    Button(
-                        onClick = onNextSingle,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Shift +1") }
-                    Button(
-                        onClick = onPreviousSingle,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Shift -1") }
-                } else {
-                    Button(
-                        onClick = onPreviousSingle,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Shift -1") }
-                    Button(
-                        onClick = onNextSingle,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Shift +1") }
+            if (showSpreadShift) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Kept discoverable here even though edge long-press does the same:
+                    // the menu is the only place a new user can find spread correction.
+                    Text("Spread shift", color = Color.White)
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (rightToLeft) {
+                            Button(
+                                onClick = onNextSingle,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("+1") }
+                            Button(
+                                onClick = onPreviousSingle,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("-1") }
+                        } else {
+                            Button(
+                                onClick = onPreviousSingle,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("-1") }
+                            Button(
+                                onClick = onNextSingle,
+                                modifier = Modifier.weight(1f)
+                            ) { Text("+1") }
+                        }
+                    }
                 }
             }
         }
