@@ -609,6 +609,16 @@ fun ReaderSettingsScreen(
                 }
             }
 
+            SettingRow(
+                title = "Spread shift buttons",
+                desc = "Shows the +1 / -1 buttons in the reader menu (landscape) to correct a " +
+                    "one-page spread misalignment. Edge long-press does the same either way.",
+                checked = settings.reader.showSpreadShiftButtons,
+                onToggle = { enabled ->
+                    scope.launch { settingsStore.setShowSpreadShiftButtons(enabled) }
+                }
+            )
+
             Text("Invert (night)", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Off shows pages as-is. Smart inverts text pages and skips illustrations. Always inverts every page.",
