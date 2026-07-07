@@ -460,6 +460,14 @@ fun ReaderScreen(
         } else {
             Color(0xFF101010)
         }
+        // In Curl mode every branch (curl, slide overlay, static fallback) letterboxes with
+        // the paper colour, so landing on a slide-fallback page (cover, wide-adjacent
+        // single) does not flip the margins back to near-black mid-read.
+        val readerPageBackground = if (settings.reader.pageTurnMode == PageTurnMode.Curl) {
+            curlBackPageColor
+        } else {
+            Color(0xFF111111)
+        }
         val portraitCurlConfig = rememberPageCurlConfig(backPageColor = curlBackPageColor)
         val spreadCurlConfig = rememberPageCurlConfig(
             backPageColor = curlBackPageColor,
@@ -665,6 +673,12 @@ fun ReaderScreen(
             completeWhenPastEnd: Boolean,
             tapPosition: Offset? = null
         ) {
+            // A slide transition (shift, boundary fallback) may be covering the curl;
+            // queue the turn and replay it once the transition finishes.
+            if (transitionSettling || activeTransition != null) {
+                queuedTurn = PendingReaderTurn(direction, step, completeWhenPastEnd)
+                return
+            }
             val target = turnTarget(direction, step, completeWhenPastEnd)
             if (target == null) {
                 runBoundaryAction(direction, completeWhenPastEnd)
@@ -794,19 +808,10 @@ fun ReaderScreen(
             }
         }
 
-        // Spread shift (long-press / menu ±1) re-pairs the spread rather than turning a
-        // leaf. In Curl mode apply it instantly: animating it bounces the renderer between
-        // the curl and slide branches, which made the images thrash.
+        // Spread shift (long-press / menu ±1) animates as a Slide transition in both
+        // modes: in Curl mode it draws over the still-mounted PageCurl, so there is no
+        // unmount/remount churn (the original cause of the image thrash).
         fun requestSingleStep(direction: ReaderTurnDirection, completeWhenPastEnd: Boolean) {
-            if (useCurl) {
-                val target = turnTarget(direction, 1, completeWhenPastEnd)
-                if (target == null) {
-                    runBoundaryAction(direction, completeWhenPastEnd)
-                } else {
-                    page = target
-                }
-                return
-            }
             requestSlideTurn(direction, 1, completeWhenPastEnd)
         }
 
@@ -832,6 +837,9 @@ fun ReaderScreen(
 
         fun updateTurnDrag(direction: ReaderTurnDirection, progress: Float, pointer: Offset) {
             if (useCurl) {
+                // Ignore curl drags while a slide transition covers the curl (shift or a
+                // boundary fallback in flight); it lasts a few hundred ms at most.
+                if (activeCurlDirection == null && (transitionSettling || activeTransition != null)) return
                 var fallThroughToSlide = false
                 if (activeCurlDirection != direction) {
                     val step = curlTurnStep(direction)
@@ -1033,8 +1041,10 @@ fun ReaderScreen(
             // Keep PageCurl mounted whenever the curl mode is active (not just during a
             // turn): the neighbour pages it composes at rest are exactly the images the
             // next turn needs, so the gesture starts warm instead of kicking off image
-            // loads on its first frame.
-            if (usePortraitCurl && !transitionVisible) {
+            // loads on its first frame. Slide transitions (shift, boundary fallbacks) draw
+            // on top of it rather than unmounting it — the remount recomposition is what
+            // made the images thrash.
+            if (usePortraitCurl) {
                 val curlMirror = if (rtl) -1f else 1f
                 PageCurl(
                     count = pages,
@@ -1070,7 +1080,7 @@ fun ReaderScreen(
                         )
                     }
                 }
-            } else if (useSpreadCurl && !transitionVisible) {
+            } else if (useSpreadCurl) {
                 val curlMirror = if (rtl) -1f else 1f
                 // During a turn the under/flap pages come from the in-flight target; at rest
                 // they pre-render the forward target spread (the likely next turn), which
@@ -1190,7 +1200,32 @@ fun ReaderScreen(
                         )
                     }
                 }
-            } else if (transitionVisible) {
+            } else if (!transitionVisible) {
+                ReaderPageView(
+                    cursor = page,
+                    pageCount = pages,
+                    portrait = portrait,
+                    pageDimensions = pageDimensions,
+                    rightToLeft = rtl,
+                    pageModel = ::pageModel,
+                    imageLoader = activeImageLoader,
+                    invertMode = settings.reader.invertMode,
+                    whiteThreshold = settings.reader.invertWhiteThreshold,
+                    invertDecisionCache = invertDecisionCache,
+                    pageBackground = readerPageBackground,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = zoomPan.offsetX
+                            translationY = zoomPan.offsetY
+                            scaleX = totalZoomScale
+                            scaleY = totalZoomScale
+                        }
+                )
+            }
+            // The slide transition draws on top of whichever base is composed (a mounted
+            // curl or nothing), fully covering it with its two opaque pages.
+            if (transitionVisible) {
                 requireNotNull(transition)
                 val progress = transitionProgress.coerceIn(0f, 1f)
                 val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
@@ -1210,6 +1245,7 @@ fun ReaderScreen(
                     invertMode = settings.reader.invertMode,
                     whiteThreshold = settings.reader.invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
+                    pageBackground = readerPageBackground,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
@@ -1230,31 +1266,11 @@ fun ReaderScreen(
                     invertMode = settings.reader.invertMode,
                     whiteThreshold = settings.reader.invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
+                    pageBackground = readerPageBackground,
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
                             translationX = physicalSign * viewportWidthPx * progress + zoomPan.offsetX
-                            translationY = zoomPan.offsetY
-                            scaleX = totalZoomScale
-                            scaleY = totalZoomScale
-                        }
-                )
-            } else {
-                ReaderPageView(
-                    cursor = page,
-                    pageCount = pages,
-                    portrait = portrait,
-                    pageDimensions = pageDimensions,
-                    rightToLeft = rtl,
-                    pageModel = ::pageModel,
-                    imageLoader = activeImageLoader,
-                    invertMode = settings.reader.invertMode,
-                    whiteThreshold = settings.reader.invertWhiteThreshold,
-                    invertDecisionCache = invertDecisionCache,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            translationX = zoomPan.offsetX
                             translationY = zoomPan.offsetY
                             scaleX = totalZoomScale
                             scaleY = totalZoomScale
