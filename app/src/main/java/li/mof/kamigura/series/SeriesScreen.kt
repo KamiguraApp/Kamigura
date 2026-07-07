@@ -31,9 +31,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuGroup
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DropdownMenuPopup
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -257,7 +257,7 @@ fun SeriesScreen(
                                     tint = Color.White
                                 )
                             }
-                            DropdownMenu(
+                            DropdownMenuPopup(
                                 expanded = sortMenuExpanded,
                                 onDismissRequest = { sortMenuExpanded = false },
                                 modifier = Modifier.width(220.dp)
@@ -265,7 +265,8 @@ fun SeriesScreen(
                                 DropdownMenuGroup(
                                     shapes = MenuDefaults.groupShape(index = 0, count = 1)
                                 ) {
-                                    SeriesLibrarySort.entries.forEach { option ->
+                                    val sortOptions = SeriesLibrarySort.entries
+                                    sortOptions.forEachIndexed { index, option ->
                                         DropdownMenuItem(
                                             text = { Text(option.label) },
                                             onClick = {
@@ -280,6 +281,7 @@ fun SeriesScreen(
                                                     )
                                                 }
                                             },
+                                            shape = MenuDefaults.itemShape(index, sortOptions.size).shape,
                                             colors = MenuDefaults.itemColors(
                                                 textColor = Color.White,
                                                 trailingIconColor = Color.White.copy(alpha = 0.68f)
@@ -302,7 +304,7 @@ fun SeriesScreen(
                                     tint = Color.White
                                 )
                             }
-                            DropdownMenu(
+                            DropdownMenuPopup(
                                 expanded = menuExpanded,
                                 onDismissRequest = { menuExpanded = false },
                                 modifier = Modifier.width(220.dp)
@@ -311,6 +313,7 @@ fun SeriesScreen(
                                     shapes = MenuDefaults.groupShape(index = 0, count = 1)
                                 ) {
                                     DropdownMenuItem(
+                                        shape = MenuDefaults.itemShape(index = 0, count = 1).shape,
                                         text = { Text("Scan Library") },
                                         onClick = {
                                             menuExpanded = false
