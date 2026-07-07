@@ -16,12 +16,15 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import java.util.concurrent.TimeUnit
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.create
 
 private const val CoverImageDiskCacheBytes = 256L * 1024L * 1024L
 private const val ReaderPageDiskCacheBytes = 256L * 1024L * 1024L
+private const val ApiCallTimeoutSeconds = 20L
+private const val ApiConnectTimeoutSeconds = 10L
 
 class KavitaClient(
     private val context: Context,
@@ -33,8 +36,13 @@ class KavitaClient(
         val session = store.load()
         val rootUrl = normalizeBaseUrl(session.baseUrl)
 
-        // Plain client (no auth) used to mint a fresh JWT from the saved apiKey.
-        val mintClient = OkHttpClient.Builder().build()
+        // Plain client (no auth) used to mint a fresh JWT from the saved apiKey. It runs
+        // synchronously inside the 401 authenticator, so it needs its own timeouts or a
+        // stalled auth server would hang every request that hit the re-auth path.
+        val mintClient = OkHttpClient.Builder()
+            .callTimeout(ApiCallTimeoutSeconds, TimeUnit.SECONDS)
+            .connectTimeout(ApiConnectTimeoutSeconds, TimeUnit.SECONDS)
+            .build()
 
         // Inject auth dynamically so a freshly refreshed token is picked up by
         // later requests on the same client (no snapshot of the token here).
@@ -78,6 +86,10 @@ class KavitaClient(
         val okHttp = OkHttpClient.Builder()
             .addInterceptor(headerInterceptor)
             .authenticator(tokenAuthenticator)
+            // A whole-call cap so a slow or stalled server can never hang a request
+            // indefinitely (e.g. the mark-read/progress calls when leaving a chapter).
+            .callTimeout(ApiCallTimeoutSeconds, TimeUnit.SECONDS)
+            .connectTimeout(ApiConnectTimeoutSeconds, TimeUnit.SECONDS)
             .build()
 
         val baseUrl = ("$rootUrl/")

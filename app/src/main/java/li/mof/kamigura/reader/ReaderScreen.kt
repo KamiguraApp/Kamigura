@@ -87,10 +87,17 @@ import li.mof.kamigura.reader.internal.spreadPagesFor
 import li.mof.kamigura.reader.internal.toPageDimensionMap
 import li.mof.kamigura.reader.internal.withDoubleTapZoom
 import li.mof.kamigura.reader.internal.withTransform
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+// Process-lived scope for chapter-exit writes (mark read/unread, final progress) so they
+// survive the reader being popped off the back stack the instant the user leaves.
+private val ReaderExitWriteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 // Kavita reading-profile reading direction values (ReadingDirection enum).
 private const val KavitaReadingDirectionLtr = 0
@@ -211,97 +218,94 @@ fun ReaderScreen(
         if (completingRead || pages <= 0) return
         completingRead = true
         showReaderMenu = false
-        if (incognito) {
-            onBack()
-            return
-        }
-        scope.launch {
-            val loadedSession = session
-            if (offlineChapter != null && loadedSession != null) {
-                offlineRepository.saveLocalProgress(
-                    session = loadedSession,
-                    chapterId = chapterId,
-                    page = pages - 1,
-                    markRead = true
-                )
-            }
-            val loadedApi = api
-            val progressSaved = loadedApi != null && runCatching {
-                loadedApi.saveProgress(
-                    ProgressDto(
-                        libraryId = libraryId,
-                        seriesId = seriesId,
-                        volumeId = volumeId,
+        // Return to the series page immediately; the read/progress writes continue on a
+        // process-lived scope so a slow or stalled server never blocks (or, without a
+        // timeout, indefinitely hangs) the navigation back.
+        onBack()
+        if (incognito) return
+        val loadedApi = api
+        val loadedSession = session
+        val hasOffline = offlineChapter != null
+        val finalPage = pages - 1
+        ReaderExitWriteScope.launch {
+            runCatching {
+                if (hasOffline && loadedSession != null) {
+                    offlineRepository.saveLocalProgress(
+                        session = loadedSession,
                         chapterId = chapterId,
-                        pageNum = pages - 1
+                        page = finalPage,
+                        markRead = true
                     )
-                )
-            }.onFailure {
-                KamiguraLog.w("Could not save final reader progress for chapter $chapterId.", it)
-            }.isSuccess
-            if (progressSaved) {
-                lastRemoteProgressPage = pages - 1
-                if (pendingRemoteProgressPage == pages - 1) pendingRemoteProgressPage = null
-            }
-            val readMarked = loadedApi != null && runCatching {
-                loadedApi.markChapterRead(
-                    MarkChapterReadDto(
-                        seriesId = seriesId,
+                }
+                val progressSaved = loadedApi != null && runCatching {
+                    loadedApi.saveProgress(
+                        ProgressDto(
+                            libraryId = libraryId,
+                            seriesId = seriesId,
+                            volumeId = volumeId,
+                            chapterId = chapterId,
+                            pageNum = finalPage
+                        )
+                    )
+                }.onFailure {
+                    KamiguraLog.w("Could not save final reader progress for chapter $chapterId.", it)
+                }.isSuccess
+                val readMarked = loadedApi != null && runCatching {
+                    loadedApi.markChapterRead(
+                        MarkChapterReadDto(
+                            seriesId = seriesId,
+                            chapterId = chapterId,
+                            generateReadingSession = false
+                        )
+                    )
+                }.onFailure {
+                    KamiguraLog.w("Could not mark chapter $chapterId as read.", it)
+                }.isSuccess
+                if (hasOffline && loadedSession != null && progressSaved) {
+                    offlineRepository.markProgressSynced(
+                        session = loadedSession,
                         chapterId = chapterId,
-                        generateReadingSession = false
+                        expectedPage = finalPage,
+                        markedRead = readMarked
                     )
-                )
-            }.onFailure {
-                KamiguraLog.w("Could not mark chapter $chapterId as read.", it)
-            }.isSuccess
-            if (offlineChapter != null && loadedSession != null && progressSaved) {
-                offlineRepository.markProgressSynced(
-                    session = loadedSession,
-                    chapterId = chapterId,
-                    expectedPage = pages - 1,
-                    markedRead = readMarked
-                )
+                }
             }
-            onBack()
         }
     }
     fun resetChapterAndExit() {
         if (completingRead) return
         completingRead = true
         showReaderMenu = false
-        if (incognito) {
-            onBack()
-            return
-        }
-        scope.launch {
-            val loadedSession = session
-            if (offlineChapter != null && loadedSession != null) {
-                offlineRepository.markLocalUnread(loadedSession, chapterId)
-            }
-            val loadedApi = api
-            val unreadMarked = loadedApi != null && runCatching {
-                loadedApi.markChaptersUnread(
-                    MarkVolumesReadDto(
-                        seriesId = seriesId,
-                        chapterIds = listOf(chapterId)
+        // Return immediately; the unread write continues on a process-lived scope.
+        onBack()
+        if (incognito) return
+        val loadedApi = api
+        val loadedSession = session
+        val hasOffline = offlineChapter != null
+        ReaderExitWriteScope.launch {
+            runCatching {
+                if (hasOffline && loadedSession != null) {
+                    offlineRepository.markLocalUnread(loadedSession, chapterId)
+                }
+                val unreadMarked = loadedApi != null && runCatching {
+                    loadedApi.markChaptersUnread(
+                        MarkVolumesReadDto(
+                            seriesId = seriesId,
+                            chapterIds = listOf(chapterId)
+                        )
                     )
-                )
-            }.onFailure {
-                KamiguraLog.w("Could not mark chapter $chapterId as unread.", it)
-            }.isSuccess
-            if (unreadMarked) {
-                lastRemoteProgressPage = 0
-                if (pendingRemoteProgressPage == 0) pendingRemoteProgressPage = null
+                }.onFailure {
+                    KamiguraLog.w("Could not mark chapter $chapterId as unread.", it)
+                }.isSuccess
+                if (hasOffline && loadedSession != null && unreadMarked) {
+                    offlineRepository.markProgressSynced(
+                        session = loadedSession,
+                        chapterId = chapterId,
+                        expectedPage = 0,
+                        markedUnread = true
+                    )
+                }
             }
-            if (offlineChapter != null && loadedSession != null && unreadMarked) {
-                offlineRepository.markProgressSynced(
-                    session = loadedSession,
-                    chapterId = chapterId,
-                    expectedPage = 0,
-                    markedUnread = true
-                )
-            }
-            onBack()
         }
     }
     fun jumpToPage(targetPage: Int) {
