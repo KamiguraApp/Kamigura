@@ -1484,9 +1484,11 @@ fun ReaderScreen(
                 onBack = onBack,
                 onDismiss = { showReaderMenu = false },
                 onToggleDirection = {
-                    val newValue = !rightToLeft
-                    rightToLeft = newValue
-                    scope.launch { settingsStore.setRightToLeft(newValue) }
+                    // Per-book session override only. The global fallback lives in Reader
+                    // Settings; a per-series direction lives on the Kavita server. This
+                    // toggle flips the current reading session without writing either, so it
+                    // never silently changes other books or fights the server value.
+                    rightToLeft = !rightToLeft
                 },
                 invertMode = settings.reader.invertMode,
                 onSetInvertMode = { mode -> scope.launch { settingsStore.setInvertMode(mode) } },
