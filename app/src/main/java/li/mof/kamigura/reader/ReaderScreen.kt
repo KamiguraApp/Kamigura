@@ -837,9 +837,11 @@ fun ReaderScreen(
 
         fun updateTurnDrag(direction: ReaderTurnDirection, progress: Float, pointer: Offset) {
             if (useCurl) {
-                // Ignore curl drags while a slide transition covers the curl (shift or a
-                // boundary fallback in flight); it lasts a few hundred ms at most.
-                if (activeCurlDirection == null && (transitionSettling || activeTransition != null)) return
+                // Ignore new curl drags only while a SETTLING slide transition covers the
+                // curl (shift / tap fallback animating, a few hundred ms). A drag-driven
+                // fallback transition has transitionSettling == false and must keep
+                // receiving its own drag frames through the fall-through below.
+                if (activeCurlDirection == null && transitionSettling) return
                 var fallThroughToSlide = false
                 if (activeCurlDirection != direction) {
                     val step = curlTurnStep(direction)
