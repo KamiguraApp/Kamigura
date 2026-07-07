@@ -62,13 +62,23 @@ class KavitaSessionStore(private val context: Context) {
     private var transientSession: KavitaSession? = null
     private var activeProfileId: String? = null
 
+    // The resolved active session is decrypted from DataStore, which costs several
+    // Android KeyStore (TEE) round-trips per call. load() runs on every HTTP request
+    // (the auth-header interceptor), so cache the decrypted result and re-resolve only
+    // after a write or a profile switch invalidates it.
+    @Volatile
+    private var cachedActiveSession: KavitaSession? = null
+
     fun useTransient(session: KavitaSession) {
         transientSession = session.normalized()
     }
 
     suspend fun load(): KavitaSession {
         transientSession?.let { return it }
-        return activeProfile()?.session ?: KavitaSession()
+        cachedActiveSession?.let { return it }
+        val resolved = activeProfile()?.session ?: KavitaSession()
+        cachedActiveSession = resolved
+        return resolved
     }
 
     suspend fun loadDefault(): KavitaSession {
@@ -104,6 +114,7 @@ class KavitaSessionStore(private val context: Context) {
     fun selectProfile(id: String?) {
         activeProfileId = id
         transientSession = null
+        cachedActiveSession = null
     }
 
     suspend fun save(session: KavitaSession, rememberAuth: Boolean = true) {
@@ -221,6 +232,9 @@ class KavitaSessionStore(private val context: Context) {
     }
 
     private suspend fun writeProfiles(profiles: List<KavitaServerProfile>) {
+        // Any profile write can change the active session (token refresh, credential
+        // edit, delete); drop the cache so the next load() re-resolves from disk.
+        cachedActiveSession = null
         val stored = profiles.map { it.toStored() }
         context.applicationContext.dataStore.edit { prefs ->
             prefs[KEY_PROFILES] = json.encodeToString(ListSerializer(StoredServerProfile.serializer()), stored)
