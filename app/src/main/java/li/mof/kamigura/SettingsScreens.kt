@@ -527,8 +527,7 @@ fun ServerSettingsScreen(
 @Composable
 fun ReaderSettingsScreen(
     settingsStore: AppSettingsStore,
-    onBack: () -> Unit,
-    onOpenLeafCurlSpike: (() -> Unit)? = null
+    onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val settings by settingsStore.flow.collectAsState(initial = AppSettings())
@@ -655,15 +654,6 @@ fun ReaderSettingsScreen(
                 )
             }
 
-            onOpenLeafCurlSpike?.let { openSpike ->
-                Text("Developer", style = MaterialTheme.typography.titleMedium)
-                Button(
-                    onClick = openSpike,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Leaf curl spike (Phase 0)")
-                }
-            }
         }
     }
     }

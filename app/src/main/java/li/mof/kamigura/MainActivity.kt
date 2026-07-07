@@ -52,7 +52,6 @@ import li.mof.kamigura.library.HomeShelfKind
 import li.mof.kamigura.library.SearchSeriesScreen
 import li.mof.kamigura.library.SearchSeriesTarget
 import li.mof.kamigura.library.SeriesShelfScreen
-import li.mof.kamigura.dev.LeafCurlSpikeScreen
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.ReaderScreen
 import li.mof.kamigura.series.ChapterPickScreen
@@ -99,9 +98,6 @@ fun AppRoot(
     var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
     var updateNoticeShown by rememberSaveable { mutableStateOf(false) }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
-    val isDebuggable = remember(ctx) {
-        (ctx.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-    }
 
     fun installImageLoader(loader: ImageLoader?) {
         Coil.setImageLoader(loader ?: ImageLoader(ctx))
@@ -395,14 +391,7 @@ fun AppRoot(
                 )
             }
             composable("settings/reader") {
-                ReaderSettingsScreen(
-                    settingsStore = settingsStore,
-                    onBack = { nav.popBackStack() },
-                    onOpenLeafCurlSpike = if (isDebuggable) ({ nav.navigate("dev/leafcurl") }) else null
-                )
-            }
-            composable("dev/leafcurl") {
-                LeafCurlSpikeScreen(onBack = { nav.popBackStack() })
+                ReaderSettingsScreen(settingsStore = settingsStore, onBack = { nav.popBackStack() })
             }
         }
 }
