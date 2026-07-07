@@ -1277,7 +1277,10 @@ fun ReaderScreen(
                             .background(readerPageBackground)
                     ) {
                         listOf(
-                            Triple(enterPage, geometry.enterStartLeftPx, 1f),
+                            // The entering page starts glued to the staying page, which puts
+                            // a sliver of it inside the resting view's outer margin; fade it
+                            // in over the first quarter so it does not pop into existence.
+                            Triple(enterPage, geometry.enterStartLeftPx, (progress * 4f).coerceAtMost(1f)),
                             Triple(stayPage, geometry.stayStartLeftPx, 1f),
                             Triple(exitPage, geometry.exitStartLeftPx, 1f - progress)
                         ).forEach { (stripPage, startLeftPx, pageAlpha) ->
