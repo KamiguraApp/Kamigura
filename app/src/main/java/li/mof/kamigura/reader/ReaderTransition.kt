@@ -8,8 +8,18 @@ internal enum class ReaderTurnDirection {
 internal data class ReaderPageTransition(
     val outgoingPage: Int,
     val targetPage: Int,
-    val direction: ReaderTurnDirection
+    val direction: ReaderTurnDirection,
+    // Fraction of the viewport width the slide travels. A spread shift (step 1 on a
+    // spread) moves the page strip by one page = half the viewport; everything else
+    // sweeps the full width.
+    val distanceFraction: Float = 1f
 )
+
+internal fun readerSlideDistanceFraction(
+    step: Int,
+    portrait: Boolean,
+    currentSinglePage: Boolean
+): Float = if (step == 1 && !portrait && !currentSinglePage) 0.5f else 1f
 
 internal data class PendingReaderTurn(
     val direction: ReaderTurnDirection,

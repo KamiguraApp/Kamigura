@@ -774,7 +774,8 @@ fun ReaderScreen(
             activeTransition = ReaderPageTransition(
                 outgoingPage = page,
                 targetPage = target,
-                direction = direction
+                direction = direction,
+                distanceFraction = readerSlideDistanceFraction(step, portrait, layout.singlePage)
             )
             transitionProgress = 0f
             settleTransition(commit = true, completeWhenPastEnd = completeWhenPastEnd)
@@ -897,7 +898,12 @@ fun ReaderScreen(
                 val completeAtBoundary = direction == ReaderTurnDirection.Next && showingFinalPage
                 val target = turnTarget(direction, step, completeAtBoundary)
                 activeTransition = target?.let {
-                    ReaderPageTransition(page, it, direction)
+                    ReaderPageTransition(
+                        page,
+                        it,
+                        direction,
+                        distanceFraction = readerSlideDistanceFraction(step, portrait, layout.singlePage)
+                    )
                 }
                 dragBoundaryDirection = if (target == null) direction else null
             }
@@ -1231,6 +1237,7 @@ fun ReaderScreen(
                 requireNotNull(transition)
                 val progress = transitionProgress.coerceIn(0f, 1f)
                 val physicalSign = readerTurnPhysicalSign(rtl, transition.direction)
+                val slideDistancePx = viewportWidthPx * transition.distanceFraction
                 val targetOffsetX = if (zoomPanEnabled) {
                     zoomTurnLandingOffsetX(transition.direction)
                 } else {
@@ -1251,7 +1258,7 @@ fun ReaderScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            translationX = -physicalSign * viewportWidthPx * (1f - progress) + targetOffsetX
+                            translationX = -physicalSign * slideDistancePx * (1f - progress) + targetOffsetX
                             translationY = zoomPan.offsetY
                             scaleX = totalZoomScale
                             scaleY = totalZoomScale
@@ -1272,7 +1279,7 @@ fun ReaderScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            translationX = physicalSign * viewportWidthPx * progress + zoomPan.offsetX
+                            translationX = physicalSign * slideDistancePx * progress + zoomPan.offsetX
                             translationY = zoomPan.offsetY
                             scaleX = totalZoomScale
                             scaleY = totalZoomScale

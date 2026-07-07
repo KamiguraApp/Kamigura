@@ -256,6 +256,16 @@ class ReaderTransitionTest {
     }
 
     @Test
+    fun slideDistanceIsHalfOnlyForSpreadShifts() {
+        // A spread shift (step 1 while a spread is shown) moves the strip by one page.
+        assertEquals(0.5f, readerSlideDistanceFraction(step = 1, portrait = false, currentSinglePage = false))
+        // Full-width sweeps: spread turns, portrait single steps, landscape singles.
+        assertEquals(1f, readerSlideDistanceFraction(step = 2, portrait = false, currentSinglePage = false))
+        assertEquals(1f, readerSlideDistanceFraction(step = 1, portrait = true, currentSinglePage = true))
+        assertEquals(1f, readerSlideDistanceFraction(step = 1, portrait = false, currentSinglePage = true))
+    }
+
+    @Test
     fun spreadCurlBackFaceIsTheWidePageItselfInBothDirections() {
         assertEquals(
             12,
