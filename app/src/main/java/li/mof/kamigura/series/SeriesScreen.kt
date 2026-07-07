@@ -267,6 +267,8 @@ fun SeriesScreen(
                                 ) {
                                     val sortOptions = SeriesLibrarySort.entries
                                     sortOptions.forEachIndexed { index, option ->
+                                        val selected = option == sort
+                                        val itemShape = MenuDefaults.itemShape(index, sortOptions.size).shape
                                         DropdownMenuItem(
                                             text = { Text(option.label) },
                                             onClick = {
@@ -274,17 +276,33 @@ fun SeriesScreen(
                                                 sortMenuExpanded = false
                                             },
                                             trailingIcon = {
-                                                if (option == sort) {
+                                                if (selected) {
                                                     Icon(
                                                         imageVector = Icons.Filled.Check,
                                                         contentDescription = null
                                                     )
                                                 }
                                             },
-                                            shape = MenuDefaults.itemShape(index, sortOptions.size).shape,
+                                            shape = itemShape,
+                                            modifier = if (selected) {
+                                                Modifier.background(
+                                                    MaterialTheme.colorScheme.secondaryContainer,
+                                                    itemShape
+                                                )
+                                            } else {
+                                                Modifier
+                                            },
                                             colors = MenuDefaults.itemColors(
-                                                textColor = Color.White,
-                                                trailingIconColor = Color.White.copy(alpha = 0.68f)
+                                                textColor = if (selected) {
+                                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                                } else {
+                                                    Color.White
+                                                },
+                                                trailingIconColor = if (selected) {
+                                                    MaterialTheme.colorScheme.onSecondaryContainer
+                                                } else {
+                                                    Color.White.copy(alpha = 0.68f)
+                                                }
                                             )
                                         )
                                     }
