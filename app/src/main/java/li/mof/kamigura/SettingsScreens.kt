@@ -119,7 +119,7 @@ fun SettingsHubScreen(
                 }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "Kamigura v0.16",
+                    text = "Kamigura v0.17",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.align(Alignment.CenterHorizontally)

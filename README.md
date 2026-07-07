@@ -16,7 +16,7 @@
 
 It is especially focused on people who digitize their own physical books and want a comfortable native reading experience on tablets and phones.
 
-> Status: **v0.15 (early)**. Usable, but still evolving.
+> Status: **v0.17 (early)**. Usable, but still evolving.
 
 <details>
   <summary>Screenshots</summary>
@@ -104,3 +104,12 @@ Kamigura is written in Kotlin 2.x with Jetpack Compose and Material 3 / Material
 Kavita integration is intentionally centralized around `app/src/main/java/li/mof/kamigura/KavitaApi.kt`. UI layers should consume Kamigura models and repositories rather than constructing Kavita calls directly.
 
 Design notes and implementation scratchpads live under `docs/`. They are internal working notes and may be git-ignored, stale, or written for local development rather than public API documentation. For public discussion, bug reports, and feature requests, please use [GitHub issues](https://github.com/KamiguraApp/Kamigura/issues).
+
+## Third-party
+
+The Curl page-turn effect is built on a vendored fork of
+[oleksandrbalan/pagecurl](https://github.com/oleksandrbalan/pagecurl) (Apache-2.0,
+© Oleksandr Balan and pagecurl contributors). The vendored sources live under
+`app/src/main/java/eu/wewox/pagecurl/`; that directory's `README.md` records the origin,
+license, and the Kamigura modifications. Kamigura itself is Apache-2.0, so the repository's
+root `LICENSE` covers the fork as well.
