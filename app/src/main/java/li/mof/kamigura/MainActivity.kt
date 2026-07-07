@@ -507,8 +507,8 @@ fun LoginScreen(
 
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 420.dp),
+                    .widthIn(max = 420.dp)
+                    .fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(

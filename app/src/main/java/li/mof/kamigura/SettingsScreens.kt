@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -25,6 +29,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.OutlinedButton
@@ -46,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -65,7 +72,7 @@ private enum class ServerSettingsPage {
 private data class StatusMessage(val text: String, val isError: Boolean)
 
 private val StatusSuccessColor = Color(0xFF81C784)
-private val SettingsHubContentMaxWidth = 420.dp
+private val SettingsHubContentMaxWidth = 560.dp
 private val SettingsFormContentMaxWidth = 720.dp
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -104,25 +111,31 @@ fun SettingsHubScreen(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
                         .widthIn(max = SettingsHubContentMaxWidth)
-                        .align(Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .fillMaxWidth()
                 ) {
-                    Button(onClick = onServer, modifier = Modifier.fillMaxWidth()) { Text("Server (Kavita)") }
-                    Button(onClick = onReader, modifier = Modifier.fillMaxWidth()) { Text("Reader") }
+                    SettingsNavRow(
+                        icon = Icons.Filled.Dns,
+                        title = "Server (Kavita)",
+                        onClick = onServer
+                    )
+                    SettingsNavRow(
+                        icon = Icons.AutoMirrored.Filled.MenuBook,
+                        title = "Reader",
+                        onClick = onReader
+                    )
                 }
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = "Kamigura v0.17",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
         }
@@ -238,11 +251,11 @@ fun ServerSettingsScreen(
         )
         Column(
             Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
                 .widthIn(max = SettingsFormContentMaxWidth)
-                .align(Alignment.CenterHorizontally),
+                .fillMaxWidth()
+                .align(Alignment.CenterHorizontally)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             if (page == ServerSettingsPage.Servers) {
@@ -285,23 +298,38 @@ fun ServerSettingsScreen(
                         }
                     }
                 }
-                Button(
-                    onClick = {
-                        selectedProfileId = null
-                        page = ServerSettingsPage.ServerSelected
-                        baseUrl = ""
-                        username = ""
-                        password = ""
-                        apiKey = ""
-                        openByDefault = profiles.none { it.openByDefault }
-                        serverStatus = "Not configured"
-                        jwtStatus = "Logged out"
-                        authStatus = "Not saved"
-                        storageStatus = "No saved auth"
-                        status = null
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("New Server") }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            selectedProfileId = null
+                            page = ServerSettingsPage.ServerSelected
+                            baseUrl = ""
+                            username = ""
+                            password = ""
+                            apiKey = ""
+                            openByDefault = profiles.none { it.openByDefault }
+                            serverStatus = "Not configured"
+                            jwtStatus = "Logged out"
+                            authStatus = "Not saved"
+                            storageStatus = "No saved auth"
+                            status = null
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                    Text(
+                        "New server",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(vertical = 12.dp)
+                    )
+                }
                 Text("Choose the default server or edit its connection details.", color = Color.Gray)
             } else {
                 Text("Connection", style = MaterialTheme.typography.titleMedium)
@@ -545,11 +573,11 @@ fun ReaderSettingsScreen(
         SettingsTopAppBar(title = "Reader Settings", onBack = onBack)
         Column(
             Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
                 .widthIn(max = SettingsFormContentMaxWidth)
-                .align(Alignment.CenterHorizontally),
+                .fillMaxWidth()
+                .align(Alignment.CenterHorizontally)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             SettingRow(
@@ -700,6 +728,23 @@ private fun prefetchTurnsSummary(turns: Int): String {
     } else {
         "$turns turns (up to ${turns * 2} pages)"
     }
+}
+
+@Composable
+private fun SettingsNavRow(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit
+) {
+    ListItem(
+        headlineContent = { Text(title) },
+        leadingContent = { Icon(icon, contentDescription = null) },
+        trailingContent = {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+        },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        modifier = Modifier.clickable(onClick = onClick)
+    )
 }
 
 @Composable
