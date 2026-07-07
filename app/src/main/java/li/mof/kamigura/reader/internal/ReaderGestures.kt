@@ -422,7 +422,16 @@ private fun Modifier.readerGestures(
                 latestCloseSwipeEnabled &&
                     gestureDragY >= verticalCloseIntentSlopPx &&
                     gestureDragY > absGestureX * 1.4f
-            if (!hasDirectionIntent) {
+            // A downward-leaning drag that hasn't yet reached the close slop: the turn lock
+            // fires at only 4px, well below the 12px close slop, so a slow downward swipe
+            // would otherwise be captured as a page turn before it could ever register as a
+            // close. Stay Pending while it still leans vertical so the close gesture has a
+            // chance to engage; it falls through to a turn once it leans horizontal.
+            val downwardLeaning =
+                latestCloseSwipeEnabled &&
+                    gestureDragY > 0f &&
+                    gestureDragY > absGestureX * 1.4f
+            if (!hasDirectionIntent || (downwardLeaning && !downwardCloseIntent)) {
                 change.consume()
                 return
             }
