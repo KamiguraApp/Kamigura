@@ -1,5 +1,6 @@
 package li.mof.kamigura.library.internal
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -124,6 +125,13 @@ internal fun HomeShell(
 
     fun selectDestination(next: HomeDestination) {
         destination = next
+    }
+
+    // The tabs are internal state on a single nav destination, so on a non-Home tab the
+    // system back would pop past Home and exit. Send it to Home instead; Home lets back
+    // through (exit).
+    BackHandler(enabled = destination != HomeDestination.Home) {
+        selectDestination(HomeDestination.Home)
     }
 
     BoxWithConstraints(
