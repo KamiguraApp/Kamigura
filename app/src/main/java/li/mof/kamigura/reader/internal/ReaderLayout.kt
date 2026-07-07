@@ -41,7 +41,16 @@ internal fun readerPageLayout(
     return ReaderPageLayout(
         singlePage = singlePage,
         nextStep = if (singlePage) 1 else 2,
-        previousStep = if (currentPageIsWide || pageDimensions.pageIsWide(page - 1) || page - 1 == 0) 1 else 2,
+        // Stepping back two pages assumes [page-2, page-1] form a spread. When page-2 is
+        // wide or the cover that pair does not exist, and a full step would skip
+        // page-1 entirely — it would never be shown on the way back. Step one instead.
+        previousStep = if (
+            currentPageIsWide ||
+            pageDimensions.pageIsWide(page - 1) ||
+            pageDimensions.pageIsWide(page - 2) ||
+            page - 1 == 0 ||
+            page - 2 == 0
+        ) 1 else 2,
         singleAlignment = Alignment.Center
     )
 }

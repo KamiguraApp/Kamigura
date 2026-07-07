@@ -18,6 +18,11 @@ enum class InvertMode {
     Always
 }
 
+enum class PageTurnMode {
+    Slide,
+    Curl
+}
+
 internal const val DefaultReaderPrefetchTurns = 4
 internal const val MaxReaderPrefetchTurns = 8
 
@@ -26,7 +31,9 @@ data class ReaderSettings(
     val invertMode: InvertMode = InvertMode.Off,
     val invertWhiteThreshold: Float = 0.5f,
     val prefetchTurns: Int = DefaultReaderPrefetchTurns,
-    val pageTransitionAnimation: Boolean = true
+    val pageTransitionAnimation: Boolean = true,
+    val pageTurnMode: PageTurnMode = PageTurnMode.Slide,
+    val showSpreadShiftButtons: Boolean = true
 )
 
 data class AppSettings(
@@ -40,6 +47,8 @@ class AppSettingsStore(private val context: Context) {
     private val KEY_PREFETCH_TURNS = intPreferencesKey("reader_prefetch_turns")
     private val KEY_LEGACY_UNMETERED_PREFETCH_TURNS = intPreferencesKey("reader_unmetered_prefetch_turns")
     private val KEY_PAGE_TRANSITION_ANIMATION = booleanPreferencesKey("reader_page_transition_animation")
+    private val KEY_PAGE_TURN_MODE = stringPreferencesKey("reader_page_turn_mode")
+    private val KEY_SHOW_SPREAD_SHIFT_BUTTONS = booleanPreferencesKey("reader_show_spread_shift_buttons")
 
     val flow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         AppSettings(
@@ -53,7 +62,11 @@ class AppSettingsStore(private val context: Context) {
                     ?: prefs[KEY_LEGACY_UNMETERED_PREFETCH_TURNS]
                     ?: DefaultReaderPrefetchTurns)
                     .coerceIn(0, MaxReaderPrefetchTurns),
-                pageTransitionAnimation = prefs[KEY_PAGE_TRANSITION_ANIMATION] ?: true
+                pageTransitionAnimation = prefs[KEY_PAGE_TRANSITION_ANIMATION] ?: true,
+                pageTurnMode = prefs[KEY_PAGE_TURN_MODE]
+                    ?.let { runCatching { PageTurnMode.valueOf(it) }.getOrNull() }
+                    ?: PageTurnMode.Slide,
+                showSpreadShiftButtons = prefs[KEY_SHOW_SPREAD_SHIFT_BUTTONS] ?: true
             )
         )
     }
@@ -76,5 +89,13 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setPageTransitionAnimation(value: Boolean) {
         context.settingsDataStore.edit { it[KEY_PAGE_TRANSITION_ANIMATION] = value }
+    }
+
+    suspend fun setPageTurnMode(value: PageTurnMode) {
+        context.settingsDataStore.edit { it[KEY_PAGE_TURN_MODE] = value.name }
+    }
+
+    suspend fun setShowSpreadShiftButtons(value: Boolean) {
+        context.settingsDataStore.edit { it[KEY_SHOW_SPREAD_SHIFT_BUTTONS] = value }
     }
 }

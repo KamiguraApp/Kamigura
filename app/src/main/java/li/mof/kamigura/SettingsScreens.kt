@@ -525,7 +525,10 @@ fun ServerSettingsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
+fun ReaderSettingsScreen(
+    settingsStore: AppSettingsStore,
+    onBack: () -> Unit
+) {
     val scope = rememberCoroutineScope()
     val settings by settingsStore.flow.collectAsState(initial = AppSettings())
 
@@ -579,6 +582,43 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
                 }
             )
 
+            Text("Page turn", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Slide is the stable reader. Curl is experimental and applies to portrait single-page and landscape spread reading.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+            ) {
+                val modes = PageTurnMode.entries
+                modes.forEachIndexed { index, mode ->
+                    ToggleButton(
+                        checked = settings.reader.pageTurnMode == mode,
+                        onCheckedChange = { scope.launch { settingsStore.setPageTurnMode(mode) } },
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics { role = Role.RadioButton },
+                        shapes = when (index) {
+                            0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                            modes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                            else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                        }
+                    ) { Text(mode.name) }
+                }
+            }
+
+            SettingRow(
+                title = "Spread shift buttons",
+                desc = "Shows the +1 / -1 buttons in the reader menu (landscape) to correct a " +
+                    "one-page spread misalignment. Edge long-press does the same either way.",
+                checked = settings.reader.showSpreadShiftButtons,
+                onToggle = { enabled ->
+                    scope.launch { settingsStore.setShowSpreadShiftButtons(enabled) }
+                }
+            )
+
             Text("Invert (night)", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Off shows pages as-is. Smart inverts text pages and skips illustrations. Always inverts every page.",
@@ -623,6 +663,7 @@ fun ReaderSettingsScreen(settingsStore: AppSettingsStore, onBack: () -> Unit) {
                     valueLabel = { value -> "${(value * 100f).roundToInt()}%" }
                 )
             }
+
         }
     }
     }

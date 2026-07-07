@@ -70,6 +70,8 @@ internal fun ReaderPageView(
     invertMode: InvertMode,
     whiteThreshold: Float,
     invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>,
+    pageBackground: Color = Color(0xFF111111),
+    singlePageAlignmentOverride: Alignment? = null,
     modifier: Modifier = Modifier
 ) {
     val layout = readerPageLayout(
@@ -86,10 +88,11 @@ internal fun ReaderPageView(
                     model = pageModel(cursor),
                     imageLoader = imageLoader,
                     label = "Page $cursor",
-                    alignment = layout.singleAlignment,
+                    alignment = singlePageAlignmentOverride ?: layout.singleAlignment,
                     invertMode = invertMode,
                     whiteThreshold = whiteThreshold,
-                    invertDecisionCache = invertDecisionCache
+                    invertDecisionCache = invertDecisionCache,
+                    pageBackground = pageBackground
                 )
             }
         } else {
@@ -101,7 +104,8 @@ internal fun ReaderPageView(
                     alignment = Alignment.CenterEnd,
                     invertMode = invertMode,
                     whiteThreshold = whiteThreshold,
-                    invertDecisionCache = invertDecisionCache
+                    invertDecisionCache = invertDecisionCache,
+                    pageBackground = pageBackground
                 )
             }
             key(spread.rightPage) {
@@ -112,7 +116,8 @@ internal fun ReaderPageView(
                     alignment = Alignment.CenterStart,
                     invertMode = invertMode,
                     whiteThreshold = whiteThreshold,
-                    invertDecisionCache = invertDecisionCache
+                    invertDecisionCache = invertDecisionCache,
+                    pageBackground = pageBackground
                 )
             }
         }
@@ -128,7 +133,8 @@ private fun RowScope.PageImage(
     contentScale: ContentScale = ContentScale.Fit,
     invertMode: InvertMode = InvertMode.Off,
     whiteThreshold: Float = 0.5f,
-    invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>
+    invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>,
+    pageBackground: Color = Color(0xFF111111)
 ) {
     val ctx = LocalContext.current
     val density = LocalDensity.current
@@ -137,7 +143,7 @@ private fun RowScope.PageImage(
         modifier = Modifier
             .weight(1f)
             .fillMaxHeight()
-            .background(Color(0xFF111111))
+            .background(pageBackground)
             .clipToBounds(),
         contentAlignment = Alignment.Center
     ) {
@@ -209,15 +215,17 @@ internal suspend fun prefetchReaderPages(
     targets: List<ReaderPrefetchTarget>
 ) = coroutineScope {
     val semaphore = Semaphore(ReaderPrefetchConcurrency)
-    targets.mapIndexed { index, target ->
+    targets.map { target ->
         launch {
             semaphore.withPermit {
+                // Every prefetched page goes into the memory cache: a spread turn consumes
+                // two pages, so capping the decoded set (an earlier index < 4 policy) meant
+                // pages hit only the disk cache after two turns and every display paid a
+                // full-resolution decode. The LRU cache evicts under pressure anyway.
                 val request = ImageRequest.Builder(context)
                     .data(target.model)
                     .size(target.targetWidth, target.targetHeight)
-                    .memoryCachePolicy(
-                        if (index < 4) CachePolicy.ENABLED else CachePolicy.DISABLED
-                    )
+                    .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .networkCachePolicy(CachePolicy.ENABLED)
                     .build()
