@@ -195,6 +195,7 @@ fun LibraryScreen(
     var wantToReadError by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
     var serverName by remember { mutableStateOf("No server selected") }
     var session by remember { mutableStateOf(KavitaSession()) }
     var api by remember { mutableStateOf<KavitaApi?>(null) }
@@ -206,19 +207,21 @@ fun LibraryScreen(
     }
     val downloaded by downloadedFlow.collectAsState(initial = emptyList())
 
-    LaunchedEffect(sessionRevision) {
-        libs = emptyList()
-        librarySeriesCounts = emptyMap()
-        onDeck = emptyList()
-        recentlyUpdated = emptyList()
-        newlyAdded = emptyList()
-        wantToRead = emptyList()
-        wantToReadError = null
+    suspend fun loadHome(clearFirst: Boolean) {
+        if (clearFirst) {
+            libs = emptyList()
+            librarySeriesCounts = emptyMap()
+            onDeck = emptyList()
+            recentlyUpdated = emptyList()
+            newlyAdded = emptyList()
+            wantToRead = emptyList()
+            wantToReadError = null
+            loading = true
+            api = null
+            isAdmin = false
+            scanningLibraryIds = emptySet()
+        }
         error = null
-        loading = true
-        api = null
-        isAdmin = false
-        scanningLibraryIds = emptySet()
         try {
             serverName = sessionStore.activeProfile()?.name ?: "No server selected"
             session = sessionStore.load()
@@ -229,7 +232,7 @@ fun LibraryScreen(
             api = loadedApi
             val loadedLibraries = loadedApi.userLibraries().sortedBy { it.id }
             libs = loadedLibraries
-            launch {
+            scope.launch {
                 isAdmin = runCatching {
                     loadedApi.currentUser().roles.orEmpty()
                         .any { it.equals("Admin", ignoreCase = true) }
@@ -237,7 +240,7 @@ fun LibraryScreen(
                     KamiguraLog.w("Could not load current user roles on Home.", it)
                 }.getOrDefault(false)
             }
-            launch {
+            scope.launch {
                 librarySeriesCounts = loadLibrarySeriesCounts(loadedApi, loadedLibraries)
             }
             onDeck = loadedApi.onDeck(pageSize = HomePreviewShelfPageSize)
@@ -253,9 +256,27 @@ fun LibraryScreen(
                 }
         } catch (t: Throwable) {
             KamiguraLog.w("Could not load Home.", t)
-            error = t.message ?: t.toString()
+            // On a pull-to-refresh keep the current content instead of replacing it with
+            // the full-screen error state; only the initial load surfaces the error.
+            if (clearFirst) error = t.message ?: t.toString()
         } finally {
             loading = false
+        }
+    }
+
+    LaunchedEffect(sessionRevision) {
+        loadHome(clearFirst = true)
+    }
+
+    fun refreshHome() {
+        if (refreshing) return
+        scope.launch {
+            refreshing = true
+            try {
+                loadHome(clearFirst = false)
+            } finally {
+                refreshing = false
+            }
         }
     }
 
@@ -307,6 +328,8 @@ fun LibraryScreen(
             scanningLibraryIds = scanningLibraryIds,
             serverName = serverName,
             loading = loading,
+            refreshing = refreshing,
+            onRefresh = ::refreshHome,
             error = error,
             session = session,
             onDeck = onDeck,

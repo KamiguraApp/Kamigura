@@ -36,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -267,6 +268,7 @@ private fun HomePlaceholder(destination: HomeDestination, modifier: Modifier = M
 }
 
 /** Internal to library, not for external use. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun HomeContent(
     destination: HomeDestination,
@@ -275,6 +277,8 @@ internal fun HomeContent(
     isAdmin: Boolean,
     scanningLibraryIds: Set<Int>,
     loading: Boolean,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     error: String?,
     session: KavitaSession,
     onDeck: List<SeriesDto>,
@@ -315,31 +319,37 @@ internal fun HomeContent(
 
         when (destination) {
             HomeDestination.Home -> {
-                if (onDeck.isEmpty() && recentlyUpdated.isEmpty() && newlyAdded.isEmpty()) {
-                    DarkMessageState(
-                        title = "No series",
-                        body = "This server did not return visible home shelves."
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(22.dp)
-                    ) {
-                        item {
-                            HomeShelf(HomeShelfKind.OnDeck, onDeck, session, onOpenShelf, onSelectSeries)
-                        }
-                        item {
-                            HomeShelf(
-                                HomeShelfKind.RecentlyUpdated,
-                                recentlyUpdated,
-                                session,
-                                onOpenShelf,
-                                onSelectSeries
-                            )
-                        }
-                        item {
-                            HomeShelf(HomeShelfKind.NewlyAdded, newlyAdded, session, onOpenShelf, onSelectSeries)
+                PullToRefreshBox(
+                    isRefreshing = refreshing,
+                    onRefresh = onRefresh,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    if (onDeck.isEmpty() && recentlyUpdated.isEmpty() && newlyAdded.isEmpty()) {
+                        DarkMessageState(
+                            title = "No series",
+                            body = "This server did not return visible home shelves."
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(22.dp)
+                        ) {
+                            item {
+                                HomeShelf(HomeShelfKind.OnDeck, onDeck, session, onOpenShelf, onSelectSeries)
+                            }
+                            item {
+                                HomeShelf(
+                                    HomeShelfKind.RecentlyUpdated,
+                                    recentlyUpdated,
+                                    session,
+                                    onOpenShelf,
+                                    onSelectSeries
+                                )
+                            }
+                            item {
+                                HomeShelf(HomeShelfKind.NewlyAdded, newlyAdded, session, onOpenShelf, onSelectSeries)
+                            }
                         }
                     }
                 }
