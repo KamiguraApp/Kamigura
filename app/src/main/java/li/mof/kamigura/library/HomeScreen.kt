@@ -67,6 +67,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -89,6 +90,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -196,6 +199,7 @@ fun LibraryScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
+    var refreshJob by remember { mutableStateOf<Job?>(null) }
     var serverName by remember { mutableStateOf("No server selected") }
     var session by remember { mutableStateOf(KavitaSession()) }
     var api by remember { mutableStateOf<KavitaApi?>(null) }
@@ -225,7 +229,7 @@ fun LibraryScreen(
         try {
             serverName = sessionStore.activeProfile()?.name ?: "No server selected"
             session = sessionStore.load()
-            runCatching { offlineRepository.ensureLocalCovers(session) }
+            runCatchingCancellable { offlineRepository.ensureLocalCovers(session) }
                 .onFailure { KamiguraLog.w("Could not ensure local covers on Home.", it) }
             val client = KavitaClient(ctx, sessionStore)
             val (loadedApi, _) = client.buildApi()
@@ -235,7 +239,7 @@ fun LibraryScreen(
             // Structured children so a server switch (which restarts the loader) cancels
             // these instead of letting a stale result overwrite the new server's state.
             launch {
-                isAdmin = runCatching {
+                isAdmin = runCatchingCancellable {
                     loadedApi.currentUser().roles.orEmpty()
                         .any { it.equals("Admin", ignoreCase = true) }
                 }.onFailure {
@@ -243,7 +247,7 @@ fun LibraryScreen(
                 }.getOrDefault(false)
             }
             launch {
-                runCatching { loadLibrarySeriesCounts(loadedApi, loadedLibraries) }
+                runCatchingCancellable { loadLibrarySeriesCounts(loadedApi, loadedLibraries) }
                     .onSuccess { librarySeriesCounts = it }
                     .onFailure { KamiguraLog.w("Could not load library series counts on Home.", it) }
             }
@@ -252,12 +256,14 @@ fun LibraryScreen(
                 .map { it.toSeriesDto() }
                 .distinctBy { it.id }
             newlyAdded = loadedApi.recentlyAdded(pageSize = HomePreviewShelfPageSize)
-            runCatching { loadedApi.wantToRead(pageSize = 200) }
+            runCatchingCancellable { loadedApi.wantToRead(pageSize = 200) }
                 .onSuccess { wantToRead = it }
                 .onFailure {
                     KamiguraLog.w("Could not load Want to Read list.", it)
                     wantToReadError = it.message ?: it.toString()
                 }
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             KamiguraLog.w("Could not load Home.", t)
             // On a pull-to-refresh keep the current content instead of replacing it with
@@ -272,9 +278,16 @@ fun LibraryScreen(
         loadHome(clearFirst = true)
     }
 
+    // A refresh runs on the composition scope, so cancel any in-flight one when the active
+    // server changes; otherwise a late refresh from the previous server could overwrite the
+    // new server's Home state.
+    DisposableEffect(sessionRevision) {
+        onDispose { refreshJob?.cancel() }
+    }
+
     fun refreshHome() {
         if (refreshing) return
-        scope.launch {
+        refreshJob = scope.launch {
             refreshing = true
             try {
                 loadHome(clearFirst = false)
@@ -363,6 +376,20 @@ fun LibraryScreen(
                 .navigationBarsPadding()
                 .padding(16.dp)
         )
+    }
+}
+
+/**
+ * Like [runCatching] but never swallows a [CancellationException], so a cancelled coroutine
+ * keeps unwinding instead of being logged and treated as a normal failure.
+ */
+private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> {
+    return try {
+        Result.success(block())
+    } catch (c: CancellationException) {
+        throw c
+    } catch (t: Throwable) {
+        Result.failure(t)
     }
 }
 
