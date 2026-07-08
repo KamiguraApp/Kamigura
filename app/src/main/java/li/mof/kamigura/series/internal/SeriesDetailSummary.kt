@@ -66,6 +66,7 @@ import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.CreateReadingListDto
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaSession
+import li.mof.kamigura.PersonDto
 import li.mof.kamigura.ReadingListDto
 import li.mof.kamigura.RefreshSeriesDto
 import li.mof.kamigura.SeriesDto
@@ -94,7 +95,8 @@ internal fun SeriesDetailSummary(
 ) {
     val summary = metadata?.summary?.takeIf { it.isNotBlank() }
     val creditChips = metadata.creditChips()
-    val publisherChips = metadata.publisherChips()
+    val publisherChips = metadata?.publishers.orEmpty().personChips()
+    val imprintChips = metadata?.imprints.orEmpty().personChips()
     val genreChips = metadata?.genres.orEmpty().mapNotNull { genre ->
         val id = genre.id ?: return@mapNotNull null
         val title = genre.title?.trim().orEmpty()
@@ -174,6 +176,13 @@ internal fun SeriesDetailSummary(
             }
         )
         DetailChipBlock(
+            title = "Imprint",
+            chips = imprintChips,
+            onChipClick = { id, name ->
+                onOpenFilteredSeries(SearchSeriesTarget.Imprint, id, name)
+            }
+        )
+        DetailChipBlock(
             title = "Genres",
             chips = genreChips,
             onChipClick = { id, title ->
@@ -205,16 +214,13 @@ private fun SeriesMetadataDto?.creditChips(): List<Pair<Int, String>> {
         .distinctBy { it.first }
 }
 
-/** Distinct imprints and publishers, as (personId, name) pairs. */
-private fun SeriesMetadataDto?.publisherChips(): List<Pair<Int, String>> {
-    if (this == null) return emptyList()
-    return (imprints + publishers)
-        .mapNotNull { person ->
-            val id = person.id ?: return@mapNotNull null
-            val name = person.name?.trim().orEmpty()
-            if (name.isBlank()) null else id to name
-        }
-        .distinctBy { it.first }
+/** Distinct people from one metadata role list, as (personId, name) pairs. */
+private fun List<PersonDto>.personChips(): List<Pair<Int, String>> {
+    return mapNotNull { person ->
+        val id = person.id ?: return@mapNotNull null
+        val name = person.name?.trim().orEmpty()
+        if (name.isBlank()) null else id to name
+    }.distinctBy { it.first }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

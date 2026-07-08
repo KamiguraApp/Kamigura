@@ -79,6 +79,7 @@ import li.mof.kamigura.ui.theme.KamiguraSurface
 enum class SearchSeriesTarget(val routeValue: String, val titlePrefix: String) {
     Person("person", "by"),
     Publisher("publisher", "Publisher"),
+    Imprint("imprint", "Imprint"),
     Genre("genre", "Genre"),
     Tag("tag", "Tag"),
     Collection("collection", "Collection"),
@@ -512,18 +513,14 @@ private suspend fun KavitaApi.loadSearchSeries(target: SearchSeriesTarget, targe
             pageSize = SearchFilteredSeriesPageSize
         )
         SearchSeriesTarget.Publisher -> allSeriesV2(
-            body = SeriesFilterV2Dto(
-                statements = PublisherFilterFields.map { field ->
-                    SeriesFilterStatementDto(
-                        comparison = FilterContains,
-                        field = field,
-                        value = targetId.toString()
-                    )
-                },
-                combination = FilterOr
-            ),
-            pageNumber = 0,
-            pageSize = SearchFilteredSeriesPageSize
+            searchFilter(SeriesFilterFieldPublisher, targetId),
+            0,
+            SearchFilteredSeriesPageSize
+        )
+        SearchSeriesTarget.Imprint -> allSeriesV2(
+            searchFilter(SeriesFilterFieldImprint, targetId),
+            0,
+            SearchFilteredSeriesPageSize
         )
         SearchSeriesTarget.Genre -> allSeriesV2(searchFilter(SeriesFilterFieldGenres, targetId), 0, SearchFilteredSeriesPageSize)
         SearchSeriesTarget.Tag -> allSeriesV2(searchFilter(SeriesFilterFieldTags, targetId), 0, SearchFilteredSeriesPageSize)
@@ -631,11 +628,6 @@ private val PersonFilterFields = listOf(
     SeriesFilterFieldImprint,
     SeriesFilterFieldTeam,
     SeriesFilterFieldLocation
-)
-
-private val PublisherFilterFields = listOf(
-    SeriesFilterFieldPublisher,
-    SeriesFilterFieldImprint
 )
 
 private val SearchCarouselItemWidth = 164.dp
