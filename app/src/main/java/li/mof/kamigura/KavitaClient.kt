@@ -83,13 +83,20 @@ class KavitaClient(
                 .build()
         }
 
-        val okHttp = OkHttpClient.Builder()
+        // Client used by Coil for cover/page images. Only a connect timeout: a large page
+        // on a slow link may legitimately take a while to download, so it must NOT inherit
+        // the API whole-call cap or reading images would fail mid-download.
+        val imageOkHttp = OkHttpClient.Builder()
             .addInterceptor(headerInterceptor)
             .authenticator(tokenAuthenticator)
-            // A whole-call cap so a slow or stalled server can never hang a request
-            // indefinitely (e.g. the mark-read/progress calls when leaving a chapter).
-            .callTimeout(ApiCallTimeoutSeconds, TimeUnit.SECONDS)
             .connectTimeout(ApiConnectTimeoutSeconds, TimeUnit.SECONDS)
+            .build()
+
+        // JSON API calls add a whole-call cap so a slow or stalled server can never hang a
+        // request indefinitely (e.g. the mark-read/progress calls when leaving a chapter).
+        // Derived via newBuilder() so it shares the image client's connection pool/dispatcher.
+        val apiOkHttp = imageOkHttp.newBuilder()
+            .callTimeout(ApiCallTimeoutSeconds, TimeUnit.SECONDS)
             .build()
 
         val baseUrl = ("$rootUrl/")
@@ -98,11 +105,11 @@ class KavitaClient(
 
         val retrofit = Retrofit.Builder()
             .baseUrl(baseUrl)
-            .client(okHttp)
+            .client(apiOkHttp)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
 
-        return retrofit.create<KavitaApi>() to okHttp
+        return retrofit.create<KavitaApi>() to imageOkHttp
     }
 
     /** Exchanges the saved apiKey for a fresh JWT via Kavita's Plugin/authenticate. */

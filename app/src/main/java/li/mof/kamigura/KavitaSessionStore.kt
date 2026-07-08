@@ -243,6 +243,9 @@ class KavitaSessionStore(private val context: Context) {
             prefs[KEY_API_KEY] = ""
             prefs[KEY_JWT] = ""
         }
+        // Invalidate again after the edit commits: a load() that raced this write could
+        // have re-cached the pre-write session while the edit was in flight.
+        cachedActiveSession = null
     }
 
     private fun decodeStoredProfiles(value: String?): List<StoredServerProfile> {
