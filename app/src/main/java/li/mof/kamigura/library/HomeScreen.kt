@@ -207,7 +207,7 @@ fun LibraryScreen(
     }
     val downloaded by downloadedFlow.collectAsState(initial = emptyList())
 
-    suspend fun loadHome(clearFirst: Boolean) {
+    suspend fun loadHome(clearFirst: Boolean) = coroutineScope {
         if (clearFirst) {
             libs = emptyList()
             librarySeriesCounts = emptyMap()
@@ -232,7 +232,9 @@ fun LibraryScreen(
             api = loadedApi
             val loadedLibraries = loadedApi.userLibraries().sortedBy { it.id }
             libs = loadedLibraries
-            scope.launch {
+            // Structured children so a server switch (which restarts the loader) cancels
+            // these instead of letting a stale result overwrite the new server's state.
+            launch {
                 isAdmin = runCatching {
                     loadedApi.currentUser().roles.orEmpty()
                         .any { it.equals("Admin", ignoreCase = true) }
@@ -240,8 +242,10 @@ fun LibraryScreen(
                     KamiguraLog.w("Could not load current user roles on Home.", it)
                 }.getOrDefault(false)
             }
-            scope.launch {
-                librarySeriesCounts = loadLibrarySeriesCounts(loadedApi, loadedLibraries)
+            launch {
+                runCatching { loadLibrarySeriesCounts(loadedApi, loadedLibraries) }
+                    .onSuccess { librarySeriesCounts = it }
+                    .onFailure { KamiguraLog.w("Could not load library series counts on Home.", it) }
             }
             onDeck = loadedApi.onDeck(pageSize = HomePreviewShelfPageSize)
             recentlyUpdated = loadedApi.recentlyUpdatedSeries(pageSize = HomePreviewShelfPageSize)
