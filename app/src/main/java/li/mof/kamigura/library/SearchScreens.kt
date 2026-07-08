@@ -78,6 +78,7 @@ import li.mof.kamigura.ui.theme.KamiguraSurface
 
 enum class SearchSeriesTarget(val routeValue: String, val titlePrefix: String) {
     Person("person", "by"),
+    Publisher("publisher", "Publisher"),
     Genre("genre", "Genre"),
     Tag("tag", "Tag"),
     Collection("collection", "Collection"),
@@ -510,6 +511,20 @@ private suspend fun KavitaApi.loadSearchSeries(target: SearchSeriesTarget, targe
             pageNumber = 0,
             pageSize = SearchFilteredSeriesPageSize
         )
+        SearchSeriesTarget.Publisher -> allSeriesV2(
+            body = SeriesFilterV2Dto(
+                statements = PublisherFilterFields.map { field ->
+                    SeriesFilterStatementDto(
+                        comparison = FilterContains,
+                        field = field,
+                        value = targetId.toString()
+                    )
+                },
+                combination = FilterOr
+            ),
+            pageNumber = 0,
+            pageSize = SearchFilteredSeriesPageSize
+        )
         SearchSeriesTarget.Genre -> allSeriesV2(searchFilter(SeriesFilterFieldGenres, targetId), 0, SearchFilteredSeriesPageSize)
         SearchSeriesTarget.Tag -> allSeriesV2(searchFilter(SeriesFilterFieldTags, targetId), 0, SearchFilteredSeriesPageSize)
         SearchSeriesTarget.Collection -> allSeriesV2(
@@ -616,6 +631,11 @@ private val PersonFilterFields = listOf(
     SeriesFilterFieldImprint,
     SeriesFilterFieldTeam,
     SeriesFilterFieldLocation
+)
+
+private val PublisherFilterFields = listOf(
+    SeriesFilterFieldPublisher,
+    SeriesFilterFieldImprint
 )
 
 private val SearchCarouselItemWidth = 164.dp

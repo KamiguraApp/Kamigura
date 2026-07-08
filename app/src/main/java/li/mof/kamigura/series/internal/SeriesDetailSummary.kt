@@ -94,6 +94,7 @@ internal fun SeriesDetailSummary(
 ) {
     val summary = metadata?.summary?.takeIf { it.isNotBlank() }
     val creditChips = metadata.creditChips()
+    val publisherChips = metadata.publisherChips()
     val genreChips = metadata?.genres.orEmpty().mapNotNull { genre ->
         val id = genre.id ?: return@mapNotNull null
         val title = genre.title?.trim().orEmpty()
@@ -166,6 +167,13 @@ internal fun SeriesDetailSummary(
             }
         )
         DetailChipBlock(
+            title = "Publisher",
+            chips = publisherChips,
+            onChipClick = { id, name ->
+                onOpenFilteredSeries(SearchSeriesTarget.Publisher, id, name)
+            }
+        )
+        DetailChipBlock(
             title = "Genres",
             chips = genreChips,
             onChipClick = { id, title ->
@@ -189,6 +197,18 @@ private fun SeriesMetadataDto?.creditChips(): List<Pair<Int, String>> {
         translators
     )
         .flatMap { it.orEmpty() }
+        .mapNotNull { person ->
+            val id = person.id ?: return@mapNotNull null
+            val name = person.name?.trim().orEmpty()
+            if (name.isBlank()) null else id to name
+        }
+        .distinctBy { it.first }
+}
+
+/** Distinct imprints and publishers, as (personId, name) pairs. */
+private fun SeriesMetadataDto?.publisherChips(): List<Pair<Int, String>> {
+    if (this == null) return emptyList()
+    return (imprints + publishers)
         .mapNotNull { person ->
             val id = person.id ?: return@mapNotNull null
             val name = person.name?.trim().orEmpty()
@@ -629,7 +649,8 @@ private fun SeriesDetailHeroInfo(
                 creatorMaxChars,
                 issueCount,
                 volumeCount,
-                includePeople = false
+                includePeople = false,
+                includePublisher = false
             ).forEach { line ->
                 Text(
                     text = line,

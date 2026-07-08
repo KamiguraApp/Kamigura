@@ -9,13 +9,18 @@ internal fun SeriesDto.detailMetaLines(
     creatorMaxChars: Int,
     issueCount: Int,
     volumeCount: Int,
-    includePeople: Boolean = true
+    includePeople: Boolean = true,
+    includePublisher: Boolean = true
 ): List<String> {
     val peopleLine = if (includePeople) metadata?.creatorMetaLine(creatorMaxChars) else null
-    val publisherLine = listOfNotNull(
-        metadata?.imprints?.mapNotNull { it.name }.orEmpty().compactNameList(maxItems = 2),
-        metadata?.publishers?.mapNotNull { it.name }.orEmpty().compactNameList(maxItems = 2)
-    ).joinMetaLine()
+    val publisherLine = if (includePublisher) {
+        listOfNotNull(
+            metadata?.imprints?.mapNotNull { it.name }.orEmpty().compactNameList(maxItems = 2),
+            metadata?.publishers?.mapNotNull { it.name }.orEmpty().compactNameList(maxItems = 2)
+        ).joinMetaLine()
+    } else {
+        null
+    }
     val publicationLine = listOfNotNull(
         metadata?.releaseYear?.takeIf { it > 0 }?.toString(),
         metadata?.publicationStatus.publicationStatusText(),
