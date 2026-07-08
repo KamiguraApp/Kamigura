@@ -8,9 +8,10 @@ internal fun SeriesDto.detailMetaLines(
     metadata: SeriesMetadataDto?,
     creatorMaxChars: Int,
     issueCount: Int,
-    volumeCount: Int
+    volumeCount: Int,
+    includePeople: Boolean = true
 ): List<String> {
-    val peopleLine = metadata?.creatorMetaLine(creatorMaxChars)
+    val peopleLine = if (includePeople) metadata?.creatorMetaLine(creatorMaxChars) else null
     val publisherLine = listOfNotNull(
         metadata?.imprints?.mapNotNull { it.name }.orEmpty().compactNameList(maxItems = 2),
         metadata?.publishers?.mapNotNull { it.name }.orEmpty().compactNameList(maxItems = 2)

@@ -334,7 +334,15 @@ fun AppRoot(
                 val libraryId = backStack.arguments!!.getInt("libraryId")
                 val seriesId = backStack.arguments!!.getInt("seriesId")
                 val seriesName = backStack.arguments!!.getString("seriesName") ?: ""
-                ChapterPickScreen(sessionStore, libraryId, seriesId, seriesName) { chapterId, volumeId, incognito ->
+                ChapterPickScreen(
+                    sessionStore,
+                    libraryId,
+                    seriesId,
+                    seriesName,
+                    onOpenFilteredSeries = { target, id, label ->
+                        nav.navigate("search-series/${target.routeValue}/$id/${Uri.encode(label)}")
+                    }
+                ) { chapterId, volumeId, incognito ->
                     nav.navigate("reader/$libraryId/$seriesId/$volumeId/$chapterId?incognito=$incognito")
                 }
             }

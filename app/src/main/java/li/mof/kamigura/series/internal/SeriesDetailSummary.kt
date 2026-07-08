@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,6 +37,7 @@ import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -69,6 +72,7 @@ import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.SeriesMetadataDto
 import li.mof.kamigura.UpdateReadingListBySeriesDto
 import li.mof.kamigura.UpdateWantToReadDto
+import li.mof.kamigura.library.SearchSeriesTarget
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.seriesCoverUrl
@@ -85,10 +89,16 @@ internal fun SeriesDetailSummary(
     session: KavitaSession,
     api: KavitaApi,
     isAdmin: Boolean,
+    onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onPick: (chapterId: Int, volumeId: Int) -> Unit
 ) {
     val summary = metadata?.summary?.takeIf { it.isNotBlank() }
-    val genres = metadata?.genres?.mapNotNull { it.title }.orEmpty()
+    val creditChips = metadata.creditChips()
+    val genreChips = metadata?.genres.orEmpty().mapNotNull { genre ->
+        val id = genre.id ?: return@mapNotNull null
+        val title = genre.title?.trim().orEmpty()
+        if (title.isBlank()) null else id to title
+    }
     val continueItem = continueChapter?.let { chapter ->
         chapterCards.firstOrNull { it.chapter.id == chapter.id }
     } ?: chapterCards.firstOrNull()
@@ -148,7 +158,71 @@ internal fun SeriesDetailSummary(
             }
         }
 
-        DetailFactBlock("Genres", genres)
+        DetailChipBlock(
+            title = "Credits",
+            chips = creditChips,
+            onChipClick = { id, name ->
+                onOpenFilteredSeries(SearchSeriesTarget.Person, id, name)
+            }
+        )
+        DetailChipBlock(
+            title = "Genres",
+            chips = genreChips,
+            onChipClick = { id, title ->
+                onOpenFilteredSeries(SearchSeriesTarget.Genre, id, title)
+            }
+        )
+    }
+}
+
+/** Distinct credited people across every role, as (personId, name) pairs. */
+private fun SeriesMetadataDto?.creditChips(): List<Pair<Int, String>> {
+    if (this == null) return emptyList()
+    return listOf(
+        writers,
+        coverArtists,
+        pencillers,
+        inkers,
+        colorists,
+        letterers,
+        editors,
+        translators
+    )
+        .flatMap { it.orEmpty() }
+        .mapNotNull { person ->
+            val id = person.id ?: return@mapNotNull null
+            val name = person.name?.trim().orEmpty()
+            if (name.isBlank()) null else id to name
+        }
+        .distinctBy { it.first }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DetailChipBlock(
+    title: String,
+    chips: List<Pair<Int, String>>,
+    onChipClick: (id: Int, label: String) -> Unit
+) {
+    if (chips.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            text = title,
+            color = Color(0xFFB9BDBD),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            chips.forEach { (id, label) ->
+                SuggestionChip(
+                    onClick = { onChipClick(id, label) },
+                    label = { Text(label) }
+                )
+            }
+        }
     }
 }
 
@@ -550,7 +624,13 @@ private fun SeriesDetailHeroInfo(
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
-            series.detailMetaLines(metadata, creatorMaxChars, issueCount, volumeCount).forEach { line ->
+            series.detailMetaLines(
+                metadata,
+                creatorMaxChars,
+                issueCount,
+                volumeCount,
+                includePeople = false
+            ).forEach { line ->
                 Text(
                     text = line,
                     color = Color(0xFFE6EAEA),
@@ -563,23 +643,4 @@ private fun SeriesDetailHeroInfo(
     }
 }
 
-@Composable
-private fun DetailFactBlock(title: String, values: List<String>) {
-    if (values.isEmpty()) return
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            text = title,
-            color = Color(0xFFB9BDBD),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = values.joinToString(", "),
-            color = Color.White,
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
 

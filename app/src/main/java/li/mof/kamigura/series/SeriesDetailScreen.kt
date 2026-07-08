@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import li.mof.kamigura.ChapterDto
+import li.mof.kamigura.library.SearchSeriesTarget
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KamiguraLog
@@ -136,6 +137,7 @@ fun ChapterPickScreen(
     libraryId: Int,
     seriesId: Int,
     seriesName: String,
+    onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onPick: (chapterId: Int, volumeId: Int, incognito: Boolean) -> Unit
 ) {
     val ctx = LocalContext.current
@@ -371,6 +373,7 @@ fun ChapterPickScreen(
                     session = session,
                     api = loadedApi,
                     isAdmin = isAdmin,
+                    onOpenFilteredSeries = onOpenFilteredSeries,
                     onPick = { chapterId, volumeId -> onPick(chapterId, volumeId, false) },
                     onIssueClick = ::openIssue
                 )
@@ -466,6 +469,7 @@ private fun SeriesDetailContent(
     session: KavitaSession,
     api: KavitaApi,
     isAdmin: Boolean,
+    onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onPick: (chapterId: Int, volumeId: Int) -> Unit,
     onIssueClick: (ChapterCardItem) -> Unit
 ) {
@@ -495,6 +499,7 @@ private fun SeriesDetailContent(
                             session = session,
                             api = api,
                             isAdmin = isAdmin,
+                            onOpenFilteredSeries = onOpenFilteredSeries,
                             onPick = onPick
                         )
                     }
@@ -524,6 +529,7 @@ private fun SeriesDetailContent(
                         session = session,
                         api = api,
                         isAdmin = isAdmin,
+                        onOpenFilteredSeries = onOpenFilteredSeries,
                         onPick = onPick
                     )
                 }
