@@ -3,7 +3,10 @@ package li.mof.kamigura.series.internal
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -49,7 +52,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -164,6 +171,7 @@ internal fun SeriesDetailSummary(
         DetailChipBlock(
             title = "Credits",
             showTitle = showTitle,
+            horizontalScroll = true,
             chips = creditChips.map { (id, name) ->
                 name to { onOpenFilteredSeries(SearchSeriesTarget.Person, id, name) }
             }
@@ -175,6 +183,7 @@ internal fun SeriesDetailSummary(
         DetailChipBlock(
             title = "Publisher",
             showTitle = showTitle,
+            horizontalScroll = true,
             chips = publisherChips.map { (id, name) ->
                 name to { onOpenFilteredSeries(SearchSeriesTarget.Publisher, id, name) }
             } + imprintChips.map { (id, name) ->
@@ -288,7 +297,8 @@ private fun List<PersonDto>.personChips(): List<Pair<Int, String>> {
 private fun DetailChipBlock(
     title: String,
     chips: List<Pair<String, () -> Unit>>,
-    showTitle: Boolean = true
+    showTitle: Boolean = true,
+    horizontalScroll: Boolean = false
 ) {
     if (chips.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -300,10 +310,7 @@ private fun DetailChipBlock(
                 fontWeight = FontWeight.Bold
             )
         }
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
+        val chipContent: @Composable () -> Unit = {
             chips.forEach { (label, onClick) ->
                 SuggestionChip(
                     onClick = onClick,
@@ -311,8 +318,63 @@ private fun DetailChipBlock(
                 )
             }
         }
+        if (horizontalScroll) {
+            // Keep the chips on a single scrollable row instead of wrapping, so a long
+            // credit/publisher list stays compact next to the cover. Fade the scrollable
+            // edge so a clipped chip reads as "there's more", not a rendering glitch.
+            val scrollState = rememberScrollState()
+            Row(
+                modifier = Modifier
+                    .horizontalFadingEdges(scrollState)
+                    .horizontalScroll(scrollState),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                chipContent()
+            }
+        } else {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                chipContent()
+            }
+        }
     }
 }
+
+/**
+ * Fades the leading/trailing edge of a horizontally scrollable row so a clipped chip reads as
+ * "scroll for more" rather than a hard cut-off. A fade only appears on an edge that can still
+ * scroll, so a row whose chips all fit shows no fade at all.
+ */
+private fun Modifier.horizontalFadingEdges(scrollState: ScrollState): Modifier =
+    this
+        .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+        .drawWithContent {
+            drawContent()
+            val edge = 24.dp.toPx().coerceAtMost(size.width / 2f)
+            if (edge <= 0f) return@drawWithContent
+            if (scrollState.canScrollBackward) {
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colorStops = arrayOf(0f to Color.Transparent, edge / size.width to Color.Black),
+                        startX = 0f,
+                        endX = size.width
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+            if (scrollState.canScrollForward) {
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colorStops = arrayOf((size.width - edge) / size.width to Color.Black, 1f to Color.Transparent),
+                        startX = 0f,
+                        endX = size.width
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+        }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
