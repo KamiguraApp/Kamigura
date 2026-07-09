@@ -116,18 +116,7 @@ internal fun SeriesDetailSummary(
     var summaryExpanded by remember(summary) { mutableStateOf(false) }
     var summaryCanExpand by remember(summary) { mutableStateOf(false) }
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        SeriesDetailHero(
-            series = series,
-            metadata = metadata,
-            issueCount = chapterCards.size,
-            volumeCount = volumeCount,
-            session = session
-        )
-
+    val readButton: @Composable () -> Unit = {
         continueItem?.let { item ->
             SeriesReadSplitButton(
                 text = continueButtonText,
@@ -139,11 +128,13 @@ internal fun SeriesDetailSummary(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+    }
 
-        summary?.let {
+    val summaryBlock: @Composable () -> Unit = {
+        summary?.let { text ->
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
-                    text = it,
+                    text = text,
                     color = Color.White,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = if (summaryExpanded) Int.MAX_VALUE else 8,
@@ -165,34 +156,94 @@ internal fun SeriesDetailSummary(
                 }
             }
         }
+    }
 
+    // Beside the cover the labels are redundant, so callers can hide them; stacked below
+    // (narrow layout) they keep their titles to match the Genres/Tags sections.
+    val creditsBlock: @Composable (showTitle: Boolean) -> Unit = { showTitle ->
         DetailChipBlock(
             title = "Credits",
+            showTitle = showTitle,
             chips = creditChips.map { (id, name) ->
                 name to { onOpenFilteredSeries(SearchSeriesTarget.Person, id, name) }
             }
         )
-        // Publisher and imprint share one "Publisher" row; each chip still filters its own field.
+    }
+
+    // Publisher and imprint share one "Publisher" row; each chip still filters its own field.
+    val publisherBlock: @Composable (showTitle: Boolean) -> Unit = { showTitle ->
         DetailChipBlock(
             title = "Publisher",
+            showTitle = showTitle,
             chips = publisherChips.map { (id, name) ->
                 name to { onOpenFilteredSeries(SearchSeriesTarget.Publisher, id, name) }
             } + imprintChips.map { (id, name) ->
                 name to { onOpenFilteredSeries(SearchSeriesTarget.Imprint, id, name) }
             }
         )
-        DetailChipBlock(
-            title = "Genres",
-            chips = genreChips.map { (id, title) ->
-                title to { onOpenFilteredSeries(SearchSeriesTarget.Genre, id, title) }
+    }
+
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        // Wide enough for a side-by-side hero: put the short Credits/Publisher blocks in
+        // the column next to the cover so the tall cover isn't flanked by empty space,
+        // while the summary stays full width below where it is readable.
+        val heroSideBySide = maxWidth >= 420.dp
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            if (heroSideBySide) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    SeriesCover(series, session, Modifier.width(150.dp))
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        SeriesDetailHeroInfo(
+                            series = series,
+                            metadata = metadata,
+                            issueCount = chapterCards.size,
+                            volumeCount = volumeCount,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        creditsBlock(false)
+                        publisherBlock(false)
+                    }
+                }
+            } else {
+                SeriesDetailHero(
+                    series = series,
+                    metadata = metadata,
+                    issueCount = chapterCards.size,
+                    volumeCount = volumeCount,
+                    session = session
+                )
             }
-        )
-        DetailChipBlock(
-            title = "Tags",
-            chips = tagChips.map { (id, title) ->
-                title to { onOpenFilteredSeries(SearchSeriesTarget.Tag, id, title) }
+
+            readButton()
+            summaryBlock()
+            if (!heroSideBySide) {
+                creditsBlock(true)
+                publisherBlock(true)
             }
-        )
+
+            DetailChipBlock(
+                title = "Genres",
+                chips = genreChips.map { (id, title) ->
+                    title to { onOpenFilteredSeries(SearchSeriesTarget.Genre, id, title) }
+                }
+            )
+            DetailChipBlock(
+                title = "Tags",
+                chips = tagChips.map { (id, title) ->
+                    title to { onOpenFilteredSeries(SearchSeriesTarget.Tag, id, title) }
+                }
+            )
+        }
     }
 }
 
@@ -231,16 +282,19 @@ private fun List<PersonDto>.personChips(): List<Pair<Int, String>> {
 @Composable
 private fun DetailChipBlock(
     title: String,
-    chips: List<Pair<String, () -> Unit>>
+    chips: List<Pair<String, () -> Unit>>,
+    showTitle: Boolean = true
 ) {
     if (chips.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(
-            text = title,
-            color = Color(0xFFB9BDBD),
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold
-        )
+        if (showTitle) {
+            Text(
+                text = title,
+                color = Color(0xFFB9BDBD),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
+            )
+        }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
