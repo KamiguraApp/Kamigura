@@ -180,7 +180,8 @@ data class ChapterDto(
     val colorists: List<PersonDto>? = null,
     val letterers: List<PersonDto>? = null,
     val editors: List<PersonDto>? = null,
-    val translators: List<PersonDto>? = null
+    val translators: List<PersonDto>? = null,
+    val isSpecial: Boolean = false
 )
 
 @Serializable

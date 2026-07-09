@@ -42,7 +42,8 @@ import li.mof.kamigura.ui.theme.ReadingProgressTrack
 /** Internal to series, not for external use. */
 @Composable
 internal fun ChapterIssueGrid(
-    chapterCards: List<ChapterCardItem>,
+    issueCards: List<ChapterCardItem>,
+    specialCards: List<ChapterCardItem>,
     session: KavitaSession,
     onIssueClick: (ChapterCardItem) -> Unit,
     modifier: Modifier = Modifier
@@ -55,28 +56,40 @@ internal fun ChapterIssueGrid(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            ChapterGridHeader(chapterCards.size)
+            ChapterSectionHeader("Issues", issueCards.size)
         }
-        gridItems(chapterCards, key = { "${it.volume.id}-${it.chapter.id}" }) { item ->
+        gridItems(issueCards, key = { "${it.volume.id}-${it.chapter.id}" }) { item ->
             ChapterGridCard(
                 item = item,
                 session = session,
                 onClick = { onIssueClick(item) }
             )
         }
+        if (specialCards.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                ChapterSectionHeader("Specials", specialCards.size)
+            }
+            gridItems(specialCards, key = { "${it.volume.id}-${it.chapter.id}" }) { item ->
+                ChapterGridCard(
+                    item = item,
+                    session = session,
+                    onClick = { onIssueClick(item) }
+                )
+            }
+        }
     }
 }
 
 /** Internal to series, not for external use. */
 @Composable
-internal fun ChapterGridHeader(count: Int) {
+internal fun ChapterSectionHeader(title: String, count: Int) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
-            text = "Issues",
+            text = title,
             color = Color.White,
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.Bold

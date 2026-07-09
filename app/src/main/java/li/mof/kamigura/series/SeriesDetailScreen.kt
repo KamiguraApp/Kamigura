@@ -111,7 +111,7 @@ import li.mof.kamigura.ui.theme.ReadingProgressRead
 import li.mof.kamigura.ui.theme.ReadingProgressTrack
 import li.mof.kamigura.series.internal.ChapterCardItem
 import li.mof.kamigura.series.internal.ChapterGridCard
-import li.mof.kamigura.series.internal.ChapterGridHeader
+import li.mof.kamigura.series.internal.ChapterSectionHeader
 import li.mof.kamigura.series.internal.ChapterIssueGrid
 import li.mof.kamigura.series.internal.SeriesDetailSummary
 import li.mof.kamigura.series.internal.coverActionColor
@@ -473,6 +473,8 @@ private fun SeriesDetailContent(
     onPick: (chapterId: Int, volumeId: Int) -> Unit,
     onIssueClick: (ChapterCardItem) -> Unit
 ) {
+    val specialCards = chapterCards.filter { it.chapter.isSpecial }
+    val issueCards = chapterCards.filterNot { it.chapter.isSpecial }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp && maxWidth > maxHeight
         if (wide) {
@@ -505,7 +507,8 @@ private fun SeriesDetailContent(
                     }
                 }
                 ChapterIssueGrid(
-                    chapterCards = chapterCards,
+                    issueCards = issueCards,
+                    specialCards = specialCards,
                     session = session,
                     onIssueClick = onIssueClick,
                     modifier = Modifier.weight(1f)
@@ -534,14 +537,26 @@ private fun SeriesDetailContent(
                     )
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    ChapterGridHeader(chapterCards.size)
+                    ChapterSectionHeader("Issues", issueCards.size)
                 }
-                gridItems(chapterCards, key = { "${it.volume.id}-${it.chapter.id}" }) { item ->
+                gridItems(issueCards, key = { "${it.volume.id}-${it.chapter.id}" }) { item ->
                     ChapterGridCard(
                         item = item,
                         session = session,
                         onClick = { onIssueClick(item) }
                     )
+                }
+                if (specialCards.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        ChapterSectionHeader("Specials", specialCards.size)
+                    }
+                    gridItems(specialCards, key = { "${it.volume.id}-${it.chapter.id}" }) { item ->
+                        ChapterGridCard(
+                            item = item,
+                            session = session,
+                            onClick = { onIssueClick(item) }
+                        )
+                    }
                 }
             }
         }
