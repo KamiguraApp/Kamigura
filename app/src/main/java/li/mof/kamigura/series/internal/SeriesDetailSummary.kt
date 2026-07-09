@@ -211,8 +211,12 @@ internal fun SeriesDetailSummary(
                             volumeCount = volumeCount,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        creditsBlock(false)
-                        publisherBlock(false)
+                        // Keep the credits/publisher rows spaced like the wrapped chips
+                        // within a single block (4dp) so they read as one chip list.
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            creditsBlock(false)
+                            publisherBlock(false)
+                        }
                     }
                 }
             } else {
