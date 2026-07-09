@@ -29,8 +29,8 @@ android {
         applicationId = "li.mof.kamigura"
         minSdk = 26
         targetSdk = 36
-        versionCode = 9
-        versionName = "0.17"
+        versionCode = 10
+        versionName = "0.18"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

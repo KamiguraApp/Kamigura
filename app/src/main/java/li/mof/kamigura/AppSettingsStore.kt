@@ -32,7 +32,7 @@ data class ReaderSettings(
     val invertWhiteThreshold: Float = 0.5f,
     val prefetchTurns: Int = DefaultReaderPrefetchTurns,
     val pageTransitionAnimation: Boolean = true,
-    val pageTurnMode: PageTurnMode = PageTurnMode.Slide,
+    val pageTurnMode: PageTurnMode = PageTurnMode.Curl,
     val showSpreadShiftButtons: Boolean = true
 )
 
@@ -65,7 +65,7 @@ class AppSettingsStore(private val context: Context) {
                 pageTransitionAnimation = prefs[KEY_PAGE_TRANSITION_ANIMATION] ?: true,
                 pageTurnMode = prefs[KEY_PAGE_TURN_MODE]
                     ?.let { runCatching { PageTurnMode.valueOf(it) }.getOrNull() }
-                    ?: PageTurnMode.Slide,
+                    ?: PageTurnMode.Curl,
                 showSpreadShiftButtons = prefs[KEY_SHOW_SPREAD_SHIFT_BUTTONS] ?: true
             )
         )
