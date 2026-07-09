@@ -39,6 +39,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -269,7 +271,7 @@ private fun HomePlaceholder(destination: HomeDestination, modifier: Modifier = M
 }
 
 /** Internal to library, not for external use. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun HomeContent(
     destination: HomeDestination,
@@ -320,10 +322,20 @@ internal fun HomeContent(
 
         when (destination) {
             HomeDestination.Home -> {
+                val pullState = rememberPullToRefreshState()
                 PullToRefreshBox(
                     isRefreshing = refreshing,
                     onRefresh = onRefresh,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    state = pullState,
+                    indicator = {
+                        // M3 Expressive contained (morphing) loading indicator.
+                        PullToRefreshDefaults.LoadingIndicator(
+                            state = pullState,
+                            isRefreshing = refreshing,
+                            modifier = Modifier.align(Alignment.TopCenter)
+                        )
+                    }
                 ) {
                     if (onDeck.isEmpty() && recentlyUpdated.isEmpty() && newlyAdded.isEmpty()) {
                         DarkMessageState(
