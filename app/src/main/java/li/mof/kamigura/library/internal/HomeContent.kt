@@ -40,7 +40,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
+import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -623,20 +623,19 @@ private fun HomeShelf(
         } else {
             val carouselState = rememberCarouselState { series.size }
             val cardShape = MaterialTheme.shapes.small
-            // Derive the shelf height from its content — the cover at the preferred item
-            // width plus the measured two-line label — instead of a hardcoded constant, so
-            // no device/font-scale combination leaves dead space or clips the label.
+            // With the cover height and the Kavita aspect ratio both fixed, exactly one
+            // item width shows covers uncropped — so the carousel must honor the width
+            // exactly. The multi-browse variant stretches/shrinks items to fill the
+            // viewport, which shaved the cover edges; the uncontained variant doesn't.
             val itemWidth = 164.dp
             val shelfHeight = itemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
-            HorizontalMultiBrowseCarousel(
+            HorizontalUncontainedCarousel(
                 state = carouselState,
-                preferredItemWidth = itemWidth,
+                itemWidth = itemWidth,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(shelfHeight),
                 itemSpacing = 14.dp,
-                minSmallItemWidth = 48.dp,
-                maxSmallItemWidth = 72.dp,
                 contentPadding = PaddingValues(horizontal = 16.dp)
             ) { index ->
                 val item = series[index]
