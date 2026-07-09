@@ -184,10 +184,11 @@ internal fun SeriesDetailSummary(
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        // Wide enough for a side-by-side hero: put the short Credits/Publisher blocks in
-        // the column next to the cover so the tall cover isn't flanked by empty space,
-        // while the summary stays full width below where it is readable.
-        val heroSideBySide = maxWidth >= 420.dp
+        // Phone width and up: lay the cover beside the info column (with the short
+        // Credits/Publisher blocks) instead of centering the cover with wasted space on
+        // either side. The summary stays full width below where it is readable. Only very
+        // narrow widths fall back to the stacked cover-on-top layout.
+        val heroSideBySide = maxWidth >= 340.dp
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(14.dp)
