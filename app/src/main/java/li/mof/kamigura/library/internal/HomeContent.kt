@@ -625,17 +625,19 @@ private fun HomeShelf(
             val cardShape = MaterialTheme.shapes.small
             // With the cover height and the Kavita aspect ratio both fixed, exactly one
             // item width shows covers uncropped — so the carousel must honor the width
-            // exactly. The multi-browse variant stretches/shrinks items to fill the
-            // viewport, which shaved the cover edges; the uncontained variant doesn't.
+            // exactly. material3's uncontainedKeylineList sizes items at
+            // (itemWidth + itemSpacing), so hand it the spacing-subtracted width to get
+            // items laid out at exactly itemWidth; any drift crops the covers.
             val itemWidth = 164.dp
+            val itemSpacing = 14.dp
             val shelfHeight = itemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
             HorizontalUncontainedCarousel(
                 state = carouselState,
-                itemWidth = itemWidth,
+                itemWidth = itemWidth - itemSpacing,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(shelfHeight),
-                itemSpacing = 14.dp,
+                itemSpacing = itemSpacing,
                 contentPadding = PaddingValues(horizontal = 16.dp)
             ) { index ->
                 val item = series[index]

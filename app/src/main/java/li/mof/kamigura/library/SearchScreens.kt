@@ -325,12 +325,13 @@ private fun SearchSeriesSection(
         val carouselState = rememberCarouselState { series.size }
         val cardShape = MaterialTheme.shapes.small
         // Same scheme as the Home shelf: the shelf height derives from the cover at the
-        // item width plus the measured two-line label, and the uncontained carousel
-        // honors the item width exactly so covers render uncropped.
+        // item width plus the measured two-line label, and the item width is handed to
+        // the carousel spacing-subtracted because material3's uncontainedKeylineList
+        // sizes items at (itemWidth + itemSpacing); any drift crops the covers.
         val shelfHeight = SearchCarouselItemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
         HorizontalUncontainedCarousel(
             state = carouselState,
-            itemWidth = SearchCarouselItemWidth,
+            itemWidth = SearchCarouselItemWidth - SearchCarouselItemSpacing,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(shelfHeight),
