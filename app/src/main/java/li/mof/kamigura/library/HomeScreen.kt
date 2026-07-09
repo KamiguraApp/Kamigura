@@ -57,8 +57,6 @@ import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.WideNavigationRailDefaults
 import androidx.compose.material3.WideNavigationRailItem
 import androidx.compose.material3.WideNavigationRailValue
-import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
-import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost

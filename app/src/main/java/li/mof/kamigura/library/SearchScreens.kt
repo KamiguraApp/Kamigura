@@ -32,7 +32,7 @@ import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.carousel.HorizontalMultiBrowseCarousel
+import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
 import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,9 +70,11 @@ import li.mof.kamigura.SeriesFilterV2Dto
 import li.mof.kamigura.TagDto
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
+import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
+import li.mof.kamigura.ui.browse.seriesPosterLabelHeight
 import li.mof.kamigura.ui.theme.KamiguraBackground
 import li.mof.kamigura.ui.theme.KamiguraSurface
 
@@ -322,15 +324,17 @@ private fun SearchSeriesSection(
         Spacer(Modifier.height(10.dp))
         val carouselState = rememberCarouselState { series.size }
         val cardShape = MaterialTheme.shapes.small
-        HorizontalMultiBrowseCarousel(
+        // Same scheme as the Home shelf: the shelf height derives from the cover at the
+        // item width plus the measured two-line label, and the uncontained carousel
+        // honors the item width exactly so covers render uncropped.
+        val shelfHeight = SearchCarouselItemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
+        HorizontalUncontainedCarousel(
             state = carouselState,
-            preferredItemWidth = SearchCarouselItemWidth,
+            itemWidth = SearchCarouselItemWidth,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(SearchCarouselHeight),
+                .height(shelfHeight),
             itemSpacing = SearchCarouselItemSpacing,
-            minSmallItemWidth = 48.dp,
-            maxSmallItemWidth = 72.dp,
             contentPadding = PaddingValues(horizontal = SearchCarouselHorizontalPadding)
         ) { index ->
             val item = series[index]
@@ -343,6 +347,7 @@ private fun SearchSeriesSection(
                     series = item,
                     session = session,
                     shape = cardShape,
+                    coverFillsHeight = true,
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable { onSelectSeries(item) }
@@ -631,6 +636,5 @@ private val PersonFilterFields = listOf(
 )
 
 private val SearchCarouselItemWidth = 164.dp
-private val SearchCarouselHeight = 300.dp
 private val SearchCarouselItemSpacing = 14.dp
 private val SearchCarouselHorizontalPadding = 16.dp
