@@ -32,8 +32,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import li.mof.kamigura.KavitaSession
@@ -125,7 +127,8 @@ internal fun SeriesPosterCard(
     series: SeriesDto,
     session: KavitaSession,
     modifier: Modifier = Modifier,
-    shape: Shape = MaterialTheme.shapes.small
+    shape: Shape = MaterialTheme.shapes.small,
+    coverFillsHeight: Boolean = false
 ) {
     Card(
         modifier = modifier,
@@ -133,11 +136,20 @@ internal fun SeriesPosterCard(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
     ) {
         Column {
-            Box(
-                modifier = Modifier
+            // In a fixed-height carousel the item width varies, so the cover fills the
+            // height left over by the label and crops (never distorts) the artwork.
+            // In grids the width is the driver, so the cover keeps the Kavita aspect.
+            val coverModifier = if (coverFillsHeight) {
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            } else {
+                Modifier
                     .fillMaxWidth()
                     .aspectRatio(KavitaCoverAspectRatio)
-                    .background(Color(0xFF111111)),
+            }
+            Box(
+                modifier = coverModifier.background(Color(0xFF111111)),
                 contentAlignment = Alignment.Center
             ) {
                 if (session.baseUrl.isNotBlank() && session.apiKey.isNotBlank()) {
@@ -158,7 +170,7 @@ internal fun SeriesPosterCard(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(SeriesPosterLabelHeight)
+                    .height(seriesPosterLabelHeight())
             ) {
                 SeriesReadingProgressBar(
                     progress = series.readingProgress(),
@@ -182,7 +194,18 @@ internal fun SeriesPosterCard(
     }
 }
 
-private val SeriesPosterLabelHeight = 58.dp
+/**
+ * Height of the two-line poster label derived from the actual text metrics (so a larger
+ * device font scale grows the box instead of clipping the second line) plus its padding.
+ * A little headroom on top: an exact 2x line height can lose the second line to pixel
+ * rounding at some densities (the text then ellipsizes after one line). The text is
+ * top-aligned, so the slack disappears into the label background.
+ */
+@Composable
+internal fun seriesPosterLabelHeight(): Dp {
+    val lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+    return with(LocalDensity.current) { (lineHeight * 2).toDp() } + 16.dp + 4.dp
+}
 
 @Composable
 private fun SeriesReadingProgressBar(progress: Float?, modifier: Modifier = Modifier) {

@@ -87,6 +87,7 @@ import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
+import li.mof.kamigura.ui.browse.seriesPosterLabelHeight
 import li.mof.kamigura.ui.theme.KamiguraSurface
 
 private val PaginationHeaderJson = Json { ignoreUnknownKeys = true }
@@ -622,12 +623,17 @@ private fun HomeShelf(
         } else {
             val carouselState = rememberCarouselState { series.size }
             val cardShape = MaterialTheme.shapes.small
+            // Derive the shelf height from its content — the cover at the preferred item
+            // width plus the measured two-line label — instead of a hardcoded constant, so
+            // no device/font-scale combination leaves dead space or clips the label.
+            val itemWidth = 164.dp
+            val shelfHeight = itemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
             HorizontalMultiBrowseCarousel(
                 state = carouselState,
-                preferredItemWidth = 164.dp,
+                preferredItemWidth = itemWidth,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(300.dp),
+                    .height(shelfHeight),
                 itemSpacing = 14.dp,
                 minSmallItemWidth = 48.dp,
                 maxSmallItemWidth = 72.dp,
@@ -643,6 +649,7 @@ private fun HomeShelf(
                         series = item,
                         session = session,
                         shape = cardShape,
+                        coverFillsHeight = true,
                         modifier = Modifier
                             .fillMaxSize()
                             .clickable { onSelectSeries(item) }
