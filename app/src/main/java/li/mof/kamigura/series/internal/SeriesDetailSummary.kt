@@ -163,30 +163,23 @@ internal fun SeriesDetailSummary(
 
         DetailChipBlock(
             title = "Credits",
-            chips = creditChips,
-            onChipClick = { id, name ->
-                onOpenFilteredSeries(SearchSeriesTarget.Person, id, name)
+            chips = creditChips.map { (id, name) ->
+                name to { onOpenFilteredSeries(SearchSeriesTarget.Person, id, name) }
             }
         )
+        // Publisher and imprint share one "Publisher" row; each chip still filters its own field.
         DetailChipBlock(
             title = "Publisher",
-            chips = publisherChips,
-            onChipClick = { id, name ->
-                onOpenFilteredSeries(SearchSeriesTarget.Publisher, id, name)
-            }
-        )
-        DetailChipBlock(
-            title = "Imprint",
-            chips = imprintChips,
-            onChipClick = { id, name ->
-                onOpenFilteredSeries(SearchSeriesTarget.Imprint, id, name)
+            chips = publisherChips.map { (id, name) ->
+                name to { onOpenFilteredSeries(SearchSeriesTarget.Publisher, id, name) }
+            } + imprintChips.map { (id, name) ->
+                name to { onOpenFilteredSeries(SearchSeriesTarget.Imprint, id, name) }
             }
         )
         DetailChipBlock(
             title = "Genres",
-            chips = genreChips,
-            onChipClick = { id, title ->
-                onOpenFilteredSeries(SearchSeriesTarget.Genre, id, title)
+            chips = genreChips.map { (id, title) ->
+                title to { onOpenFilteredSeries(SearchSeriesTarget.Genre, id, title) }
             }
         )
     }
@@ -227,8 +220,7 @@ private fun List<PersonDto>.personChips(): List<Pair<Int, String>> {
 @Composable
 private fun DetailChipBlock(
     title: String,
-    chips: List<Pair<Int, String>>,
-    onChipClick: (id: Int, label: String) -> Unit
+    chips: List<Pair<String, () -> Unit>>
 ) {
     if (chips.isEmpty()) return
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -242,9 +234,9 @@ private fun DetailChipBlock(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            chips.forEach { (id, label) ->
+            chips.forEach { (label, onClick) ->
                 SuggestionChip(
-                    onClick = { onChipClick(id, label) },
+                    onClick = onClick,
                     label = { Text(label) }
                 )
             }
