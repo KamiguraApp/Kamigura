@@ -17,7 +17,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
@@ -40,8 +42,6 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
-import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -621,38 +621,28 @@ private fun HomeShelf(
         if (series.isEmpty()) {
             Text("Nothing here yet", color = Color(0xFF9FA5A5), style = MaterialTheme.typography.bodyMedium)
         } else {
-            val carouselState = rememberCarouselState { series.size }
             val cardShape = MaterialTheme.shapes.small
-            // With the cover height and the Kavita aspect ratio both fixed, exactly one
-            // item width shows covers uncropped — so the carousel must honor the width
-            // exactly. material3's uncontainedKeylineList sizes items at
-            // (itemWidth + itemSpacing), so hand it the spacing-subtracted width to get
-            // items laid out at exactly itemWidth; any drift crops the covers.
+            // A shelf of fixed-width poster cards. The height is derived from the cover at
+            // the item width (Kavita aspect) plus the two-line label, so covers render
+            // uncropped. A plain LazyRow is used instead of a Carousel: the carousel keeps
+            // a masked cut-off item at the right edge whose clip rect trembled against the
+            // overscroll spring, and the uniform cards here don't need that masking.
             val itemWidth = 164.dp
-            val itemSpacing = 14.dp
             val shelfHeight = itemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
-            HorizontalUncontainedCarousel(
-                state = carouselState,
-                itemWidth = itemWidth - itemSpacing,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(shelfHeight),
-                itemSpacing = itemSpacing,
-                contentPadding = PaddingValues(horizontal = 16.dp)
-            ) { index ->
-                val item = series[index]
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .maskClip(cardShape)
-                ) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(series, key = { it.id }) { item ->
                     SeriesPosterCard(
                         series = item,
                         session = session,
                         shape = cardShape,
                         coverFillsHeight = true,
                         modifier = Modifier
-                            .fillMaxSize()
+                            .width(itemWidth)
+                            .height(shelfHeight)
                             .clickable { onSelectSeries(item) }
                     )
                 }

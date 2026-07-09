@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
@@ -32,8 +34,6 @@ import androidx.compose.material3.SearchBar
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.carousel.HorizontalUncontainedCarousel
-import androidx.compose.material3.carousel.rememberCarouselState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -322,35 +322,26 @@ private fun SearchSeriesSection(
     Column {
         SearchSectionHeader(title = title)
         Spacer(Modifier.height(10.dp))
-        val carouselState = rememberCarouselState { series.size }
         val cardShape = MaterialTheme.shapes.small
-        // Same scheme as the Home shelf: the shelf height derives from the cover at the
-        // item width plus the measured two-line label, and the item width is handed to
-        // the carousel spacing-subtracted because material3's uncontainedKeylineList
-        // sizes items at (itemWidth + itemSpacing); any drift crops the covers.
-        val shelfHeight = SearchCarouselItemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
-        HorizontalUncontainedCarousel(
-            state = carouselState,
-            itemWidth = SearchCarouselItemWidth - SearchCarouselItemSpacing,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(shelfHeight),
-            itemSpacing = SearchCarouselItemSpacing,
-            contentPadding = PaddingValues(horizontal = SearchCarouselHorizontalPadding)
-        ) { index ->
-            val item = series[index]
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .maskClip(cardShape)
-            ) {
+        // Same scheme as the Home shelf: a plain LazyRow of fixed-width poster cards whose
+        // height derives from the cover (Kavita aspect) plus the two-line label. A Carousel
+        // is avoided here because its masked cut-off edge item trembled against the
+        // overscroll spring at the right edge, and uniform cards don't need the masking.
+        val shelfHeight = SearchShelfItemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = SearchShelfHorizontalPadding),
+            horizontalArrangement = Arrangement.spacedBy(SearchShelfItemSpacing)
+        ) {
+            items(series, key = { it.id }) { item ->
                 SeriesPosterCard(
                     series = item,
                     session = session,
                     shape = cardShape,
                     coverFillsHeight = true,
                     modifier = Modifier
-                        .fillMaxSize()
+                        .width(SearchShelfItemWidth)
+                        .height(shelfHeight)
                         .clickable { onSelectSeries(item) }
                 )
             }
@@ -636,6 +627,6 @@ private val PersonFilterFields = listOf(
     SeriesFilterFieldLocation
 )
 
-private val SearchCarouselItemWidth = 164.dp
-private val SearchCarouselItemSpacing = 14.dp
-private val SearchCarouselHorizontalPadding = 16.dp
+private val SearchShelfItemWidth = 164.dp
+private val SearchShelfItemSpacing = 14.dp
+private val SearchShelfHorizontalPadding = 16.dp
