@@ -70,11 +70,12 @@ import li.mof.kamigura.SeriesFilterV2Dto
 import li.mof.kamigura.TagDto
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
-import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
-import li.mof.kamigura.ui.browse.seriesPosterLabelHeight
+import li.mof.kamigura.ui.browse.SeriesShelfItemSpacing
+import li.mof.kamigura.ui.browse.SeriesShelfItemWidth
+import li.mof.kamigura.ui.browse.seriesShelfHeight
 import li.mof.kamigura.ui.theme.KamiguraBackground
 import li.mof.kamigura.ui.theme.KamiguraSurface
 
@@ -323,15 +324,14 @@ private fun SearchSeriesSection(
         SearchSectionHeader(title = title)
         Spacer(Modifier.height(10.dp))
         val cardShape = MaterialTheme.shapes.small
-        // Same scheme as the Home shelf: a plain LazyRow of fixed-width poster cards whose
-        // height derives from the cover (Kavita aspect) plus the two-line label. A Carousel
-        // is avoided here because its masked cut-off edge item trembled against the
-        // overscroll spring at the right edge, and uniform cards don't need the masking.
-        val shelfHeight = SearchShelfItemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
+        // Same scheme as the Home shelf; shared dimensions live in BrowseComponents. A Carousel
+        // is avoided here because its masked cut-off edge item trembled against the overscroll
+        // spring at the right edge, and uniform cards don't need the masking.
+        val shelfHeight = seriesShelfHeight()
         LazyRow(
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = SearchShelfHorizontalPadding),
-            horizontalArrangement = Arrangement.spacedBy(SearchShelfItemSpacing)
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(SeriesShelfItemSpacing)
         ) {
             items(series, key = { it.id }) { item ->
                 SeriesPosterCard(
@@ -340,7 +340,7 @@ private fun SearchSeriesSection(
                     shape = cardShape,
                     coverFillsHeight = true,
                     modifier = Modifier
-                        .width(SearchShelfItemWidth)
+                        .width(SeriesShelfItemWidth)
                         .height(shelfHeight)
                         .clickable { onSelectSeries(item) }
                 )
@@ -626,7 +626,3 @@ private val PersonFilterFields = listOf(
     SeriesFilterFieldTeam,
     SeriesFilterFieldLocation
 )
-
-private val SearchShelfItemWidth = 164.dp
-private val SearchShelfItemSpacing = 14.dp
-private val SearchShelfHorizontalPadding = 16.dp

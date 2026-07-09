@@ -207,6 +207,21 @@ internal fun seriesPosterLabelHeight(): Dp {
     return with(LocalDensity.current) { (lineHeight * 2).toDp() } + 16.dp + 4.dp
 }
 
+/** Fixed width of a poster card in a horizontal shelf (Home / Search). */
+internal val SeriesShelfItemWidth = 164.dp
+
+/** Gap between poster cards in a horizontal shelf. */
+internal val SeriesShelfItemSpacing = 14.dp
+
+/**
+ * Height of a poster shelf: the cover at [SeriesShelfItemWidth] (kept at the Kavita cover
+ * aspect, so it never crops) plus the two-line label. Callers give each card this height and
+ * [SeriesShelfItemWidth] width.
+ */
+@Composable
+internal fun seriesShelfHeight(): Dp =
+    SeriesShelfItemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
+
 @Composable
 private fun SeriesReadingProgressBar(progress: Float?, modifier: Modifier = Modifier) {
     val boundedProgress = (progress ?: 0f).coerceIn(0f, 1f)

@@ -85,11 +85,12 @@ import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.series.chapterCoverUrl
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
-import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
-import li.mof.kamigura.ui.browse.seriesPosterLabelHeight
+import li.mof.kamigura.ui.browse.SeriesShelfItemSpacing
+import li.mof.kamigura.ui.browse.SeriesShelfItemWidth
+import li.mof.kamigura.ui.browse.seriesShelfHeight
 import li.mof.kamigura.ui.theme.KamiguraSurface
 
 private val PaginationHeaderJson = Json { ignoreUnknownKeys = true }
@@ -634,17 +635,15 @@ private fun HomeShelf(
             Text("Nothing here yet", color = Color(0xFF9FA5A5), style = MaterialTheme.typography.bodyMedium)
         } else {
             val cardShape = MaterialTheme.shapes.small
-            // A shelf of fixed-width poster cards. The height is derived from the cover at
-            // the item width (Kavita aspect) plus the two-line label, so covers render
-            // uncropped. A plain LazyRow is used instead of a Carousel: the carousel keeps
-            // a masked cut-off item at the right edge whose clip rect trembled against the
-            // overscroll spring, and the uniform cards here don't need that masking.
-            val itemWidth = 164.dp
-            val shelfHeight = itemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
+            // A shelf of fixed-width poster cards. Dimensions live in BrowseComponents so Home
+            // and Search stay in sync. A plain LazyRow is used instead of a Carousel: the
+            // carousel keeps a masked cut-off item at the right edge whose clip rect trembled
+            // against the overscroll spring, and the uniform cards here don't need that masking.
+            val shelfHeight = seriesShelfHeight()
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(SeriesShelfItemSpacing)
             ) {
                 items(series, key = { it.id }) { item ->
                     SeriesPosterCard(
@@ -653,7 +652,7 @@ private fun HomeShelf(
                         shape = cardShape,
                         coverFillsHeight = true,
                         modifier = Modifier
-                            .width(itemWidth)
+                            .width(SeriesShelfItemWidth)
                             .height(shelfHeight)
                             .clickable { onSelectSeries(item) }
                     )
