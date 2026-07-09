@@ -102,6 +102,11 @@ internal fun SeriesDetailSummary(
         val title = genre.title?.trim().orEmpty()
         if (title.isBlank()) null else id to title
     }
+    val tagChips = metadata?.tags.orEmpty().mapNotNull { tag ->
+        val id = tag.id ?: return@mapNotNull null
+        val title = tag.title?.trim().orEmpty()
+        if (title.isBlank()) null else id to title
+    }
     val continueItem = continueChapter?.let { chapter ->
         chapterCards.firstOrNull { it.chapter.id == chapter.id }
     } ?: chapterCards.firstOrNull()
@@ -180,6 +185,12 @@ internal fun SeriesDetailSummary(
             title = "Genres",
             chips = genreChips.map { (id, title) ->
                 title to { onOpenFilteredSeries(SearchSeriesTarget.Genre, id, title) }
+            }
+        )
+        DetailChipBlock(
+            title = "Tags",
+            chips = tagChips.map { (id, title) ->
+                title to { onOpenFilteredSeries(SearchSeriesTarget.Tag, id, title) }
             }
         )
     }
