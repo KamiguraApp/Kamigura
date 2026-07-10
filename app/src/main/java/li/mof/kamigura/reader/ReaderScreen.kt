@@ -92,6 +92,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -143,7 +144,9 @@ fun ReaderScreen(
     var rightToLeft by remember { mutableStateOf(settings.reader.rightToLeft) }
     // Per-book session override for the invert mode, mirroring rightToLeft: the reader menu
     // flips it for this session only. The global fallback lives in Reader Settings; reopening
-    // the book starts again from that global value.
+    // the book starts again from that global value. Seeded from the persisted value in the
+    // loader effect below — `settings` here is still the collectAsState default (Off) until
+    // DataStore emits, so this initial value is a placeholder.
     var invertMode by remember { mutableStateOf(settings.reader.invertMode) }
     var zoomPan by remember { mutableStateOf(ReaderZoomPanState()) }
     var completingRead by remember { mutableStateOf(false) }
@@ -320,6 +323,10 @@ fun ReaderScreen(
     }
 
     LaunchedEffect(Unit) {
+        // Seed the session invert override from the persisted global value. `.first()` on the
+        // store flow yields the real DataStore value (not the collectAsState default), so this
+        // is correct even before `settings` has emitted.
+        invertMode = settingsStore.flow.first().reader.invertMode
         val loadedSession = sessionStore.load()
         session = loadedSession
         val local = runCatching {
