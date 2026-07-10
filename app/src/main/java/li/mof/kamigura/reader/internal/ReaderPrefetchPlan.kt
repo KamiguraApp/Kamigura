@@ -37,11 +37,16 @@ internal fun readerPrefetchPageIndicesAround(
     if (pageCount <= 0 || page !in 0 until pageCount || turns <= 0) return emptyList()
     val result = LinkedHashSet<Int>()
     val layout = readerPageLayout(page, pageCount, portrait, pageDimensions)
-    result += readerPrefetchPageIndices(page, pageCount, portrait, pageDimensions, turns)
+    // Re-warm the spread we'd land on when turning back FIRST, ahead of the forward prefetch.
+    // The loader processes these roughly in order under a concurrency limit, so putting the
+    // previous spread last let the forward flood evict the just-left page (still only in the
+    // memory cache from being displayed) before it was re-warmed — an immediate back-turn then
+    // paid a full re-decode. Loading it first keeps it warm through the forward loads.
     if (page > 0) {
         val previous = (page - layout.previousStep).coerceAtLeast(0)
         result += readerVisiblePageIndices(previous, pageCount, portrait, pageDimensions)
     }
+    result += readerPrefetchPageIndices(page, pageCount, portrait, pageDimensions, turns)
     return result.toList()
 }
 
