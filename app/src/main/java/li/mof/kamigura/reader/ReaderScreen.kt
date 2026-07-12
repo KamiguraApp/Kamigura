@@ -80,6 +80,8 @@ import li.mof.kamigura.reader.internal.preAnalyzeReaderPages
 import li.mof.kamigura.reader.internal.prefetchReaderPages
 import li.mof.kamigura.reader.internal.readerPageLayout
 import li.mof.kamigura.reader.internal.readerPanBoundsPx
+import li.mof.kamigura.reader.internal.readerEstimatedDecodeBytes
+import li.mof.kamigura.reader.internal.readerPrefetchMemoryPlan
 import li.mof.kamigura.reader.internal.readerPrefetchPageIndicesAround
 import li.mof.kamigura.reader.internal.readerPrefetchSlotWidthPx
 import li.mof.kamigura.reader.internal.readerVisiblePageIndices
@@ -142,12 +144,10 @@ fun ReaderScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var showReaderMenu by remember { mutableStateOf(false) }
     var rightToLeft by remember { mutableStateOf(settings.reader.rightToLeft) }
-    // Per-book session override for the invert mode, mirroring rightToLeft: the reader menu
-    // flips it for this session only. The global fallback lives in Reader Settings; reopening
-    // the book starts again from that global value. Seeded from the persisted value in the
-    // loader effect below — `settings` here is still the collectAsState default (Off) until
-    // DataStore emits, so this initial value is a placeholder.
+    // Per-book overrides survive a short close/reopen cycle in process memory. The server
+    // direction and global Reader setting remain authoritative after the cache expires.
     var invertMode by remember { mutableStateOf(settings.reader.invertMode) }
+    var sessionPreferenceKey by remember { mutableStateOf<String?>(null) }
     var zoomPan by remember { mutableStateOf(ReaderZoomPanState()) }
     var completingRead by remember { mutableStateOf(false) }
     var offlineChapter by remember { mutableStateOf<OfflineChapter?>(null) }
@@ -326,9 +326,27 @@ fun ReaderScreen(
         // Seed the session invert override from the persisted global value. `.first()` on the
         // store flow yields the real DataStore value (not the collectAsState default), so this
         // is correct even before `settings` has emitted.
-        invertMode = settingsStore.flow.first().reader.invertMode
+        val persistedReaderSettings = settingsStore.flow.first().reader
+        invertMode = persistedReaderSettings.invertMode
         val loadedSession = sessionStore.load()
         session = loadedSession
+        val activeProfileId = runCatching { sessionStore.activeProfile()?.id }.getOrNull()
+        val preferenceKey = readerSessionPreferenceKey(loadedSession, activeProfileId, seriesId)
+        sessionPreferenceKey = preferenceKey
+        ReaderSessionPreferenceCache.load(ctx.cacheDir, System.currentTimeMillis())
+        val cachedPreferences = ReaderSessionPreferenceCache.get(
+            preferenceKey,
+            System.currentTimeMillis()
+        )
+        if (cachedPreferences != null) {
+            // Apply before network initialization so an offline reopen does not flash the
+            // global direction or invert mode while the reading-profile call times out.
+            rightToLeft = cachedPreferences.rightToLeft
+            invertMode = cachedPreferences.invertMode
+            ReaderExitWriteScope.launch {
+                ReaderSessionPreferenceCache.persist(ctx.cacheDir)
+            }
+        }
         val local = runCatching {
             offlineRepository.localChapter(loadedSession, chapterId)
         }.onFailure {
@@ -349,23 +367,29 @@ fun ReaderScreen(
             val client = KavitaClient(ctx, sessionStore)
             val (loadedApi, okHttp) = client.buildApi()
             api = loadedApi
-            readerImageLoader = client.buildReaderImageLoader(okHttp)
+            readerImageLoader = client.buildReaderImageLoader(okHttp, loadedSession)
             runCatching { offlineRepository.syncPending(loadedSession, loadedApi) }
                 .onFailure { KamiguraLog.w("Could not sync pending offline progress from Reader.", it) }
-            rightToLeft = try {
+            val serverRightToLeft = try {
                 // A series-specific direction on the server (User/Implicit profile)
                 // wins. When only the global Default profile applies, the series has
                 // no direction of its own, so fall back to the app setting.
                 val profile = loadedApi.readingProfile(libraryId, seriesId)
                 when {
-                    profile.kind == KavitaReadingProfileKindDefault -> settings.reader.rightToLeft
+                    profile.kind == KavitaReadingProfileKindDefault -> persistedReaderSettings.rightToLeft
                     profile.readingDirection == KavitaReadingDirectionRtl -> true
                     profile.readingDirection == KavitaReadingDirectionLtr -> false
-                    else -> settings.reader.rightToLeft
+                    else -> persistedReaderSettings.rightToLeft
                 }
             } catch (t: Throwable) {
                 KamiguraLog.w("Could not load reading direction for series $seriesId.", t)
-                settings.reader.rightToLeft
+                persistedReaderSettings.rightToLeft
+            }
+            if (cachedPreferences != null) {
+                rightToLeft = cachedPreferences.rightToLeft
+                invertMode = cachedPreferences.invertMode
+            } else {
+                rightToLeft = serverRightToLeft
             }
             if (local == null) {
                 val info = loadedApi.chapterInfo(chapterId, includeDimensions = true)
@@ -496,20 +520,42 @@ fun ReaderScreen(
             portraitCurlConfig.backPageColor = curlBackPageColor
             spreadCurlConfig.backPageColor = curlBackPageColor
         }
-        fun prefetchTargetsFor(indices: List<Int>): List<ReaderPrefetchTarget> {
-            return indices.mapNotNull { index ->
+        fun prefetchTargetsFor(
+            indices: List<Int>,
+            forceMemory: Boolean = false
+        ): List<ReaderPrefetchTarget> {
+            val rawTargets = indices.mapNotNull { index ->
                 val model = pageModel(index) as? String ?: return@mapNotNull null
-                ReaderPrefetchTarget(
+                val targetWidth = readerPrefetchSlotWidthPx(
+                    page = index,
+                    pageCount = pages,
+                    portrait = portrait,
+                    pageDimensions = pageDimensions,
+                    viewportWidthPx = viewportWidthPx
+                )
+                index to ReaderPrefetchTarget(
                     model = model,
-                    targetWidth = readerPrefetchSlotWidthPx(
-                        page = index,
-                        pageCount = pages,
-                        portrait = portrait,
-                        pageDimensions = pageDimensions,
-                        viewportWidthPx = viewportWidthPx
-                    ),
+                    targetWidth = targetWidth,
                     targetHeight = viewportHeightPx.roundToInt().coerceAtLeast(1)
                 )
+            }
+            val memoryPlan = if (forceMemory) {
+                rawTargets.map { true }
+            } else {
+                readerPrefetchMemoryPlan(
+                    estimatedBytes = rawTargets.map { (targetPage, target) ->
+                        readerEstimatedDecodeBytes(
+                            page = targetPage,
+                            pageDimensions = pageDimensions,
+                            targetWidth = target.targetWidth,
+                            targetHeight = target.targetHeight
+                        )
+                    },
+                    memoryCacheMaxBytes = activeImageLoader.memoryCache?.maxSize?.toLong() ?: 0L
+                )
+            }
+            return rawTargets.mapIndexedNotNull { index, (_, target) ->
+                target.takeIf { memoryPlan[index] }
             }
         }
         LaunchedEffect(
@@ -1027,7 +1073,8 @@ fun ReaderScreen(
                     pageCount = pages,
                     portrait = portrait,
                     pageDimensions = pageDimensions
-                )
+                ),
+                forceMemory = true
             )
             prefetchReaderPages(
                 context = ctx,
@@ -1503,13 +1550,34 @@ fun ReaderScreen(
                     // Settings; a per-series direction lives on the Kavita server. This
                     // toggle flips the current reading session without writing either, so it
                     // never silently changes other books or fights the server value.
-                    rightToLeft = !rightToLeft
+                    val next = !rightToLeft
+                    rightToLeft = next
+                    sessionPreferenceKey?.let { key ->
+                        ReaderSessionPreferenceCache.put(
+                            key = key,
+                            preferences = ReaderSessionPreferences(next, invertMode),
+                            nowMillis = System.currentTimeMillis()
+                        )
+                        ReaderExitWriteScope.launch {
+                            ReaderSessionPreferenceCache.persist(ctx.cacheDir)
+                        }
+                    }
                 },
                 invertMode = invertMode,
                 onSetInvertMode = { mode ->
                     // Per-book session override only (see the invertMode declaration above);
                     // does not write global Reader Settings.
                     invertMode = mode
+                    sessionPreferenceKey?.let { key ->
+                        ReaderSessionPreferenceCache.put(
+                            key = key,
+                            preferences = ReaderSessionPreferences(rightToLeft, mode),
+                            nowMillis = System.currentTimeMillis()
+                        )
+                        ReaderExitWriteScope.launch {
+                            ReaderSessionPreferenceCache.persist(ctx.cacheDir)
+                        }
+                    }
                 },
                 onNextSingle = {
                     requestSingleStep(ReaderTurnDirection.Next, page >= pages - 1)

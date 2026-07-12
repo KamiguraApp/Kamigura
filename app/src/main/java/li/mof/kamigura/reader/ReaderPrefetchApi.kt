@@ -18,3 +18,14 @@ internal fun readerPrefetchPageIndices(
         turns = turns
     )
 }
+
+/** Internal to reader, not for external use. */
+internal fun readerPrefetchMemoryPlan(
+    estimatedBytes: List<Long>,
+    memoryCacheMaxBytes: Long
+): List<Boolean> {
+    return li.mof.kamigura.reader.internal.readerPrefetchMemoryPlan(
+        estimatedBytes = estimatedBytes,
+        memoryCacheMaxBytes = memoryCacheMaxBytes
+    )
+}

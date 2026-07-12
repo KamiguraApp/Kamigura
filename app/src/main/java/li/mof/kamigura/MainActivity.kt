@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -98,9 +99,21 @@ fun AppRoot(
     var availableUpdate by remember { mutableStateOf<AvailableUpdate?>(null) }
     var updateNoticeShown by rememberSaveable { mutableStateOf(false) }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
+    var installedImageLoader by remember { mutableStateOf<ImageLoader?>(null) }
 
     fun installImageLoader(loader: ImageLoader?) {
-        Coil.setImageLoader(loader ?: ImageLoader(ctx))
+        val next = loader ?: ImageLoader(ctx)
+        val previous = installedImageLoader
+        if (previous !== next) {
+            // A Coil DiskCache directory must have a single active owner.
+            previous?.shutdown()
+            Coil.setImageLoader(next)
+            installedImageLoader = next
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { installedImageLoader?.shutdown() }
     }
 
     LaunchedEffect(Unit) {
@@ -134,7 +147,7 @@ fun AppRoot(
             } else {
                 val client = KavitaClient(ctx, sessionStore)
                 val (_, okHttp) = client.buildApi()
-                client.buildImageLoader(okHttp)
+                client.buildImageLoader(okHttp, session)
             }
         } catch (t: Throwable) {
             KamiguraLog.w("Could not refresh active server image loader.", t)
@@ -150,8 +163,9 @@ fun AppRoot(
                     defaults = loginDefaults,
                     onLoggedIn = {
                         val client = KavitaClient(ctx, sessionStore)
+                        val session = sessionStore.load()
                         val (_, okHttp) = client.buildApi()
-                        installImageLoader(client.buildImageLoader(okHttp))
+                        installImageLoader(client.buildImageLoader(okHttp, session))
                         sessionRevision += 1
                         val destination = if (
                             loginDefaults.debugLibraryId > 0 && loginDefaults.debugSeriesId > 0
@@ -387,6 +401,7 @@ fun AppRoot(
                 SettingsHubScreen(
                     onServer = { nav.navigate("settings/server") },
                     onReader = { nav.navigate("settings/reader") },
+                    onStorage = { nav.navigate("settings/cache") },
                     onBack = { nav.popBackStack() }
                 )
             }
@@ -400,6 +415,9 @@ fun AppRoot(
             }
             composable("settings/reader") {
                 ReaderSettingsScreen(settingsStore = settingsStore, onBack = { nav.popBackStack() })
+            }
+            composable("settings/cache") {
+                CacheSettingsScreen(onBack = { nav.popBackStack() })
             }
         }
 }

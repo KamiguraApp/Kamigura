@@ -17,12 +17,16 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.util.concurrent.TimeUnit
+import li.mof.kamigura.cache.CoverImageCacheDirectory
+import li.mof.kamigura.cache.KavitaImageDiskCacheKeyInterceptor
+import li.mof.kamigura.cache.KavitaImageKeyer
+import li.mof.kamigura.cache.ReaderPageCacheDirectory
+import li.mof.kamigura.cache.imageCacheBudget
+import li.mof.kamigura.cache.imageCacheScope
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.create
 
-private const val CoverImageDiskCacheBytes = 256L * 1024L * 1024L
-private const val ReaderPageDiskCacheBytes = 256L * 1024L * 1024L
 private const val ApiCallTimeoutSeconds = 20L
 private const val ApiConnectTimeoutSeconds = 10L
 
@@ -142,40 +146,49 @@ class KavitaClient(
         return count
     }
 
-    fun buildImageLoader(okHttp: OkHttpClient): ImageLoader {
+    suspend fun buildImageLoader(okHttp: OkHttpClient, session: KavitaSession): ImageLoader {
+        val budget = imageCacheBudget(context)
+        val cacheScope = imageCacheScope(session, store.activeProfile()?.id)
         return ImageLoader.Builder(context)
             .okHttpClient(okHttp)
             .memoryCache {
                 MemoryCache.Builder(context)
-                    .maxSizePercent(0.10)
+                    .maxSizePercent(budget.coverMemoryPercent)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(context.cacheDir.resolve("cover_image_cache"))
-                    .maxSizeBytes(CoverImageDiskCacheBytes)
+                    .directory(context.cacheDir.resolve(CoverImageCacheDirectory))
+                    .maxSizeBytes(budget.coverDiskBytes)
                     .build()
             }
-            .components { add(SvgDecoder.Factory()) }
+            .components {
+                add(KavitaImageDiskCacheKeyInterceptor(cacheScope))
+                add(KavitaImageKeyer(cacheScope))
+                add(SvgDecoder.Factory())
+            }
             .build()
     }
 
-    fun buildReaderImageLoader(okHttp: OkHttpClient): ImageLoader {
+    suspend fun buildReaderImageLoader(okHttp: OkHttpClient, session: KavitaSession): ImageLoader {
+        val budget = imageCacheBudget(context)
+        val cacheScope = imageCacheScope(session, store.activeProfile()?.id)
         return ImageLoader.Builder(context)
             .okHttpClient(okHttp)
             .memoryCache {
                 MemoryCache.Builder(context)
-                    // Spread reading keeps ~10 prefetched pages plus the curl pre-render
-                    // decoded; at 20% they evicted within a couple of turns and every
-                    // display paid a full-resolution decode.
-                    .maxSizePercent(0.30)
+                    .maxSizePercent(budget.readerMemoryPercent)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(context.cacheDir.resolve("reader_page_cache"))
-                    .maxSizeBytes(ReaderPageDiskCacheBytes)
+                    .directory(context.cacheDir.resolve(ReaderPageCacheDirectory))
+                    .maxSizeBytes(budget.readerDiskBytes)
                     .build()
+            }
+            .components {
+                add(KavitaImageDiskCacheKeyInterceptor(cacheScope))
+                add(KavitaImageKeyer(cacheScope))
             }
             .build()
     }

@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
@@ -77,7 +78,7 @@ private val SettingsFormContentMaxWidth = 720.dp
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SettingsTopAppBar(title: String, onBack: () -> Unit) {
+internal fun SettingsTopAppBar(title: String, onBack: () -> Unit) {
     MaterialTheme(motionScheme = MotionScheme.expressive()) {
         TopAppBar(
             title = { Text(title) },
@@ -95,6 +96,7 @@ private fun SettingsTopAppBar(title: String, onBack: () -> Unit) {
 fun SettingsHubScreen(
     onServer: () -> Unit,
     onReader: () -> Unit,
+    onStorage: () -> Unit,
     onBack: () -> Unit
 ) {
     Surface(
@@ -128,6 +130,11 @@ fun SettingsHubScreen(
                         icon = Icons.AutoMirrored.Filled.MenuBook,
                         title = "Reader",
                         onClick = onReader
+                    )
+                    SettingsNavRow(
+                        icon = Icons.Filled.Storage,
+                        title = "Storage & cache",
+                        onClick = onStorage
                     )
                 }
                 Spacer(Modifier.weight(1f))

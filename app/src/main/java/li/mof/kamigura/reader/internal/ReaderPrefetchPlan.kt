@@ -62,3 +62,51 @@ internal fun readerPrefetchSlotWidthPx(
     val width = if (layout.singlePage) viewportWidthPx else viewportWidthPx / 2f
     return width.roundToInt().coerceAtLeast(1)
 }
+
+/** Internal to reader, not for external use. */
+internal fun readerEstimatedDecodeBytes(
+    page: Int,
+    pageDimensions: Map<Int, FileDimensionDto>,
+    targetWidth: Int,
+    targetHeight: Int
+): Long {
+    val source = pageDimensions[page]
+    val sourceWidth = source?.width?.takeIf { it > 0 }
+    val sourceHeight = source?.height?.takeIf { it > 0 }
+    val decodedPixels = if (sourceWidth != null && sourceHeight != null) {
+        val scale = minOf(
+            targetWidth.toDouble() / sourceWidth,
+            targetHeight.toDouble() / sourceHeight,
+            1.0
+        )
+        val width = (sourceWidth * scale).toLong().coerceAtLeast(1L)
+        val height = (sourceHeight * scale).toLong().coerceAtLeast(1L)
+        width * height
+    } else {
+        targetWidth.toLong().coerceAtLeast(1L) * targetHeight.toLong().coerceAtLeast(1L)
+    }
+    return decodedPixels.coerceAtMost(Long.MAX_VALUE / 4L) * 4L
+}
+
+/** Internal to reader, not for external use. */
+internal fun readerPrefetchMemoryPlan(
+    estimatedBytes: List<Long>,
+    memoryCacheMaxBytes: Long
+): List<Boolean> {
+    if (memoryCacheMaxBytes <= 0L) return estimatedBytes.map { false }
+    // Reserve the remaining 30% for the visible spread, curl surfaces, and short-lived
+    // transition overlap. Targets after the first miss are not decoded merely to warm disk.
+    val budget = memoryCacheMaxBytes * 7L / 10L
+    var used = 0L
+    var exhausted = false
+    return estimatedBytes.map { estimate ->
+        val safeEstimate = estimate.coerceAtLeast(0L)
+        if (!exhausted && used <= budget && safeEstimate <= budget - used) {
+            used += safeEstimate
+            true
+        } else {
+            exhausted = true
+            false
+        }
+    }
+}

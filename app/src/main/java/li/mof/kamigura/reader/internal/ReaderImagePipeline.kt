@@ -218,10 +218,8 @@ internal suspend fun prefetchReaderPages(
     targets.map { target ->
         launch {
             semaphore.withPermit {
-                // Every prefetched page goes into the memory cache: a spread turn consumes
-                // two pages, so capping the decoded set (an earlier index < 4 policy) meant
-                // pages hit only the disk cache after two turns and every display paid a
-                // full-resolution decode. The LRU cache evicts under pressure anyway.
+                // Prefetch targets are already bounded to the reader's RAM working set.
+                // Previously displayed pages remain available through Coil's disk LRU.
                 val request = ImageRequest.Builder(context)
                     .data(target.model)
                     .size(target.targetWidth, target.targetHeight)

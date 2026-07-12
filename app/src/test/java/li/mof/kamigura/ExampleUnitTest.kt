@@ -2,8 +2,18 @@ package li.mof.kamigura
 
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.download.compareNaturalFileNames
+import li.mof.kamigura.cache.imageCacheBudget
+import li.mof.kamigura.cache.imageCacheScope
+import li.mof.kamigura.cache.stableKavitaImageCacheKey
+import li.mof.kamigura.reader.readerPrefetchMemoryPlan
 import li.mof.kamigura.reader.readerPrefetchPageIndices
+import li.mof.kamigura.reader.ReaderSessionPreferenceCache
+import li.mof.kamigura.reader.ReaderSessionPreferences
+import li.mof.kamigura.reader.ReaderSessionPreferenceTtlMillis
+import li.mof.kamigura.reader.readerSessionPreferenceKey
 import li.mof.kamigura.update.isVersionNewer
+import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -136,6 +146,146 @@ class ExampleUnitTest {
                 expectedBytes = 950L * mib,
                 availableBytes = 910L * mib
             )
+        )
+    }
+
+    @Test
+    fun imageCacheKeyIgnoresApiKeyRotationForTheSameProfile() {
+        val session = KavitaSession(baseUrl = "https://example.test", username = "reader")
+        val scope = imageCacheScope(session)
+        val before = stableKavitaImageCacheKey(
+            scope,
+            "https://example.test/api/Reader/image?chapterId=42&apiKey=old&page=7"
+        )
+        val after = stableKavitaImageCacheKey(
+            scope,
+            "https://example.test/api/Reader/image?chapterId=42&apiKey=new&page=7"
+        )
+
+        assertEquals(before, after)
+    }
+
+    @Test
+    fun imageCacheScopeSeparatesUsersOnTheSameServer() {
+        val first = imageCacheScope(KavitaSession(baseUrl = "https://example.test", username = "reader-a"))
+        val second = imageCacheScope(KavitaSession(baseUrl = "https://example.test", username = "reader-b"))
+
+        assertNotEquals(first, second)
+    }
+
+    @Test
+    fun largeHeapDevicesReceiveAReaderFocusedCacheBudget() {
+        val gib = 1024L * 1024L * 1024L
+        val budget = imageCacheBudget(
+            memoryClassMb = 512,
+            lowRam = false,
+            usableStorageBytes = 512L * gib
+        )
+
+        assertEquals(0.40, budget.readerMemoryPercent, 0.0)
+        assertEquals(8L * gib, budget.readerDiskBytes)
+        assertEquals(1L * gib, budget.coverDiskBytes)
+    }
+
+    @Test
+    fun lowFreeStorageDoesNotAllocateMoreThanOnePercentToImageCache() {
+        val mib = 1024L * 1024L
+        val budget = imageCacheBudget(
+            memoryClassMb = 512,
+            lowRam = false,
+            usableStorageBytes = 2_000L * mib
+        )
+
+        assertEquals(20L * mib, budget.coverDiskBytes + budget.readerDiskBytes)
+    }
+
+    @Test
+    fun prefetchStopsAtTheReaderMemoryWorkingSetBoundary() {
+        assertEquals(
+            listOf(true, true, false, false),
+            readerPrefetchMemoryPlan(
+                estimatedBytes = listOf(30L, 40L, 50L, 1L),
+                memoryCacheMaxBytes = 100L
+            )
+        )
+    }
+
+    @Test
+    fun imageCacheScopeUsesStableProfileIdForApiKeyOnlyProfiles() {
+        val before = imageCacheScope(
+            KavitaSession(baseUrl = "https://example.test", apiKey = "old"),
+            profileId = "profile-1"
+        )
+        val after = imageCacheScope(
+            KavitaSession(baseUrl = "https://example.test", apiKey = "new"),
+            profileId = "profile-1"
+        )
+
+        assertEquals(before, after)
+    }
+
+    @Test
+    fun readerSessionPreferencesExpireAfterThirtyDays() {
+        ReaderSessionPreferenceCache.clearMemoryForTest()
+        val preferences = ReaderSessionPreferences(
+            rightToLeft = false,
+            invertMode = InvertMode.Always
+        )
+        ReaderSessionPreferenceCache.put("book", preferences, nowMillis = 1_000L)
+
+        assertEquals(
+            preferences,
+            ReaderSessionPreferenceCache.get(
+                "book",
+                nowMillis = 1_000L + ReaderSessionPreferenceTtlMillis - 1L
+            )
+        )
+        assertEquals(
+            null,
+            ReaderSessionPreferenceCache.get(
+                "book",
+                nowMillis = 1_000L + ReaderSessionPreferenceTtlMillis * 2L
+            )
+        )
+    }
+
+    @Test
+    fun readerSessionPreferencesSurviveAnInMemoryCacheReset() = runBlocking {
+        val directory = Files.createTempDirectory("reader-preferences").toFile()
+        val preferences = ReaderSessionPreferences(
+            rightToLeft = true,
+            invertMode = InvertMode.Smart
+        )
+        try {
+            ReaderSessionPreferenceCache.clear(directory)
+            ReaderSessionPreferenceCache.put("book", preferences, nowMillis = 10_000L)
+            ReaderSessionPreferenceCache.persist(directory)
+            ReaderSessionPreferenceCache.clearMemoryForTest()
+
+            ReaderSessionPreferenceCache.load(directory, nowMillis = 11_000L)
+
+            assertEquals(
+                preferences,
+                ReaderSessionPreferenceCache.get("book", nowMillis = 11_000L)
+            )
+        } finally {
+            ReaderSessionPreferenceCache.clear(directory)
+            ReaderSessionPreferenceCache.clearMemoryForTest()
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun readerSessionPreferencesAreScopedPerProfileAndSeries() {
+        val session = KavitaSession(baseUrl = "https://example.test", username = "reader")
+
+        assertNotEquals(
+            readerSessionPreferenceKey(session, "profile-a", seriesId = 10),
+            readerSessionPreferenceKey(session, "profile-a", seriesId = 11)
+        )
+        assertNotEquals(
+            readerSessionPreferenceKey(session, "profile-a", seriesId = 10),
+            readerSessionPreferenceKey(session, "profile-b", seriesId = 10)
         )
     }
 }
