@@ -11,14 +11,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +31,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import li.mof.kamigura.BookmarkDto
 import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaClient
@@ -40,6 +45,7 @@ import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun BookmarksScreen(
     sessionStore: KavitaSessionStore,
@@ -53,15 +59,17 @@ internal fun BookmarksScreen(
     ) -> Unit
 ) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var session by remember { mutableStateOf(KavitaSession()) }
     var bookmarks by remember { mutableStateOf<List<BookmarkDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(retryKey) {
-        loading = true
-        error = null
+    suspend fun loadBookmarks(initialLoad: Boolean) {
+        if (initialLoad) loading = true else refreshing = true
+        if (initialLoad) error = null
         try {
             val loadedSession = sessionStore.load()
             session = loadedSession
@@ -74,12 +82,19 @@ internal fun BookmarksScreen(
                         .thenBy { it.chapterId }
                         .thenBy { it.page }
                 )
+            error = null
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             KamiguraLog.w("Could not load bookmarks.", t)
-            error = t.message ?: t.toString()
+            if (bookmarks.isEmpty()) error = t.message ?: t.toString()
         } finally {
-            loading = false
+            if (initialLoad) loading = false else refreshing = false
         }
+    }
+
+    LaunchedEffect(retryKey) {
+        loadBookmarks(initialLoad = true)
     }
 
     BrowsePageScaffold(title = "Bookmarks", onBack = onBack) {
@@ -91,21 +106,29 @@ internal fun BookmarksScreen(
                 actionLabel = "Retry",
                 onAction = { retryKey++ }
             )
-            bookmarks.isEmpty() -> DarkMessageState("Bookmarks", "No bookmarked pages yet.")
-            else -> PosterGrid(items = bookmarks, key = { bookmark -> bookmark.id ?: bookmark.stableKey() }) { bookmark ->
-                BookmarkCard(
-                    bookmark = bookmark,
-                    session = session,
-                    onClick = {
-                        onOpenBookmark(
-                            bookmark.series?.libraryId ?: 0,
-                            bookmark.seriesId,
-                            bookmark.volumeId,
-                            bookmark.chapterId,
-                            bookmark.page.coerceAtLeast(0)
+            else -> PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = { scope.launch { loadBookmarks(initialLoad = false) } }
+            ) {
+                if (bookmarks.isEmpty()) {
+                    DarkMessageState("Bookmarks", "No bookmarked pages yet.")
+                } else {
+                    PosterGrid(items = bookmarks, key = { bookmark -> bookmark.id ?: bookmark.stableKey() }) { bookmark ->
+                        BookmarkCard(
+                            bookmark = bookmark,
+                            session = session,
+                            onClick = {
+                                onOpenBookmark(
+                                    bookmark.series?.libraryId ?: 0,
+                                    bookmark.seriesId,
+                                    bookmark.volumeId,
+                                    bookmark.chapterId,
+                                    bookmark.page.coerceAtLeast(0)
+                                )
+                            }
                         )
                     }
-                )
+                }
             }
         }
     }

@@ -16,15 +16,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +35,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import li.mof.kamigura.CollectionDto
 import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaClient
@@ -41,6 +46,7 @@ import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.theme.KamiguraSurface
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CollectionsScreen(
     sessionStore: KavitaSessionStore,
@@ -48,23 +54,32 @@ internal fun CollectionsScreen(
     onOpenCollection: (CollectionDto) -> Unit
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
     var collections by remember { mutableStateOf<List<CollectionDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(retryKey) {
-        loading = true
-        error = null
+    suspend fun loadCollections(initialLoad: Boolean) {
+        if (initialLoad) loading = true else refreshing = true
+        if (initialLoad) error = null
         try {
             val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
             collections = api.collections().sortedBy { it.title }
+            error = null
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             KamiguraLog.w("Could not load collections.", t)
-            error = t.message ?: t.toString()
+            if (collections.isEmpty()) error = t.message ?: t.toString()
         } finally {
-            loading = false
+            if (initialLoad) loading = false else refreshing = false
         }
+    }
+
+    LaunchedEffect(retryKey) {
+        loadCollections(initialLoad = true)
     }
 
     BrowsePageScaffold(title = "Collections", onBack = onBack) {
@@ -76,17 +91,25 @@ internal fun CollectionsScreen(
                 actionLabel = "Retry",
                 onAction = { retryKey++ }
             )
-            collections.isEmpty() -> DarkMessageState("Collections", "No collections yet.")
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+            else -> PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = { scope.launch { loadCollections(initialLoad = false) } }
             ) {
-                items(collections, key = { it.id }) { collection ->
-                    CollectionRow(
-                        collection = collection,
-                        onClick = { onOpenCollection(collection) }
-                    )
+                if (collections.isEmpty()) {
+                    DarkMessageState("Collections", "No collections yet.")
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(collections, key = { it.id }) { collection ->
+                            CollectionRow(
+                                collection = collection,
+                                onClick = { onOpenCollection(collection) }
+                            )
+                        }
+                    }
                 }
             }
         }

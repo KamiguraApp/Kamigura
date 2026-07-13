@@ -17,12 +17,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import li.mof.kamigura.CreateReadingListDto
 import li.mof.kamigura.KamiguraLog
@@ -82,6 +85,7 @@ internal fun ReadingListsScreen(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ReadingListsPane(
     api: KavitaApi?,
@@ -99,6 +103,25 @@ internal fun ReadingListsPane(
     var createTitle by remember { mutableStateOf("") }
     var creating by remember { mutableStateOf(false) }
     var retryKey by remember { mutableIntStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
+
+    suspend fun loadReadingLists(initialLoad: Boolean) {
+        val loadedApi = api ?: return
+        if (initialLoad) loading = true else refreshing = true
+        if (initialLoad) error = null
+        try {
+            readingLists = loadedApi.readingLists()
+                .sortedBy { it.title ?: "Reading List ${it.id}" }
+            error = null
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            KamiguraLog.w("Could not load reading lists.", t)
+            if (readingLists.isEmpty()) error = t.message ?: t.toString()
+        } finally {
+            if (initialLoad) loading = false else refreshing = false
+        }
+    }
 
     LaunchedEffect(api, apiError, retryKey) {
         if (apiError != null) {
@@ -106,23 +129,12 @@ internal fun ReadingListsPane(
             error = apiError
             return@LaunchedEffect
         }
-        val loadedApi = api
-        if (loadedApi == null) {
+        if (api == null) {
             loading = true
             error = null
             return@LaunchedEffect
         }
-        loading = true
-        error = null
-        try {
-            readingLists = loadedApi.readingLists()
-                .sortedBy { it.title ?: "Reading List ${it.id}" }
-        } catch (t: Throwable) {
-            KamiguraLog.w("Could not load reading lists.", t)
-            error = t.message ?: t.toString()
-        } finally {
-            loading = false
-        }
+        loadReadingLists(initialLoad = true)
     }
 
     BrowsePageScaffold(
@@ -140,27 +152,38 @@ internal fun ReadingListsPane(
                     if (apiError != null) onRetryApi?.invoke() else retryKey++
                 }
             )
-            else -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item {
-                    NewReadingListRow(onClick = {
-                        createTitle = ""
-                        createDialog = true
-                    })
-                }
-                if (readingLists.isEmpty()) {
-                    item {
-                        DarkMessageState("Reading Lists", "No reading lists yet.")
+            else -> PullToRefreshBox(
+                isRefreshing = refreshing,
+                onRefresh = {
+                    if (apiError != null) {
+                        onRetryApi?.invoke()
+                    } else {
+                        scope.launch { loadReadingLists(initialLoad = false) }
                     }
                 }
-                items(readingLists, key = { it.id }) { readingList ->
-                    ReadingListRow(
-                        readingList = readingList,
-                        onClick = { onOpenReadingList(readingList) }
-                    )
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    item {
+                        NewReadingListRow(onClick = {
+                            createTitle = ""
+                            createDialog = true
+                        })
+                    }
+                    if (readingLists.isEmpty()) {
+                        item {
+                            DarkMessageState("Reading Lists", "No reading lists yet.")
+                        }
+                    }
+                    items(readingLists, key = { it.id }) { readingList ->
+                        ReadingListRow(
+                            readingList = readingList,
+                            onClick = { onOpenReadingList(readingList) }
+                        )
+                    }
                 }
             }
         }

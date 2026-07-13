@@ -434,6 +434,8 @@ internal fun HomeContent(
                     WantToReadGrid(
                         series = wantToRead,
                         session = session,
+                        refreshing = refreshing,
+                        onRefresh = onRefresh,
                         onSelectSeries = onSelectSeries,
                         onRemove = onRemoveWantToRead,
                         hasMore = wantToReadHasMore,
@@ -596,10 +598,13 @@ private fun BrowseHubItem(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun WantToReadGrid(
     series: List<SeriesDto>,
     session: KavitaSession,
+    refreshing: Boolean,
+    onRefresh: () -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
     onRemove: (List<SeriesDto>) -> Unit,
     hasMore: Boolean,
@@ -710,37 +715,42 @@ private fun WantToReadGrid(
             }
         }
     ) {
-        if (series.isEmpty()) {
-            DarkMessageState(title = "Want to Read", body = "No series added yet.")
-        } else {
-            PosterGrid(
-                items = series,
-                key = { it.id },
-                state = gridState,
-                footer = if (loadingMore || loadMoreError != null) {
-                    {
-                        PagingFooter(
-                            loading = loadingMore,
-                            error = loadMoreError,
-                            onRetry = onLoadMore
-                        )
-                    }
-                } else null
-            ) { item ->
-                SelectableSeriesPosterCard(
-                    series = item,
-                    session = session,
-                    selectionMode = selectionMode,
-                    selected = item.id in selectedIdSet,
-                    onClick = {
-                        if (selectionMode) toggleSelection(item.id) else onSelectSeries(item)
-                    },
-                    onLongClick = {
-                        if (!selectionMode) selectionMode = true
-                        toggleSelection(item.id)
-                    },
-                    onSelectionChange = { toggleSelection(item.id) }
-                )
+        PullToRefreshBox(
+            isRefreshing = refreshing && !selectionMode,
+            onRefresh = { if (!selectionMode) onRefresh() }
+        ) {
+            if (series.isEmpty()) {
+                DarkMessageState(title = "Want to Read", body = "No series added yet.")
+            } else {
+                PosterGrid(
+                    items = series,
+                    key = { it.id },
+                    state = gridState,
+                    footer = if (loadingMore || loadMoreError != null) {
+                        {
+                            PagingFooter(
+                                loading = loadingMore,
+                                error = loadMoreError,
+                                onRetry = onLoadMore
+                            )
+                        }
+                    } else null
+                ) { item ->
+                    SelectableSeriesPosterCard(
+                        series = item,
+                        session = session,
+                        selectionMode = selectionMode,
+                        selected = item.id in selectedIdSet,
+                        onClick = {
+                            if (selectionMode) toggleSelection(item.id) else onSelectSeries(item)
+                        },
+                        onLongClick = {
+                            if (!selectionMode) selectionMode = true
+                            toggleSelection(item.id)
+                        },
+                        onSelectionChange = { toggleSelection(item.id) }
+                    )
+                }
             }
         }
     }
