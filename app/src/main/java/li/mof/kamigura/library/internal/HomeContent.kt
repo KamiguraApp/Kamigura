@@ -20,7 +20,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -45,9 +49,11 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,6 +110,7 @@ private fun LibraryHub(
     session: KavitaSession,
     onSelectLibrary: (LibraryDto) -> Unit,
     onScanLibrary: (LibraryDto) -> Unit,
+    listState: LazyListState,
     modifier: Modifier = Modifier
 ) {
     BrowsePageScaffold(title = "Libraries", modifier = modifier) {
@@ -111,6 +118,7 @@ private fun LibraryHub(
             DarkMessageState(title = "Libraries", body = "No libraries")
         } else {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -276,6 +284,7 @@ private fun HomePlaceholder(destination: HomeDestination, modifier: Modifier = M
 @Composable
 internal fun HomeContent(
     destination: HomeDestination,
+    scrollToTopSignal: Int,
     libraries: List<LibraryDto>,
     librarySeriesCounts: Map<Int, Int>,
     isAdmin: Boolean,
@@ -305,10 +314,22 @@ internal fun HomeContent(
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var browseDrilldown by remember { mutableStateOf<BrowseDrilldown?>(null) }
+    val homeListState = rememberLazyListState()
+    val librariesListState = rememberLazyListState()
+    val wantToReadGridState = rememberLazyGridState()
+    val searchListState = rememberLazyListState()
+    var browseDrilldown by rememberSaveable { mutableStateOf<BrowseDrilldown?>(null) }
+    var searchQuery by rememberSaveable(initialSearchQuery) { mutableStateOf(initialSearchQuery) }
 
-    if (destination != HomeDestination.Browse && browseDrilldown != null) {
-        browseDrilldown = null
+    LaunchedEffect(destination, scrollToTopSignal) {
+        if (scrollToTopSignal <= 0) return@LaunchedEffect
+        when (destination) {
+            HomeDestination.Home -> homeListState.animateScrollToItem(0)
+            HomeDestination.Libraries -> librariesListState.animateScrollToItem(0)
+            HomeDestination.WantToRead -> wantToReadGridState.animateScrollToItem(0)
+            HomeDestination.Search -> searchListState.animateScrollToItem(0)
+            HomeDestination.Browse -> Unit
+        }
     }
 
     Column(modifier.fillMaxSize()) {
@@ -350,6 +371,7 @@ internal fun HomeContent(
                         )
                     } else {
                         LazyColumn(
+                            state = homeListState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(22.dp)
@@ -382,6 +404,7 @@ internal fun HomeContent(
                     session = session,
                     onSelectLibrary = onSelectLibrary,
                     onScanLibrary = onScanLibrary,
+                    listState = librariesListState,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -399,6 +422,7 @@ internal fun HomeContent(
                         session = session,
                         onSelectSeries = onSelectSeries,
                         onRemove = onRemoveWantToRead,
+                        gridState = wantToReadGridState,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -438,7 +462,9 @@ internal fun HomeContent(
                     api = api,
                     session = session,
                     historyStore = searchHistoryStore,
-                    initialQuery = initialSearchQuery,
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    listState = searchListState,
                     onSelectSeries = onSelectSeries,
                     onOpenFilteredSeries = onOpenFilteredSeries,
                     modifier = Modifier.fillMaxSize()
@@ -557,13 +583,14 @@ private fun WantToReadGrid(
     session: KavitaSession,
     onSelectSeries: (SeriesDto) -> Unit,
     onRemove: (SeriesDto) -> Unit,
+    gridState: LazyGridState,
     modifier: Modifier = Modifier
 ) {
     BrowsePageScaffold(title = "Want to Read", modifier = modifier) {
         if (series.isEmpty()) {
             DarkMessageState(title = "Want to Read", body = "No series added yet.")
         } else {
-            PosterGrid(items = series, key = { it.id }) { item ->
+            PosterGrid(items = series, key = { it.id }, state = gridState) { item ->
                 SeriesPosterCardMenu(
                     series = item,
                     session = session,

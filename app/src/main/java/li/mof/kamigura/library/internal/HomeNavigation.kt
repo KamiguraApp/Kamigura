@@ -124,9 +124,16 @@ internal fun HomeShell(
             if (initialSearchQuery.isNotBlank()) HomeDestination.Search else HomeDestination.Home
         )
     }
+    var reselectionCounts by remember { mutableStateOf(IntArray(HomeDestination.entries.size)) }
 
     fun selectDestination(next: HomeDestination) {
-        destination = next
+        if (next == destination) {
+            reselectionCounts = reselectionCounts.copyOf().also { counts ->
+                counts[next.ordinal]++
+            }
+        } else {
+            destination = next
+        }
     }
 
     // The tabs are internal state on a single nav destination, so on a non-Home tab the
@@ -154,6 +161,7 @@ internal fun HomeShell(
                     )
                     HomeContent(
                         destination = destination,
+                        scrollToTopSignal = reselectionCounts[destination.ordinal],
                         libraries = libraries,
                         librarySeriesCounts = librarySeriesCounts,
                         isAdmin = isAdmin,
@@ -190,6 +198,7 @@ internal fun HomeShell(
                 HomeTopBar(serverName = serverName, onOpenSettings = onOpenSettings)
                 HomeContent(
                     destination = destination,
+                    scrollToTopSignal = reselectionCounts[destination.ordinal],
                     libraries = libraries,
                     librarySeriesCounts = librarySeriesCounts,
                     isAdmin = isAdmin,

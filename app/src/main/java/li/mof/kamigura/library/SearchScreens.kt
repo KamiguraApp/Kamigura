@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -42,7 +43,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -103,7 +103,9 @@ internal fun HomeSearchScreen(
     api: KavitaApi?,
     session: KavitaSession,
     historyStore: SearchHistoryStore,
-    initialQuery: String = "",
+    query: String,
+    onQueryChange: (String) -> Unit,
+    listState: LazyListState,
     onSelectSeries: (SeriesDto) -> Unit,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     modifier: Modifier = Modifier
@@ -111,15 +113,10 @@ internal fun HomeSearchScreen(
     val scope = rememberCoroutineScope()
     val recentQueries by historyStore.recentQueries.collectAsState(initial = emptyList())
 
-    var query by rememberSaveable { mutableStateOf(initialQuery) }
     var result by remember { mutableStateOf(SearchResultGroupDto()) }
     var searching by remember { mutableStateOf(false) }
     var searchError by remember { mutableStateOf<String?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(initialQuery) {
-        if (initialQuery.isNotBlank()) query = initialQuery
-    }
 
     LaunchedEffect(api, query, retryKey) {
         val trimmed = query.trim()
@@ -147,6 +144,7 @@ internal fun HomeSearchScreen(
     }
 
     LazyColumn(
+        state = listState,
         modifier = modifier
             .fillMaxSize()
             .background(KamiguraBackground),
@@ -158,9 +156,9 @@ internal fun HomeSearchScreen(
                 inputField = {
                     SearchBarDefaults.InputField(
                         query = query,
-                        onQueryChange = { query = it },
+                        onQueryChange = onQueryChange,
                         onSearch = {
-                            query = it
+                            onQueryChange(it)
                             scope.launch { historyStore.record(it) }
                         },
                         expanded = false,
@@ -169,7 +167,7 @@ internal fun HomeSearchScreen(
                         leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                         trailingIcon = {
                             if (query.isNotBlank()) {
-                                IconButton(onClick = { query = "" }) {
+                                IconButton(onClick = { onQueryChange("") }) {
                                     Icon(Icons.Filled.Close, contentDescription = "Clear search")
                                 }
                             }
@@ -186,7 +184,7 @@ internal fun HomeSearchScreen(
             item {
                 RecentSearches(
                     queries = recentQueries,
-                    onPick = { query = it }
+                    onPick = onQueryChange
                 )
             }
             return@LazyColumn
