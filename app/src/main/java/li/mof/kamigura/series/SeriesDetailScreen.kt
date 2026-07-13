@@ -43,6 +43,10 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
@@ -125,6 +129,7 @@ import li.mof.kamigura.series.internal.readingProgress
 import li.mof.kamigura.series.internal.releaseDateText
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flowOf
@@ -159,6 +164,7 @@ fun ChapterPickScreen(
     var issueActionBusy by remember { mutableStateOf(false) }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
     val pullRefreshState = rememberPullToRefreshState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     suspend fun loadSeriesDetails(initialLoad: Boolean) {
         if (initialLoad) {
@@ -452,19 +458,34 @@ fun ChapterPickScreen(
             onRemoveDownload = {
                 issue?.let { item ->
                     scope.launch {
-                        issueActionBusy = true
-                        runCatching { offlineRepository.remove(session, item.chapter.id) }
-                            .onSuccess {
-                                Toast.makeText(ctx, "Download removed", Toast.LENGTH_SHORT).show()
-                            }
-                            .onFailure {
-                                KamiguraLog.w("Could not remove offline download for chapter ${item.chapter.id}.", it)
-                                Toast.makeText(ctx, "Could not remove download", Toast.LENGTH_SHORT).show()
-                            }
-                        issueActionBusy = false
+                        selectedIssue = null
+                        selectedIssueDetail = null
+                        selectedIssueSize = null
+                        val result = snackbarHostState.showSnackbar(
+                            message = "Download removed",
+                            actionLabel = "Undo",
+                            withDismissAction = true,
+                            duration = SnackbarDuration.Long
+                        )
+                        if (result == SnackbarResult.ActionPerformed) return@launch
+                        try {
+                            offlineRepository.remove(session, item.chapter.id)
+                        } catch (c: CancellationException) {
+                            throw c
+                        } catch (t: Throwable) {
+                            KamiguraLog.w("Could not remove offline download for chapter ${item.chapter.id}.", t)
+                            snackbarHostState.showSnackbar("Could not remove download")
+                        }
                     }
                 }
             }
+        )
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(16.dp)
         )
     }
 }

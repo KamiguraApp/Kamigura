@@ -19,6 +19,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -29,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -36,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.KamiguraLog
@@ -169,11 +175,14 @@ internal fun DownloadedScreen(
     var selectedVolume by remember { mutableStateOf<VolumeDto?>(null) }
     var issueLoading by remember { mutableStateOf(false) }
     var issueActionBusy by remember { mutableStateOf(false) }
+    var pendingDeleteIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val downloadedFlow = remember(session.baseUrl, session.username, session.apiKey) {
         offlineRepository.observeDownloaded(session)
     }
     val downloaded by downloadedFlow.collectAsState(initial = emptyList())
+    val visibleDownloads = downloaded.filterNot { it.chapterId in pendingDeleteIds }
 
     LaunchedEffect(Unit) {
         val loadedSession = sessionStore.load()
@@ -226,21 +235,35 @@ internal fun DownloadedScreen(
     }
 
     fun deleteDownloaded(record: OfflineIssueRecord, closeSheet: Boolean = false) {
+        if (record.chapterId in pendingDeleteIds) return
         scope.launch {
             issueActionBusy = true
-            runCatching { offlineRepository.remove(session, record.chapterId) }
-                .onSuccess {
-                    if (closeSheet && selectedDownload?.chapterId == record.chapterId) {
-                        selectedDownload = null
-                        selectedChapter = null
-                        selectedVolume = null
-                    }
-                    Toast.makeText(ctx, "Download deleted", Toast.LENGTH_SHORT).show()
-                }
-                .onFailure {
-                    KamiguraLog.w("Could not delete downloaded chapter ${record.chapterId}.", it)
-                    Toast.makeText(ctx, "Could not delete download", Toast.LENGTH_SHORT).show()
-                }
+            pendingDeleteIds = pendingDeleteIds + record.chapterId
+            if (closeSheet && selectedDownload?.chapterId == record.chapterId) {
+                selectedDownload = null
+                selectedChapter = null
+                selectedVolume = null
+            }
+            val result = snackbarHostState.showSnackbar(
+                message = "Download deleted",
+                actionLabel = "Undo",
+                withDismissAction = true,
+                duration = SnackbarDuration.Long
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                pendingDeleteIds = pendingDeleteIds - record.chapterId
+                issueActionBusy = false
+                return@launch
+            }
+            try {
+                offlineRepository.remove(session, record.chapterId)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                KamiguraLog.w("Could not delete downloaded chapter ${record.chapterId}.", t)
+                pendingDeleteIds = pendingDeleteIds - record.chapterId
+                snackbarHostState.showSnackbar("Could not delete download")
+            }
             issueActionBusy = false
         }
     }
@@ -253,12 +276,18 @@ internal fun DownloadedScreen(
             .background(KamiguraBackground)
     ) {
         DownloadedGrid(
-            records = downloaded,
+            records = visibleDownloads,
             session = session,
             onSelect = ::openDownloaded,
             onDelete = { deleteDownloaded(it) },
             onBack = onBack,
             modifier = Modifier.fillMaxSize()
+        )
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(16.dp)
         )
     }
 

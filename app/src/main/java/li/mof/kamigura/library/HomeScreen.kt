@@ -171,12 +171,12 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
     val searchHistoryStore = remember(ctx) { SearchHistoryStore(ctx) }
-    val updateSnackbarHostState = remember { SnackbarHostState() }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(availableUpdate) {
         val update = availableUpdate ?: return@LaunchedEffect
         onUpdateNoticeShown()
-        val result = updateSnackbarHostState.showSnackbar(
+        val result = snackbarHostState.showSnackbar(
             message = "Kamigura ${update.tagName} is available",
             actionLabel = "View release",
             withDismissAction = true,
@@ -299,14 +299,32 @@ fun LibraryScreen(
     fun removeFromWantToRead(series: SeriesDto) {
         val currentApi = api ?: return
         scope.launch {
-            runCatching {
+            val originalIndex = wantToRead.indexOfFirst { it.id == series.id }
+            runCatchingCancellable {
                 currentApi.removeSeriesFromWantToRead(UpdateWantToReadDto(listOf(series.id)))
             }.onSuccess {
                 wantToRead = wantToRead.filterNot { it.id == series.id }
-                Toast.makeText(ctx, "Removed from Want to Read", Toast.LENGTH_SHORT).show()
+                val result = snackbarHostState.showSnackbar(
+                    message = "Removed from Want to Read",
+                    actionLabel = "Undo",
+                    withDismissAction = true,
+                    duration = SnackbarDuration.Long
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    runCatchingCancellable {
+                        currentApi.addSeriesToWantToRead(UpdateWantToReadDto(listOf(series.id)))
+                    }.onSuccess {
+                        val restored = wantToRead.toMutableList()
+                        restored.add(originalIndex.coerceIn(0, restored.size), series)
+                        wantToRead = restored.distinctBy { it.id }
+                    }.onFailure {
+                        KamiguraLog.w("Could not restore series to Want to Read.", it)
+                        snackbarHostState.showSnackbar("Could not restore Want to Read item")
+                    }
+                }
             }.onFailure {
                 KamiguraLog.w("Could not remove series from Want to Read.", it)
-                Toast.makeText(ctx, "Could not update Want to Read", Toast.LENGTH_SHORT).show()
+                snackbarHostState.showSnackbar("Could not update Want to Read")
             }
         }
     }
@@ -369,7 +387,7 @@ fun LibraryScreen(
             onRemoveWantToRead = ::removeFromWantToRead
         )
         SnackbarHost(
-            hostState = updateSnackbarHostState,
+            hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
