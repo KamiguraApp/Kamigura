@@ -68,6 +68,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -139,8 +140,9 @@ internal fun SeriesShelfScreen(
     var session by remember { mutableStateOf(KavitaSession()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(shelfKind) {
+    LaunchedEffect(shelfKind, retryKey) {
         loading = true
         error = null
         try {
@@ -165,7 +167,12 @@ internal fun SeriesShelfScreen(
         BrowsePageScaffold(title = shelfKind.title, onBack = onBack) {
             when {
                 loading -> DarkLoadingState()
-                error != null -> DarkMessageState("Could not load ${shelfKind.title}", error ?: "Unknown error")
+                error != null -> DarkMessageState(
+                    title = "Could not load ${shelfKind.title}",
+                    body = error ?: "Unknown error",
+                    actionLabel = "Retry",
+                    onAction = { retryKey++ }
+                )
                 series.isEmpty() -> DarkMessageState(shelfKind.title, shelfKind.emptyMessage)
                 else -> PosterGrid(items = series, key = { it.id }) { item ->
                     SeriesPosterCard(

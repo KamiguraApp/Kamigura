@@ -285,10 +285,11 @@ fun LibraryScreen(
 
     fun refreshHome() {
         if (refreshing) return
+        val retryInitialLoad = error != null
         refreshJob = scope.launch {
             refreshing = true
             try {
-                loadHome(clearFirst = false)
+                loadHome(clearFirst = retryInitialLoad)
             } finally {
                 refreshing = false
             }

@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,8 +51,9 @@ internal fun CollectionsScreen(
     var collections by remember { mutableStateOf<List<CollectionDto>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(retryKey) {
         loading = true
         error = null
         try {
@@ -68,7 +70,12 @@ internal fun CollectionsScreen(
     BrowsePageScaffold(title = "Collections", onBack = onBack) {
         when {
             loading -> DarkLoadingState()
-            error != null -> DarkMessageState("Could not load collections", error ?: "Unknown error")
+            error != null -> DarkMessageState(
+                title = "Could not load collections",
+                body = error ?: "Unknown error",
+                actionLabel = "Retry",
+                onAction = { retryKey++ }
+            )
             collections.isEmpty() -> DarkMessageState("Collections", "No collections yet.")
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),

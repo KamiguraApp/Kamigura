@@ -38,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -49,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import li.mof.kamigura.ChapterDto
@@ -112,30 +114,36 @@ internal fun HomeSearchScreen(
     var query by rememberSaveable { mutableStateOf(initialQuery) }
     var result by remember { mutableStateOf(SearchResultGroupDto()) }
     var searching by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(initialQuery) {
         if (initialQuery.isNotBlank()) query = initialQuery
     }
 
-    LaunchedEffect(api, query) {
+    LaunchedEffect(api, query, retryKey) {
         val trimmed = query.trim()
         if (trimmed.isBlank() || api == null) {
             searching = false
+            searchError = null
             result = SearchResultGroupDto()
             return@LaunchedEffect
         }
+        searchError = null
         delay(SearchDebounceMs)
         searching = true
-        runCatching { api.search(trimmed, includeChapterAndFiles = true) }
-            .onSuccess {
-                result = it
-                if (!it.isEmpty()) historyStore.record(trimmed)
-            }
-            .onFailure {
-                KamiguraLog.w("Could not search Kavita.", it)
-                result = SearchResultGroupDto()
-            }
-        searching = false
+        try {
+            result = api.search(trimmed, includeChapterAndFiles = true)
+            if (!result.isEmpty()) historyStore.record(trimmed)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            KamiguraLog.w("Could not search Kavita.", t)
+            result = SearchResultGroupDto()
+            searchError = t.message ?: t.toString()
+        } finally {
+            searching = false
+        }
     }
 
     LazyColumn(
@@ -193,6 +201,18 @@ internal fun HomeSearchScreen(
                     CircularProgressIndicator()
                 }
             }
+        }
+
+        searchError?.let { message ->
+            item {
+                DarkMessageState(
+                    title = "Could not search",
+                    body = message,
+                    actionLabel = "Retry",
+                    onAction = { retryKey++ }
+                )
+            }
+            return@LazyColumn
         }
 
         val series = result.series.map { it.toSeriesDto() }
@@ -451,8 +471,9 @@ internal fun SearchSeriesScreen(
     var session by remember { mutableStateOf(KavitaSession()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(target, targetId) {
+    LaunchedEffect(target, targetId, retryKey) {
         loading = true
         error = null
         try {
@@ -477,7 +498,12 @@ internal fun SearchSeriesScreen(
         BrowsePageScaffold(title = "${target.titlePrefix} $label", onBack = onBack) {
             when {
                 loading -> DarkLoadingState()
-                error != null -> DarkMessageState("Could not load results", error ?: "Unknown error")
+                error != null -> DarkMessageState(
+                    title = "Could not load results",
+                    body = error ?: "Unknown error",
+                    actionLabel = "Retry",
+                    onAction = { retryKey++ }
+                )
                 series.isEmpty() -> DarkMessageState("No series", "No readable series matched this result.")
                 else -> PosterGrid(items = series, key = { it.id }) { item ->
                     SeriesPosterCard(

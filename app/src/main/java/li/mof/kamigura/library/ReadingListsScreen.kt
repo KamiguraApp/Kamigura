@@ -26,6 +26,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,8 +59,9 @@ internal fun ReadingListsScreen(
     val ctx = androidx.compose.ui.platform.LocalContext.current
     var api by remember { mutableStateOf<KavitaApi?>(null) }
     var apiError by remember { mutableStateOf<String?>(null) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(retryKey) {
         try {
             val (loadedApi, _) = KavitaClient(ctx, sessionStore).buildApi()
             api = loadedApi
@@ -75,6 +77,7 @@ internal fun ReadingListsScreen(
         apiError = apiError,
         onBack = onBack,
         onOpenReadingList = onOpenReadingList,
+        onRetryApi = { retryKey++ },
         statusBarPadding = statusBarPadding
     )
 }
@@ -85,6 +88,7 @@ internal fun ReadingListsPane(
     apiError: String? = null,
     onBack: () -> Unit,
     onOpenReadingList: (ReadingListDto) -> Unit,
+    onRetryApi: (() -> Unit)? = null,
     statusBarPadding: Boolean = true
 ) {
     val scope = rememberCoroutineScope()
@@ -94,8 +98,9 @@ internal fun ReadingListsPane(
     var createDialog by remember { mutableStateOf(false) }
     var createTitle by remember { mutableStateOf("") }
     var creating by remember { mutableStateOf(false) }
+    var retryKey by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(api, apiError) {
+    LaunchedEffect(api, apiError, retryKey) {
         if (apiError != null) {
             loading = false
             error = apiError
@@ -127,7 +132,14 @@ internal fun ReadingListsPane(
     ) {
         when {
             loading -> DarkLoadingState()
-            error != null -> DarkMessageState("Could not load reading lists", error ?: "Unknown error")
+            error != null -> DarkMessageState(
+                title = "Could not load reading lists",
+                body = error ?: "Unknown error",
+                actionLabel = "Retry",
+                onAction = {
+                    if (apiError != null) onRetryApi?.invoke() else retryKey++
+                }
+            )
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(16.dp),

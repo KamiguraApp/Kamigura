@@ -345,8 +345,18 @@ fun ChapterPickScreen(
     ) {
         when {
             loading -> DarkLoadingState()
-            error != null -> DarkMessageState("Could not load series details", error ?: "Unknown error")
-            loadedApi == null -> DarkMessageState("Could not load series details", "API unavailable")
+            error != null -> DarkMessageState(
+                title = "Could not load series details",
+                body = error ?: "Unknown error",
+                actionLabel = "Retry",
+                onAction = { scope.launch { loadSeriesDetails(initialLoad = true) } }
+            )
+            loadedApi == null -> DarkMessageState(
+                title = "Could not load series details",
+                body = "API unavailable",
+                actionLabel = "Retry",
+                onAction = { scope.launch { loadSeriesDetails(initialLoad = true) } }
+            )
             else -> PullToRefreshBox(
                 isRefreshing = refreshing,
                 onRefresh = {

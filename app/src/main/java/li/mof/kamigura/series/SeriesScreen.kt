@@ -403,7 +403,12 @@ fun SeriesScreen(
                     }
                 ) {
                     when {
-                        error != null -> DarkMessageState("Could not load series", error ?: "Unknown error")
+                        error != null -> DarkMessageState(
+                            title = "Could not load series",
+                            body = error ?: "Unknown error",
+                            actionLabel = "Retry",
+                            onAction = { scope.launch { loadLibrarySeries(initialLoad = true) } }
+                        )
                         series.isEmpty() -> DarkMessageState(
                             "No series",
                             "This library did not return any visible series."

@@ -317,7 +317,12 @@ internal fun HomeContent(
             return@Column
         }
         if (destination != HomeDestination.Browse && error != null) {
-            DarkMessageState(title = "Could not load home", body = error)
+            DarkMessageState(
+                title = "Could not load home",
+                body = error,
+                actionLabel = "Retry",
+                onAction = onRefresh
+            )
             return@Column
         }
 
@@ -384,7 +389,9 @@ internal fun HomeContent(
                 if (wantToReadError != null) {
                     DarkMessageState(
                         title = "Could not load Want to Read",
-                        body = wantToReadError
+                        body = wantToReadError,
+                        actionLabel = "Retry",
+                        onAction = onRefresh
                     )
                 } else {
                     WantToReadGrid(
@@ -401,6 +408,7 @@ internal fun HomeContent(
                     BrowseDrilldown.ReadingLists -> {
                         ReadingListsPane(
                             api = api,
+                            apiError = if (api == null) error else null,
                             onBack = { browseDrilldown = null },
                             onOpenReadingList = { readingList ->
                                 onOpenFilteredSeries(
@@ -409,6 +417,7 @@ internal fun HomeContent(
                                     readingList.title ?: "Reading List ${readingList.id}"
                                 )
                             },
+                            onRetryApi = onRefresh,
                             statusBarPadding = false
                         )
                     }
