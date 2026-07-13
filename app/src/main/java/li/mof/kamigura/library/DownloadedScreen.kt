@@ -1,6 +1,7 @@
 ﻿package li.mof.kamigura.library
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -14,10 +15,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -31,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -63,25 +72,110 @@ import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.theme.KamiguraBackground
+
 @Composable
 private fun DownloadedGrid(
     records: List<OfflineIssueRecord>,
     session: KavitaSession,
     onSelect: (OfflineIssueRecord) -> Unit,
-    onDelete: (OfflineIssueRecord) -> Unit,
+    onDelete: (List<OfflineIssueRecord>) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    BrowsePageScaffold(title = "Downloaded", modifier = modifier, onBack = onBack) {
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedIds by rememberSaveable { mutableStateOf<List<Int>>(emptyList()) }
+    val selectedIdSet = selectedIds.toSet()
+
+    fun exitSelectionMode() {
+        selectionMode = false
+        selectedIds = emptyList()
+    }
+
+    fun toggleSelection(chapterId: Int) {
+        selectedIds = if (chapterId in selectedIdSet) {
+            selectedIds - chapterId
+        } else {
+            selectedIds + chapterId
+        }
+    }
+
+    LaunchedEffect(records) {
+        val availableIds = records.mapTo(mutableSetOf()) { it.chapterId }
+        selectedIds = selectedIds.filter { it in availableIds }
+        if (records.isEmpty()) selectionMode = false
+    }
+
+    BackHandler(enabled = selectionMode, onBack = ::exitSelectionMode)
+
+    BrowsePageScaffold(
+        title = if (selectionMode) "${selectedIds.size} selected" else "Downloaded",
+        modifier = modifier,
+        onBack = if (selectionMode) ::exitSelectionMode else onBack,
+        navigationIcon = if (selectionMode) Icons.Filled.Close else Icons.AutoMirrored.Filled.ArrowBack,
+        navigationContentDescription = if (selectionMode) "Cancel selection" else "Back",
+        actions = {
+            if (selectionMode) {
+                IconButton(
+                    onClick = {
+                        selectedIds = if (selectedIds.size == records.size) {
+                            emptyList()
+                        } else {
+                            records.map { it.chapterId }
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SelectAll,
+                        contentDescription = if (selectedIds.size == records.size) {
+                            "Clear selection"
+                        } else {
+                            "Select all"
+                        },
+                        tint = Color.White
+                    )
+                }
+                IconButton(
+                    enabled = selectedIds.isNotEmpty(),
+                    onClick = {
+                        val selected = records.filter { it.chapterId in selectedIdSet }
+                        exitSelectionMode()
+                        onDelete(selected)
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Delete selected downloads",
+                        tint = Color.White
+                    )
+                }
+            } else if (records.isNotEmpty()) {
+                IconButton(onClick = { selectionMode = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.Checklist,
+                        contentDescription = "Select items",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+    ) {
         if (records.isEmpty()) {
             DarkMessageState(title = "Downloaded", body = "No issues downloaded yet.")
         } else {
             PosterGrid(items = records, key = { it.chapterId }) { record ->
-                DownloadedIssueCardMenu(
+                DownloadedIssueCard(
                     record = record,
                     session = session,
-                    onClick = { onSelect(record) },
-                    onDelete = { onDelete(record) }
+                    selectionMode = selectionMode,
+                    selected = record.chapterId in selectedIdSet,
+                    onClick = {
+                        if (selectionMode) toggleSelection(record.chapterId) else onSelect(record)
+                    },
+                    onLongClick = {
+                        if (!selectionMode) selectionMode = true
+                        toggleSelection(record.chapterId)
+                    },
+                    onSelectionChange = { toggleSelection(record.chapterId) }
                 )
             }
         }
@@ -90,20 +184,22 @@ private fun DownloadedGrid(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun DownloadedIssueCardMenu(
+private fun DownloadedIssueCard(
     record: OfflineIssueRecord,
     session: KavitaSession,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onLongClick: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onSelectionChange: () -> Unit
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
     Box {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
                     onClick = onClick,
-                    onLongClick = { menuExpanded = true }
+                    onLongClick = onLongClick
                 ),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
         ) {
@@ -137,17 +233,25 @@ private fun DownloadedIssueCardMenu(
                 }
             }
         }
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text("Delete Downloaded") },
-                onClick = {
-                    menuExpanded = false
-                    onDelete()
-                }
-            )
+        if (selectionMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(KavitaCoverAspectRatio)
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                        else Color.Black.copy(alpha = 0.12f)
+                    )
+            ) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onSelectionChange() },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .background(Color.Black.copy(alpha = 0.62f), MaterialTheme.shapes.small)
+                )
+            }
         }
     }
 }
@@ -234,37 +338,62 @@ internal fun DownloadedScreen(
         }
     }
 
-    fun deleteDownloaded(record: OfflineIssueRecord, closeSheet: Boolean = false) {
-        if (record.chapterId in pendingDeleteIds) return
+    fun deleteDownloaded(records: List<OfflineIssueRecord>, closeSheet: Boolean = false) {
+        val deletingRecords = records.distinctBy { it.chapterId }
+            .filterNot { it.chapterId in pendingDeleteIds }
+        if (deletingRecords.isEmpty()) return
+        val deletingIds = deletingRecords.mapTo(mutableSetOf()) { it.chapterId }
         scope.launch {
             issueActionBusy = true
-            pendingDeleteIds = pendingDeleteIds + record.chapterId
-            if (closeSheet && selectedDownload?.chapterId == record.chapterId) {
+            pendingDeleteIds = pendingDeleteIds + deletingIds
+            if (closeSheet && selectedDownload?.chapterId in deletingIds) {
                 selectedDownload = null
                 selectedChapter = null
                 selectedVolume = null
             }
-            val result = snackbarHostState.showSnackbar(
-                message = "Download deleted",
-                actionLabel = "Undo",
-                withDismissAction = true,
-                duration = SnackbarDuration.Long
-            )
-            if (result == SnackbarResult.ActionPerformed) {
-                pendingDeleteIds = pendingDeleteIds - record.chapterId
-                issueActionBusy = false
-                return@launch
-            }
             try {
-                offlineRepository.remove(session, record.chapterId)
+                val result = snackbarHostState.showSnackbar(
+                    message = if (deletingRecords.size == 1) {
+                        "Download deleted"
+                    } else {
+                        "${deletingRecords.size} downloads deleted"
+                    },
+                    actionLabel = "Undo",
+                    withDismissAction = true,
+                    duration = SnackbarDuration.Long
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    pendingDeleteIds = pendingDeleteIds - deletingIds
+                    return@launch
+                }
+
+                val failedIds = mutableSetOf<Int>()
+                deletingRecords.forEach { record ->
+                    try {
+                        offlineRepository.remove(session, record.chapterId)
+                    } catch (c: CancellationException) {
+                        throw c
+                    } catch (t: Throwable) {
+                        failedIds += record.chapterId
+                        KamiguraLog.w("Could not delete downloaded chapter ${record.chapterId}.", t)
+                    }
+                }
+                pendingDeleteIds = pendingDeleteIds - deletingIds
+                if (failedIds.isNotEmpty()) {
+                    snackbarHostState.showSnackbar(
+                        if (failedIds.size == deletingRecords.size) {
+                            "Could not delete downloads"
+                        } else {
+                            "Could not delete ${failedIds.size} downloads"
+                        }
+                    )
+                }
             } catch (c: CancellationException) {
+                pendingDeleteIds = pendingDeleteIds - deletingIds
                 throw c
-            } catch (t: Throwable) {
-                KamiguraLog.w("Could not delete downloaded chapter ${record.chapterId}.", t)
-                pendingDeleteIds = pendingDeleteIds - record.chapterId
-                snackbarHostState.showSnackbar("Could not delete download")
+            } finally {
+                issueActionBusy = false
             }
-            issueActionBusy = false
         }
     }
 
@@ -279,7 +408,7 @@ internal fun DownloadedScreen(
             records = visibleDownloads,
             session = session,
             onSelect = ::openDownloaded,
-            onDelete = { deleteDownloaded(it) },
+            onDelete = ::deleteDownloaded,
             onBack = onBack,
             modifier = Modifier.fillMaxSize()
         )
@@ -383,7 +512,7 @@ internal fun DownloadedScreen(
         },
         onDownload = {},
         onRemoveDownload = {
-            selectedRecord?.let { deleteDownloaded(it, closeSheet = true) }
+            selectedRecord?.let { deleteDownloaded(listOf(it), closeSheet = true) }
         }
     )
 }
