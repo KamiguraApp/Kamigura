@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -56,6 +57,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,6 +72,7 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -96,6 +99,8 @@ import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
+import li.mof.kamigura.ui.browse.LazyGridLoadMoreEffect
+import li.mof.kamigura.ui.browse.PagingFooter
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
 import li.mof.kamigura.ui.browse.SeriesShelfItemSpacing
@@ -303,6 +308,9 @@ internal fun HomeContent(
     newlyAdded: List<SeriesDto>,
     wantToRead: List<SeriesDto>,
     wantToReadError: String?,
+    wantToReadHasMore: Boolean,
+    wantToReadLoadingMore: Boolean,
+    wantToReadLoadMoreError: String?,
     downloaded: List<OfflineIssueRecord>,
     api: KavitaApi?,
     searchHistoryStore: SearchHistoryStore,
@@ -312,6 +320,8 @@ internal fun HomeContent(
     onSelectSeries: (SeriesDto) -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
     onRemoveWantToRead: (List<SeriesDto>) -> Unit,
+    onLoadMoreWantToRead: () -> Unit,
+    onLoadAllWantToRead: suspend () -> Result<List<SeriesDto>>,
     onOpenBookmarks: () -> Unit,
     onOpenCollections: () -> Unit,
     onOpenDownloaded: () -> Unit,
@@ -426,6 +436,11 @@ internal fun HomeContent(
                         session = session,
                         onSelectSeries = onSelectSeries,
                         onRemove = onRemoveWantToRead,
+                        hasMore = wantToReadHasMore,
+                        loadingMore = wantToReadLoadingMore,
+                        loadMoreError = wantToReadLoadMoreError,
+                        onLoadMore = onLoadMoreWantToRead,
+                        onLoadAll = onLoadAllWantToRead,
                         gridState = wantToReadGridState,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -587,11 +602,18 @@ private fun WantToReadGrid(
     session: KavitaSession,
     onSelectSeries: (SeriesDto) -> Unit,
     onRemove: (List<SeriesDto>) -> Unit,
+    hasMore: Boolean,
+    loadingMore: Boolean,
+    loadMoreError: String?,
+    onLoadMore: () -> Unit,
+    onLoadAll: suspend () -> Result<List<SeriesDto>>,
     gridState: LazyGridState,
     modifier: Modifier = Modifier
 ) {
+    val scope = rememberCoroutineScope()
     var selectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedIds by rememberSaveable { mutableStateOf<List<Int>>(emptyList()) }
+    var selectingAll by remember { mutableStateOf(false) }
     val selectedIdSet = selectedIds.toSet()
 
     fun exitSelectionMode() {
@@ -614,6 +636,14 @@ private fun WantToReadGrid(
     }
 
     BackHandler(enabled = selectionMode, onBack = ::exitSelectionMode)
+    LazyGridLoadMoreEffect(
+        state = gridState,
+        itemCount = series.size,
+        hasMore = hasMore,
+        loadingMore = loadingMore,
+        loadMoreError = loadMoreError,
+        onLoadMore = onLoadMore
+    )
 
     BrowsePageScaffold(
         title = if (selectionMode) "${selectedIds.size} selected" else "Want to Read",
@@ -625,19 +655,36 @@ private fun WantToReadGrid(
         actions = {
             if (selectionMode) {
                 IconButton(
+                    enabled = !loadingMore && !selectingAll,
                     onClick = {
-                        selectedIds = if (selectedIds.size == series.size) {
-                            emptyList()
+                        if (selectedIds.size == series.size && !hasMore) {
+                            selectedIds = emptyList()
+                        } else if (hasMore) {
+                            scope.launch {
+                                selectingAll = true
+                                onLoadAll().onSuccess { allSeries ->
+                                    selectedIds = allSeries.map { it.id }
+                                }
+                                selectingAll = false
+                            }
                         } else {
-                            series.map { it.id }
+                            selectedIds = series.map { it.id }
                         }
                     }
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.SelectAll,
-                        contentDescription = if (selectedIds.size == series.size) "Clear selection" else "Select all",
-                        tint = Color.White
-                    )
+                    if (selectingAll) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.SelectAll,
+                            contentDescription = if (selectedIds.size == series.size && !hasMore) {
+                                "Clear selection"
+                            } else {
+                                "Select all"
+                            },
+                            tint = Color.White
+                        )
+                    }
                 }
                 IconButton(
                     enabled = selectedIds.isNotEmpty(),
@@ -666,7 +713,20 @@ private fun WantToReadGrid(
         if (series.isEmpty()) {
             DarkMessageState(title = "Want to Read", body = "No series added yet.")
         } else {
-            PosterGrid(items = series, key = { it.id }, state = gridState) { item ->
+            PosterGrid(
+                items = series,
+                key = { it.id },
+                state = gridState,
+                footer = if (loadingMore || loadMoreError != null) {
+                    {
+                        PagingFooter(
+                            loading = loadingMore,
+                            error = loadMoreError,
+                            onRetry = onLoadMore
+                        )
+                    }
+                } else null
+            ) { item ->
                 SelectableSeriesPosterCard(
                     series = item,
                     session = session,

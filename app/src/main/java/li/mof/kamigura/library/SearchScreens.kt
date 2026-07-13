@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Close
@@ -73,6 +74,8 @@ import li.mof.kamigura.TagDto
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
+import li.mof.kamigura.ui.browse.LazyGridLoadMoreEffect
+import li.mof.kamigura.ui.browse.PagingFooter
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
 import li.mof.kamigura.ui.browse.SeriesShelfItemSpacing
@@ -465,19 +468,62 @@ internal fun SearchSeriesScreen(
     onSelectSeries: (SeriesDto) -> Unit
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
     var series by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var session by remember { mutableStateOf(KavitaSession()) }
+    var api by remember { mutableStateOf<KavitaApi?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
+    var nextPage by remember { mutableIntStateOf(0) }
+    var hasMore by remember { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var loadMoreError by remember { mutableStateOf<String?>(null) }
+    var pagingRevision by remember { mutableIntStateOf(0) }
+
+    suspend fun loadNextPage() {
+        val currentApi = api ?: return
+        if (!hasMore || loadingMore) return
+        val requestRevision = pagingRevision
+        loadingMore = true
+        loadMoreError = null
+        try {
+            val page = currentApi.loadSearchSeriesPage(target, targetId, nextPage)
+            if (requestRevision == pagingRevision) {
+                series = series.appendDistinct(page.items).sortedBy { it.name }
+                nextPage++
+                hasMore = page.hasMore
+            }
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            if (requestRevision == pagingRevision) {
+                KamiguraLog.w("Could not load more filtered series for ${target.routeValue}.", t)
+                loadMoreError = t.message ?: t.toString()
+            }
+        } finally {
+            loadingMore = false
+        }
+    }
 
     LaunchedEffect(target, targetId, retryKey) {
+        pagingRevision++
         loading = true
         error = null
+        loadMoreError = null
+        hasMore = false
+        series = emptyList()
         try {
             session = sessionStore.load()
-            val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
-            series = api.loadSearchSeries(target, targetId).sortedBy { it.name }
+            val (loadedApi, _) = KavitaClient(ctx, sessionStore).buildApi()
+            api = loadedApi
+            val page = loadedApi.loadSearchSeriesPage(target, targetId, pageNumber = 0)
+            series = page.items.sortedBy { it.name }
+            nextPage = 1
+            hasMore = page.hasMore
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             KamiguraLog.w("Could not load filtered search series for ${target.routeValue}.", t)
             error = t.message ?: t.toString()
@@ -485,6 +531,15 @@ internal fun SearchSeriesScreen(
             loading = false
         }
     }
+
+    LazyGridLoadMoreEffect(
+        state = gridState,
+        itemCount = series.size,
+        hasMore = hasMore,
+        loadingMore = loadingMore,
+        loadMoreError = loadMoreError,
+        onLoadMore = { scope.launch { loadNextPage() } }
+    )
 
     Box(
         Modifier
@@ -503,7 +558,20 @@ internal fun SearchSeriesScreen(
                     onAction = { retryKey++ }
                 )
                 series.isEmpty() -> DarkMessageState("No series", "No readable series matched this result.")
-                else -> PosterGrid(items = series, key = { it.id }) { item ->
+                else -> PosterGrid(
+                    items = series,
+                    key = { it.id },
+                    state = gridState,
+                    footer = if (loadingMore || loadMoreError != null) {
+                        {
+                            PagingFooter(
+                                loading = loadingMore,
+                                error = loadMoreError,
+                                onRetry = { scope.launch { loadNextPage() } }
+                            )
+                        }
+                    } else null
+                ) { item ->
                     SeriesPosterCard(
                         series = item,
                         session = session,
@@ -517,7 +585,11 @@ internal fun SearchSeriesScreen(
     }
 }
 
-private suspend fun KavitaApi.loadSearchSeries(target: SearchSeriesTarget, targetId: Int): List<SeriesDto> {
+private suspend fun KavitaApi.loadSearchSeriesPage(
+    target: SearchSeriesTarget,
+    targetId: Int,
+    pageNumber: Int
+): SeriesPage {
     return when (target) {
         SearchSeriesTarget.Person -> allSeriesV2(
             body = SeriesFilterV2Dto(
@@ -530,29 +602,44 @@ private suspend fun KavitaApi.loadSearchSeries(target: SearchSeriesTarget, targe
                 },
                 combination = FilterOr
             ),
-            pageNumber = 0,
+            pageNumber = pageNumber,
             pageSize = SearchFilteredSeriesPageSize
-        )
+        ).let { SeriesPage(it, it.size == SearchFilteredSeriesPageSize) }
         SearchSeriesTarget.Publisher -> allSeriesV2(
             searchFilter(SeriesFilterFieldPublisher, targetId),
-            0,
+            pageNumber,
             SearchFilteredSeriesPageSize
-        )
+        ).let { SeriesPage(it, it.size == SearchFilteredSeriesPageSize) }
         SearchSeriesTarget.Imprint -> allSeriesV2(
             searchFilter(SeriesFilterFieldImprint, targetId),
-            0,
+            pageNumber,
             SearchFilteredSeriesPageSize
-        )
-        SearchSeriesTarget.Genre -> allSeriesV2(searchFilter(SeriesFilterFieldGenres, targetId), 0, SearchFilteredSeriesPageSize)
-        SearchSeriesTarget.Tag -> allSeriesV2(searchFilter(SeriesFilterFieldTags, targetId), 0, SearchFilteredSeriesPageSize)
+        ).let { SeriesPage(it, it.size == SearchFilteredSeriesPageSize) }
+        SearchSeriesTarget.Genre -> allSeriesV2(
+            searchFilter(SeriesFilterFieldGenres, targetId),
+            pageNumber,
+            SearchFilteredSeriesPageSize
+        ).let { SeriesPage(it, it.size == SearchFilteredSeriesPageSize) }
+        SearchSeriesTarget.Tag -> allSeriesV2(
+            searchFilter(SeriesFilterFieldTags, targetId),
+            pageNumber,
+            SearchFilteredSeriesPageSize
+        ).let { SeriesPage(it, it.size == SearchFilteredSeriesPageSize) }
         SearchSeriesTarget.Collection -> allSeriesV2(
             searchFilter(SeriesFilterFieldCollections, targetId),
-            0,
+            pageNumber,
             SearchFilteredSeriesPageSize
-        )
+        ).let { SeriesPage(it, it.size == SearchFilteredSeriesPageSize) }
         SearchSeriesTarget.ReadingList -> {
-            val ids = readingListItems(targetId).map { it.seriesId }.distinct()
-            if (ids.isEmpty()) emptyList() else seriesByIds(SeriesByIdsDto(ids))
+            if (pageNumber > 0) {
+                SeriesPage(emptyList(), hasMore = false)
+            } else {
+                val ids = readingListItems(targetId).map { it.seriesId }.distinct()
+                SeriesPage(
+                    items = if (ids.isEmpty()) emptyList() else seriesByIds(SeriesByIdsDto(ids)),
+                    hasMore = false
+                )
+            }
         }
     }
 }

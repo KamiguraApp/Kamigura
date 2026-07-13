@@ -69,6 +69,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -94,6 +95,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -172,6 +175,7 @@ fun LibraryScreen(
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
     val searchHistoryStore = remember(ctx) { SearchHistoryStore(ctx) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val wantToReadPagingMutex = remember { Mutex() }
 
     LaunchedEffect(availableUpdate) {
         val update = availableUpdate ?: return@LaunchedEffect
@@ -194,6 +198,11 @@ fun LibraryScreen(
     var newlyAdded by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var wantToRead by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var wantToReadError by remember { mutableStateOf<String?>(null) }
+    var wantToReadNextPage by remember { mutableIntStateOf(0) }
+    var wantToReadHasMore by remember { mutableStateOf(false) }
+    var wantToReadLoadingMore by remember { mutableStateOf(false) }
+    var wantToReadLoadMoreError by remember { mutableStateOf<String?>(null) }
+    var wantToReadPagingRevision by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var refreshing by remember { mutableStateOf(false) }
@@ -210,6 +219,7 @@ fun LibraryScreen(
     val downloaded by downloadedFlow.collectAsState(initial = emptyList())
 
     suspend fun loadHome(clearFirst: Boolean) = coroutineScope {
+        wantToReadPagingRevision++
         if (clearFirst) {
             libs = emptyList()
             librarySeriesCounts = emptyMap()
@@ -218,6 +228,9 @@ fun LibraryScreen(
             newlyAdded = emptyList()
             wantToRead = emptyList()
             wantToReadError = null
+            wantToReadNextPage = 0
+            wantToReadHasMore = false
+            wantToReadLoadMoreError = null
             loading = true
             api = null
             isAdmin = false
@@ -254,8 +267,13 @@ fun LibraryScreen(
                 .map { it.toSeriesDto() }
                 .distinctBy { it.id }
             newlyAdded = loadedApi.recentlyAdded(pageSize = HomePreviewShelfPageSize)
-            runCatchingCancellable { loadedApi.wantToRead(pageSize = 200) }
-                .onSuccess { wantToRead = it }
+            runCatchingCancellable {
+                loadedApi.wantToRead(pageNumber = 0, pageSize = WantToReadPageSize)
+            }.onSuccess {
+                wantToRead = it
+                wantToReadNextPage = 1
+                wantToReadHasMore = it.size == WantToReadPageSize
+            }
                 .onFailure {
                     KamiguraLog.w("Could not load Want to Read list.", it)
                     wantToReadError = it.message ?: it.toString()
@@ -294,6 +312,45 @@ fun LibraryScreen(
                 refreshing = false
             }
         }
+    }
+
+    suspend fun loadNextWantToReadPage(): Result<List<SeriesDto>> = wantToReadPagingMutex.withLock {
+        val currentApi = api
+            ?: return@withLock Result.failure(IllegalStateException("API unavailable"))
+        if (!wantToReadHasMore) return@withLock Result.success(wantToRead)
+        val requestRevision = wantToReadPagingRevision
+        wantToReadLoadingMore = true
+        wantToReadLoadMoreError = null
+        try {
+            val page = currentApi.wantToRead(
+                pageNumber = wantToReadNextPage,
+                pageSize = WantToReadPageSize
+            )
+            if (requestRevision == wantToReadPagingRevision) {
+                wantToRead = wantToRead.appendDistinct(page)
+                wantToReadNextPage++
+                wantToReadHasMore = page.size == WantToReadPageSize
+            }
+            Result.success(wantToRead)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            if (requestRevision == wantToReadPagingRevision) {
+                KamiguraLog.w("Could not load more Want to Read items.", t)
+                wantToReadLoadMoreError = t.message ?: t.toString()
+            }
+            Result.failure(t)
+        } finally {
+            wantToReadLoadingMore = false
+        }
+    }
+
+    suspend fun loadAllWantToRead(): Result<List<SeriesDto>> {
+        while (wantToReadHasMore) {
+            val result = loadNextWantToReadPage()
+            if (result.isFailure) return result
+        }
+        return Result.success(wantToRead)
     }
 
     fun removeFromWantToRead(series: List<SeriesDto>) {
@@ -382,6 +439,9 @@ fun LibraryScreen(
             newlyAdded = newlyAdded,
             wantToRead = wantToRead,
             wantToReadError = wantToReadError,
+            wantToReadHasMore = wantToReadHasMore,
+            wantToReadLoadingMore = wantToReadLoadingMore,
+            wantToReadLoadMoreError = wantToReadLoadMoreError,
             downloaded = downloaded,
             api = api,
             searchHistoryStore = searchHistoryStore,
@@ -395,7 +455,9 @@ fun LibraryScreen(
             onSelectLibrary = onSelectLibrary,
             onScanLibrary = ::scanLibrary,
             onSelectSeries = onSelectSeries,
-            onRemoveWantToRead = ::removeFromWantToRead
+            onRemoveWantToRead = ::removeFromWantToRead,
+            onLoadMoreWantToRead = { scope.launch { loadNextWantToReadPage() } },
+            onLoadAllWantToRead = ::loadAllWantToRead
         )
         SnackbarHost(
             hostState = snackbarHostState,
@@ -422,6 +484,7 @@ private inline fun <T> runCatchingCancellable(block: () -> T): Result<T> {
 }
 
 private const val HomePreviewShelfPageSize = 20
+private const val WantToReadPageSize = 200
 
 private fun GroupedSeriesDto.toSeriesDto(): SeriesDto {
     return SeriesDto(

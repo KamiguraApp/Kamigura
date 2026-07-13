@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -26,18 +27,21 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,6 +56,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
@@ -126,6 +131,7 @@ internal fun <T> PosterGrid(
     key: (T) -> Any,
     modifier: Modifier = Modifier,
     state: LazyGridState = rememberLazyGridState(),
+    footer: (@Composable () -> Unit)? = null,
     itemContent: @Composable (T) -> Unit
 ) {
     LazyVerticalGrid(
@@ -137,8 +143,57 @@ internal fun <T> PosterGrid(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         items(items = items, key = key) { item -> itemContent(item) }
+        if (footer != null) {
+            item(span = { GridItemSpan(maxLineSpan) }) { footer() }
+        }
     }
 }
+
+@Composable
+internal fun LazyGridLoadMoreEffect(
+    state: LazyGridState,
+    itemCount: Int,
+    hasMore: Boolean,
+    loadingMore: Boolean,
+    loadMoreError: String?,
+    onLoadMore: () -> Unit
+) {
+    LaunchedEffect(state, itemCount, hasMore, loadingMore, loadMoreError) {
+        if (!hasMore || loadingMore || loadMoreError != null || itemCount == 0) return@LaunchedEffect
+        snapshotFlow { state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+            .distinctUntilChanged()
+            .collect { lastVisibleIndex ->
+                if (lastVisibleIndex >= itemCount - PagingPrefetchDistance) onLoadMore()
+            }
+    }
+}
+
+@Composable
+internal fun PagingFooter(
+    loading: Boolean,
+    error: String?,
+    onRetry: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(72.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        when {
+            loading -> CircularProgressIndicator(
+                modifier = Modifier.size(24.dp),
+                strokeWidth = 2.dp
+            )
+            error != null -> Button(onClick = onRetry) {
+                Icon(Icons.Filled.Refresh, contentDescription = null)
+                Text("Retry", modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+    }
+}
+
+private const val PagingPrefetchDistance = 12
 
 @Composable
 internal fun SeriesPosterCard(

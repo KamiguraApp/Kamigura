@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuOpen
@@ -88,6 +89,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -123,6 +125,8 @@ import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
+import li.mof.kamigura.ui.browse.LazyGridLoadMoreEffect
+import li.mof.kamigura.ui.browse.PagingFooter
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
 import li.mof.kamigura.ui.theme.KamiguraBackground
@@ -136,19 +140,62 @@ internal fun SeriesShelfScreen(
     onSelectSeries: (SeriesDto) -> Unit
 ) {
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
     var series by remember { mutableStateOf<List<SeriesDto>>(emptyList()) }
     var session by remember { mutableStateOf(KavitaSession()) }
+    var api by remember { mutableStateOf<KavitaApi?>(null) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
+    var nextPage by remember { mutableIntStateOf(0) }
+    var hasMore by remember { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var loadMoreError by remember { mutableStateOf<String?>(null) }
+    var pagingRevision by remember { mutableIntStateOf(0) }
+
+    suspend fun loadNextPage() {
+        val currentApi = api ?: return
+        if (!hasMore || loadingMore) return
+        val requestRevision = pagingRevision
+        loadingMore = true
+        loadMoreError = null
+        try {
+            val page = currentApi.loadShelfSeriesPage(shelfKind, nextPage)
+            if (requestRevision == pagingRevision) {
+                series = series.appendDistinct(page.items)
+                nextPage++
+                hasMore = page.hasMore
+            }
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            if (requestRevision == pagingRevision) {
+                KamiguraLog.w("Could not load more shelf ${shelfKind.routeValue}.", t)
+                loadMoreError = t.message ?: t.toString()
+            }
+        } finally {
+            loadingMore = false
+        }
+    }
 
     LaunchedEffect(shelfKind, retryKey) {
+        pagingRevision++
         loading = true
         error = null
+        loadMoreError = null
+        hasMore = false
+        series = emptyList()
         try {
             session = sessionStore.load()
-            val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
-            series = api.loadShelfSeries(shelfKind)
+            val (loadedApi, _) = KavitaClient(ctx, sessionStore).buildApi()
+            api = loadedApi
+            val page = loadedApi.loadShelfSeriesPage(shelfKind, pageNumber = 0)
+            series = page.items
+            nextPage = 1
+            hasMore = page.hasMore
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             KamiguraLog.w("Could not load shelf ${shelfKind.routeValue}.", t)
             error = t.message ?: t.toString()
@@ -156,6 +203,15 @@ internal fun SeriesShelfScreen(
             loading = false
         }
     }
+
+    LazyGridLoadMoreEffect(
+        state = gridState,
+        itemCount = series.size,
+        hasMore = hasMore,
+        loadingMore = loadingMore,
+        loadMoreError = loadMoreError,
+        onLoadMore = { scope.launch { loadNextPage() } }
+    )
 
     Box(
         Modifier
@@ -174,7 +230,20 @@ internal fun SeriesShelfScreen(
                     onAction = { retryKey++ }
                 )
                 series.isEmpty() -> DarkMessageState(shelfKind.title, shelfKind.emptyMessage)
-                else -> PosterGrid(items = series, key = { it.id }) { item ->
+                else -> PosterGrid(
+                    items = series,
+                    key = { it.id },
+                    state = gridState,
+                    footer = if (loadingMore || loadMoreError != null) {
+                        {
+                            PagingFooter(
+                                loading = loadingMore,
+                                error = loadMoreError,
+                                onRetry = { scope.launch { loadNextPage() } }
+                            )
+                        }
+                    } else null
+                ) { item ->
                     SeriesPosterCard(
                         series = item,
                         session = session,
@@ -188,13 +257,24 @@ internal fun SeriesShelfScreen(
     }
 }
 
-private suspend fun KavitaApi.loadShelfSeries(shelfKind: HomeShelfKind): List<SeriesDto> {
+private suspend fun KavitaApi.loadShelfSeriesPage(
+    shelfKind: HomeShelfKind,
+    pageNumber: Int
+): SeriesPage {
     return when (shelfKind) {
-        HomeShelfKind.OnDeck -> onDeck(pageSize = HomeShelfPageSize)
-        HomeShelfKind.RecentlyUpdated -> recentlyUpdatedSeries(pageSize = HomeShelfPageSize)
-            .map { it.toSeriesDto() }
-            .distinctBy { it.id }
-        HomeShelfKind.NewlyAdded -> recentlyAdded(pageSize = HomeShelfPageSize)
+        HomeShelfKind.OnDeck -> onDeck(pageNumber = pageNumber, pageSize = HomeShelfPageSize)
+            .let { SeriesPage(it, it.size == HomeShelfPageSize) }
+        HomeShelfKind.RecentlyUpdated -> recentlyUpdatedSeries(
+            pageNumber = pageNumber,
+            pageSize = HomeShelfPageSize
+        ).let { raw ->
+            SeriesPage(
+                items = raw.map { it.toSeriesDto() }.distinctBy { it.id },
+                hasMore = raw.size == HomeShelfPageSize
+            )
+        }
+        HomeShelfKind.NewlyAdded -> recentlyAdded(pageNumber = pageNumber, pageSize = HomeShelfPageSize)
+            .let { SeriesPage(it, it.size == HomeShelfPageSize) }
     }
 }
 
