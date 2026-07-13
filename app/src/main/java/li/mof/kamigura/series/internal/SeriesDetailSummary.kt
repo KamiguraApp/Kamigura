@@ -1,7 +1,6 @@
 package li.mof.kamigura.series.internal
 
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
@@ -59,7 +58,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -68,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.CreateReadingListDto
@@ -98,7 +97,8 @@ internal fun SeriesDetailSummary(
     api: KavitaApi,
     isAdmin: Boolean,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
-    onPick: (chapterId: Int, volumeId: Int) -> Unit
+    onPick: (chapterId: Int, volumeId: Int) -> Unit,
+    onMessage: (String) -> Unit
 ) {
     val summary = metadata?.summary?.takeIf { it.isNotBlank() }
     val creditChips = metadata.creditChips()
@@ -132,6 +132,7 @@ internal fun SeriesDetailSummary(
                 api = api,
                 isAdmin = isAdmin,
                 onRead = { onPick(item.chapter.id, item.volume.id) },
+                onMessage = onMessage,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -385,9 +386,9 @@ private fun SeriesReadSplitButton(
     api: KavitaApi,
     isAdmin: Boolean,
     onRead: () -> Unit,
+    onMessage: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var menuExpanded by remember { mutableStateOf(false) }
     var showingReadingLists by remember { mutableStateOf(false) }
@@ -395,6 +396,18 @@ private fun SeriesReadSplitButton(
     var createReadingListDialog by remember { mutableStateOf(false) }
     var newReadingListTitle by remember { mutableStateOf("") }
     var actionRunning by remember { mutableStateOf(false) }
+
+    fun launchAction(block: suspend () -> Unit) {
+        if (actionRunning) return
+        actionRunning = true
+        scope.launch {
+            try {
+                block()
+            } finally {
+                actionRunning = false
+            }
+        }
+    }
     val colors = ButtonDefaults.buttonColors(
         containerColor = containerColor,
         contentColor = Color.White
@@ -490,108 +503,71 @@ private fun SeriesReadSplitButton(
                                                 val readingList = readingLists[index - 1]
                                                 menuExpanded = false
                                                 showingReadingLists = false
-                                                scope.launch {
-                                                    actionRunning = true
-                                                    runCatching {
+                                                launchAction {
+                                                    try {
                                                         api.addSeriesToReadingList(
                                                             UpdateReadingListBySeriesDto(
                                                                 seriesId = series.id,
                                                                 readingListId = readingList.id
                                                             )
                                                         )
-                                                    }.onSuccess {
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Added to ${readingList.title ?: "reading list"}",
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
-                                                    }.onFailure {
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Could not update reading list",
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
+                                                        onMessage("Added to ${readingList.title ?: "reading list"}")
+                                                    } catch (c: CancellationException) {
+                                                        throw c
+                                                    } catch (_: Throwable) {
+                                                        onMessage("Could not update reading list")
                                                     }
-                                                    actionRunning = false
                                                 }
                                             }
                                         } else {
                                             when (mainMenuItems[index]) {
                                                 SeriesMenuAction.WantToRead -> {
                                                     menuExpanded = false
-                                                    scope.launch {
-                                                        actionRunning = true
-                                                        runCatching {
+                                                    launchAction {
+                                                        try {
                                                             api.addSeriesToWantToRead(
                                                                 UpdateWantToReadDto(listOf(series.id))
                                                             )
-                                                        }.onSuccess {
-                                                            Toast.makeText(
-                                                                context,
-                                                                "Added to Want to Read",
-                                                                Toast.LENGTH_SHORT
-                                                            ).show()
-                                                        }.onFailure {
-                                                            Toast.makeText(
-                                                                context,
-                                                                "Could not update Want to Read",
-                                                                Toast.LENGTH_SHORT
-                                                            ).show()
+                                                            onMessage("Added to Want to Read")
+                                                        } catch (c: CancellationException) {
+                                                            throw c
+                                                        } catch (_: Throwable) {
+                                                            onMessage("Could not update Want to Read")
                                                         }
-                                                        actionRunning = false
                                                     }
                                                 }
-                                                SeriesMenuAction.AddToReadingList -> scope.launch {
-                                                    actionRunning = true
-                                                    runCatching { api.readingLists() }
-                                                        .onSuccess { lists ->
-                                                            readingLists = lists
-                                                            showingReadingLists = true
-                                                        }
-                                                        .onFailure {
-                                                            menuExpanded = false
-                                                            Toast.makeText(
-                                                                context,
-                                                                "Could not load reading lists",
-                                                                Toast.LENGTH_SHORT
-                                                            ).show()
-                                                        }
-                                                    actionRunning = false
+                                                SeriesMenuAction.AddToReadingList -> launchAction {
+                                                    try {
+                                                        readingLists = api.readingLists()
+                                                        showingReadingLists = true
+                                                    } catch (c: CancellationException) {
+                                                        throw c
+                                                    } catch (_: Throwable) {
+                                                        menuExpanded = false
+                                                        onMessage("Could not load reading lists")
+                                                    }
                                                 }
                                                 SeriesMenuAction.Refresh -> {
                                                     menuExpanded = false
                                                     val libraryId = series.libraryId
                                                     if (libraryId == null) {
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Library information is unavailable",
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
+                                                        onMessage("Library information is unavailable")
                                                     } else {
-                                                        scope.launch {
-                                                            actionRunning = true
+                                                        launchAction {
                                                             val request = RefreshSeriesDto(
                                                                 libraryId = libraryId,
                                                                 seriesId = series.id
                                                             )
-                                                            runCatching {
+                                                            try {
                                                                 api.scanSeries(request)
                                                                 api.analyzeSeries(request)
                                                                 api.refreshSeriesMetadata(request)
-                                                            }.onSuccess {
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    "Series refresh requested",
-                                                                    Toast.LENGTH_SHORT
-                                                                ).show()
-                                                            }.onFailure {
-                                                                Toast.makeText(
-                                                                    context,
-                                                                    "Could not refresh series",
-                                                                    Toast.LENGTH_SHORT
-                                                                ).show()
+                                                                onMessage("Series refresh requested")
+                                                            } catch (c: CancellationException) {
+                                                                throw c
+                                                            } catch (_: Throwable) {
+                                                                onMessage("Could not refresh series")
                                                             }
-                                                            actionRunning = false
                                                         }
                                                     }
                                                 }
@@ -629,9 +605,8 @@ private fun SeriesReadSplitButton(
                     enabled = !actionRunning && newReadingListTitle.trim().isNotBlank(),
                     onClick = {
                         val title = newReadingListTitle.trim()
-                        scope.launch {
-                            actionRunning = true
-                            runCatching {
+                        launchAction {
+                            try {
                                 val list = api.createReadingList(CreateReadingListDto(title))
                                 api.addSeriesToReadingList(
                                     UpdateReadingListBySeriesDto(
@@ -639,25 +614,16 @@ private fun SeriesReadSplitButton(
                                         readingListId = list.id
                                     )
                                 )
-                                list
-                            }.onSuccess { list ->
                                 readingLists = (readingLists + list)
                                     .distinctBy { it.id }
                                     .sortedBy { it.title ?: "Reading List ${it.id}" }
                                 createReadingListDialog = false
-                                Toast.makeText(
-                                    context,
-                                    "Added to ${list.title ?: "reading list"}",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }.onFailure {
-                                Toast.makeText(
-                                    context,
-                                    "Could not create reading list",
-                                    Toast.LENGTH_SHORT
-                                ).show()
+                                onMessage("Added to ${list.title ?: "reading list"}")
+                            } catch (c: CancellationException) {
+                                throw c
+                            } catch (_: Throwable) {
+                                onMessage("Could not create reading list")
                             }
-                            actionRunning = false
                         }
                     }
                 ) {
@@ -793,5 +759,3 @@ private fun SeriesDetailHeroInfo(
         }
     }
 }
-
-

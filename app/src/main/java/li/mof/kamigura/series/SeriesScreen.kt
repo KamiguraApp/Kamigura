@@ -1,7 +1,6 @@
 package li.mof.kamigura.series
 
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +40,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -81,6 +82,7 @@ import li.mof.kamigura.ui.browse.SeriesPosterCard
 import li.mof.kamigura.ui.theme.KamiguraBackground
 import li.mof.kamigura.ui.theme.KamiguraChrome
 import li.mof.kamigura.ui.theme.KamiguraSurface
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 internal fun chapterCoverUrl(session: KavitaSession, chapterId: Int): String {
@@ -119,8 +121,14 @@ fun SeriesScreen(
     var sort by rememberSaveable(libraryId) { mutableStateOf(SeriesLibrarySort.Title) }
     val pullRefreshState = rememberPullToRefreshState()
     val gridState = rememberLazyGridState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    fun showMessage(message: String) {
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
 
     suspend fun loadLibrarySeries(initialLoad: Boolean) {
+        if (!initialLoad && refreshing) return
         if (initialLoad) {
             loading = true
             error = null
@@ -144,13 +152,15 @@ fun SeriesScreen(
             }.getOrDefault(false)
             series = loadedApi.loadAllSeriesForLibrary(libraryId)
             error = null
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             KamiguraLog.w("Could not load library $libraryId series.", t)
             val message = t.message ?: t.toString()
             if (initialLoad || series.isEmpty()) {
                 error = message
             } else {
-                Toast.makeText(ctx, "Could not refresh library", Toast.LENGTH_SHORT).show()
+                showMessage("Could not refresh library")
             }
         } finally {
             if (initialLoad) {
@@ -194,6 +204,7 @@ fun SeriesScreen(
             .navigationBarsPadding()
             .nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = KamiguraBackground,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -336,25 +347,20 @@ fun SeriesScreen(
                                         onClick = {
                                             menuExpanded = false
                                             val loadedApi = api ?: return@DropdownMenuItem
+                                            if (scanRunning) return@DropdownMenuItem
+                                            scanRunning = true
                                             scope.launch {
-                                                scanRunning = true
-                                                runCatching {
+                                                try {
                                                     loadedApi.scanLibrary(libraryId)
-                                                }.onSuccess {
-                                                    Toast.makeText(
-                                                        ctx,
-                                                        "Library scan requested",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }.onFailure {
-                                                    KamiguraLog.w("Could not scan library $libraryId from Series screen.", it)
-                                                    Toast.makeText(
-                                                        ctx,
-                                                        "Could not scan library",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
+                                                    showMessage("Library scan requested")
+                                                } catch (c: CancellationException) {
+                                                    throw c
+                                                } catch (t: Throwable) {
+                                                    KamiguraLog.w("Could not scan library $libraryId from Series screen.", t)
+                                                    showMessage("Could not scan library")
+                                                } finally {
+                                                    scanRunning = false
                                                 }
-                                                scanRunning = false
                                             }
                                         },
                                         enabled = !scanRunning

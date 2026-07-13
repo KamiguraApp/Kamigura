@@ -1,7 +1,6 @@
 package li.mof.kamigura.library
 
 import android.net.Uri
-import android.widget.Toast
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -175,6 +174,10 @@ fun LibraryScreen(
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
     val searchHistoryStore = remember(ctx) { SearchHistoryStore(ctx) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    fun showMessage(message: String) {
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
     val wantToReadPagingMutex = remember { Mutex() }
 
     LaunchedEffect(availableUpdate) {
@@ -400,25 +403,19 @@ fun LibraryScreen(
     fun scanLibrary(library: LibraryDto) {
         val currentApi = api ?: return
         if (library.id in scanningLibraryIds) return
+        scanningLibraryIds = scanningLibraryIds + library.id
         scope.launch {
-            scanningLibraryIds = scanningLibraryIds + library.id
-            runCatching {
+            try {
                 currentApi.scanLibrary(library.id)
-            }.onSuccess {
-                Toast.makeText(
-                    ctx,
-                    "${library.name} scan requested",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }.onFailure {
-                KamiguraLog.w("Could not scan library ${library.id}.", it)
-                Toast.makeText(
-                    ctx,
-                    "Could not scan ${library.name}",
-                    Toast.LENGTH_SHORT
-                ).show()
+                showMessage("${library.name} scan requested")
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                KamiguraLog.w("Could not scan library ${library.id}.", t)
+                showMessage("Could not scan ${library.name}")
+            } finally {
+                scanningLibraryIds = scanningLibraryIds - library.id
             }
-            scanningLibraryIds = scanningLibraryIds - library.id
         }
     }
 

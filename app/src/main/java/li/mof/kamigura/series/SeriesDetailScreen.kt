@@ -2,7 +2,6 @@ package li.mof.kamigura.series
 
 import android.graphics.Color as AndroidColor
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -166,7 +165,12 @@ fun ChapterPickScreen(
     val pullRefreshState = rememberPullToRefreshState()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    fun showMessage(message: String) {
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+
     suspend fun loadSeriesDetails(initialLoad: Boolean) {
+        if (!initialLoad && refreshing) return
         if (initialLoad) {
             loading = true
             error = null
@@ -197,13 +201,15 @@ fun ChapterPickScreen(
                 .getOrNull()
             volumes = loadedApi.volumes(seriesId)
             error = null
+        } catch (c: CancellationException) {
+            throw c
         } catch (t: Throwable) {
             KamiguraLog.w("Could not load series details for series $seriesId.", t)
             val message = t.message ?: t.toString()
             if (initialLoad || series == null) {
                 error = message
             } else {
-                Toast.makeText(ctx, "Could not refresh series details", Toast.LENGTH_SHORT).show()
+                showMessage("Could not refresh series details")
             }
         } finally {
             if (initialLoad) {
@@ -288,9 +294,10 @@ fun ChapterPickScreen(
     fun markSelectedIssueRead() {
         val currentApi = loadedApi ?: return
         val item = selectedIssue ?: return
+        if (issueActionBusy) return
+        issueActionBusy = true
         scope.launch {
-            issueActionBusy = true
-            runCatching {
+            try {
                 currentApi.markChapterRead(
                     MarkChapterReadDto(
                         seriesId = seriesId,
@@ -298,47 +305,58 @@ fun ChapterPickScreen(
                         generateReadingSession = false
                     )
                 )
-            }.onSuccess {
-                val refreshed = runCatching { currentApi.seriesChapter(item.chapter.id) }
-                    .onFailure {
-                        KamiguraLog.w("Could not refresh issue detail after marking read.", it)
-                    }
-                    .getOrElse { item.chapter.copy(pagesRead = item.chapter.pages) }
+                val refreshed = try {
+                    currentApi.seriesChapter(item.chapter.id)
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    KamiguraLog.w("Could not refresh issue detail after marking read.", t)
+                    item.chapter.copy(pagesRead = item.chapter.pages)
+                }
                 updateChapter(refreshed)
-                Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show()
-            }.onFailure {
-                KamiguraLog.w("Could not mark issue ${item.chapter.id} as read.", it)
-                Toast.makeText(ctx, "Could not mark issue as read", Toast.LENGTH_SHORT).show()
+                showMessage("Marked as read")
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                KamiguraLog.w("Could not mark issue ${item.chapter.id} as read.", t)
+                showMessage("Could not mark issue as read")
+            } finally {
+                issueActionBusy = false
             }
-            issueActionBusy = false
         }
     }
 
     fun markSelectedIssueUnread() {
         val currentApi = loadedApi ?: return
         val item = selectedIssue ?: return
+        if (issueActionBusy) return
+        issueActionBusy = true
         scope.launch {
-            issueActionBusy = true
-            runCatching {
+            try {
                 currentApi.markChaptersUnread(
                     MarkVolumesReadDto(
                         seriesId = seriesId,
                         chapterIds = listOf(item.chapter.id)
                     )
                 )
-            }.onSuccess {
-                val refreshed = runCatching { currentApi.seriesChapter(item.chapter.id) }
-                    .onFailure {
-                        KamiguraLog.w("Could not refresh issue detail after marking unread.", it)
-                    }
-                    .getOrElse { item.chapter.copy(pagesRead = 0) }
+                val refreshed = try {
+                    currentApi.seriesChapter(item.chapter.id)
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    KamiguraLog.w("Could not refresh issue detail after marking unread.", t)
+                    item.chapter.copy(pagesRead = 0)
+                }
                 updateChapter(refreshed)
-                Toast.makeText(ctx, "Marked as unread", Toast.LENGTH_SHORT).show()
-            }.onFailure {
-                KamiguraLog.w("Could not mark issue ${item.chapter.id} as unread.", it)
-                Toast.makeText(ctx, "Could not mark issue as unread", Toast.LENGTH_SHORT).show()
+                showMessage("Marked as unread")
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                KamiguraLog.w("Could not mark issue ${item.chapter.id} as unread.", t)
+                showMessage("Could not mark issue as unread")
+            } finally {
+                issueActionBusy = false
             }
-            issueActionBusy = false
         }
     }
 
@@ -366,7 +384,9 @@ fun ChapterPickScreen(
             else -> PullToRefreshBox(
                 isRefreshing = refreshing,
                 onRefresh = {
-                    scope.launch { loadSeriesDetails(initialLoad = false) }
+                    if (!refreshing) {
+                        scope.launch { loadSeriesDetails(initialLoad = false) }
+                    }
                 },
                 modifier = Modifier.fillMaxSize(),
                 state = pullRefreshState,
@@ -391,7 +411,8 @@ fun ChapterPickScreen(
                     isAdmin = isAdmin,
                     onOpenFilteredSeries = onOpenFilteredSeries,
                     onPick = { chapterId, volumeId -> onPick(chapterId, volumeId, false) },
-                    onIssueClick = ::openIssue
+                    onIssueClick = ::openIssue,
+                    onMessage = ::showMessage
                 )
             }
         }
@@ -427,9 +448,10 @@ fun ChapterPickScreen(
             onMarkUnread = ::markSelectedIssueUnread,
             onDownload = {
                 issue?.let { item ->
+                    if (issueActionBusy) return@IssueDetailSideSheet
+                    issueActionBusy = true
                     scope.launch {
-                        issueActionBusy = true
-                        runCatching {
+                        try {
                             offlineRepository.enqueue(
                                 session = session,
                                 libraryId = libraryId,
@@ -441,17 +463,15 @@ fun ChapterPickScreen(
                                 expectedBytes = selectedIssueSize,
                                 expectedPageCount = selectedIssueDetail?.pages ?: item.chapter.pages
                             )
-                        }.onSuccess {
-                            Toast.makeText(ctx, "Download queued", Toast.LENGTH_SHORT).show()
-                        }.onFailure { error ->
+                            showMessage("Download queued")
+                        } catch (c: CancellationException) {
+                            throw c
+                        } catch (error: Throwable) {
                             KamiguraLog.w("Could not queue offline download for chapter ${item.chapter.id}.", error)
-                            Toast.makeText(
-                                ctx,
-                                error.message ?: "Could not queue download",
-                                Toast.LENGTH_LONG
-                            ).show()
+                            showMessage(error.message ?: "Could not queue download")
+                        } finally {
+                            issueActionBusy = false
                         }
-                        issueActionBusy = false
                     }
                 }
             },
@@ -502,7 +522,8 @@ private fun SeriesDetailContent(
     isAdmin: Boolean,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onPick: (chapterId: Int, volumeId: Int) -> Unit,
-    onIssueClick: (ChapterCardItem) -> Unit
+    onIssueClick: (ChapterCardItem) -> Unit,
+    onMessage: (String) -> Unit
 ) {
     val specialCards = chapterCards.filter { it.chapter.isSpecial }
     val issueCards = chapterCards.filterNot { it.chapter.isSpecial }
@@ -533,7 +554,8 @@ private fun SeriesDetailContent(
                             api = api,
                             isAdmin = isAdmin,
                             onOpenFilteredSeries = onOpenFilteredSeries,
-                            onPick = onPick
+                            onPick = onPick,
+                            onMessage = onMessage
                         )
                     }
                 }
@@ -564,7 +586,8 @@ private fun SeriesDetailContent(
                         api = api,
                         isAdmin = isAdmin,
                         onOpenFilteredSeries = onOpenFilteredSeries,
-                        onPick = onPick
+                        onPick = onPick,
+                        onMessage = onMessage
                     )
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {

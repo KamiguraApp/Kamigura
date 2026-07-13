@@ -1,6 +1,5 @@
 ﻿package li.mof.kamigura.library
 
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -282,6 +281,10 @@ internal fun DownloadedScreen(
     var pendingDeleteIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    fun showMessage(message: String) {
+        scope.launch { snackbarHostState.showSnackbar(message) }
+    }
+
     val downloadedFlow = remember(session.baseUrl, session.username, session.apiKey) {
         offlineRepository.observeDownloaded(session)
     }
@@ -341,10 +344,10 @@ internal fun DownloadedScreen(
     fun deleteDownloaded(records: List<OfflineIssueRecord>, closeSheet: Boolean = false) {
         val deletingRecords = records.distinctBy { it.chapterId }
             .filterNot { it.chapterId in pendingDeleteIds }
-        if (deletingRecords.isEmpty()) return
+        if (deletingRecords.isEmpty() || issueActionBusy) return
         val deletingIds = deletingRecords.mapTo(mutableSetOf()) { it.chapterId }
+        issueActionBusy = true
         scope.launch {
-            issueActionBusy = true
             pendingDeleteIds = pendingDeleteIds + deletingIds
             if (closeSheet && selectedDownload?.chapterId in deletingIds) {
                 selectedDownload = null
@@ -452,9 +455,10 @@ internal fun DownloadedScreen(
         onMarkRead = {
             val record = selectedRecord ?: return@IssueDetailSideSheet
             val currentApi = api
+            if (issueActionBusy) return@IssueDetailSideSheet
+            issueActionBusy = true
             scope.launch {
-                issueActionBusy = true
-                runCatching {
+                try {
                     if (currentApi != null) {
                         currentApi.markChapterRead(MarkChapterReadDto(record.seriesId, record.chapterId, false))
                     } else {
@@ -465,28 +469,34 @@ internal fun DownloadedScreen(
                             markRead = true
                         )
                     }
-                }.onSuccess {
                     selectedChapter = currentApi?.let {
-                        runCatching { it.seriesChapter(record.chapterId) }
-                            .onFailure {
-                                KamiguraLog.w("Could not refresh downloaded issue after marking read.", it)
-                            }
-                            .getOrNull()
+                        try {
+                            it.seriesChapter(record.chapterId)
+                        } catch (c: CancellationException) {
+                            throw c
+                        } catch (t: Throwable) {
+                            KamiguraLog.w("Could not refresh downloaded issue after marking read.", t)
+                            null
+                        }
                     } ?: detail?.copy(pagesRead = detail.pages)
-                    Toast.makeText(ctx, "Marked as read", Toast.LENGTH_SHORT).show()
-                }.onFailure {
-                    KamiguraLog.w("Could not mark downloaded chapter ${record.chapterId} as read.", it)
-                    Toast.makeText(ctx, "Could not mark issue as read", Toast.LENGTH_SHORT).show()
+                    showMessage("Marked as read")
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    KamiguraLog.w("Could not mark downloaded chapter ${record.chapterId} as read.", t)
+                    showMessage("Could not mark issue as read")
+                } finally {
+                    issueActionBusy = false
                 }
-                issueActionBusy = false
             }
         },
         onMarkUnread = {
             val record = selectedRecord ?: return@IssueDetailSideSheet
             val currentApi = api
+            if (issueActionBusy) return@IssueDetailSideSheet
+            issueActionBusy = true
             scope.launch {
-                issueActionBusy = true
-                runCatching {
+                try {
                     if (currentApi != null) {
                         currentApi.markChaptersUnread(
                             MarkVolumesReadDto(record.seriesId, chapterIds = listOf(record.chapterId))
@@ -494,20 +504,25 @@ internal fun DownloadedScreen(
                     } else {
                         offlineRepository.markLocalUnread(session, record.chapterId)
                     }
-                }.onSuccess {
                     selectedChapter = currentApi?.let {
-                        runCatching { it.seriesChapter(record.chapterId) }
-                            .onFailure {
-                                KamiguraLog.w("Could not refresh downloaded issue after marking unread.", it)
-                            }
-                            .getOrNull()
+                        try {
+                            it.seriesChapter(record.chapterId)
+                        } catch (c: CancellationException) {
+                            throw c
+                        } catch (t: Throwable) {
+                            KamiguraLog.w("Could not refresh downloaded issue after marking unread.", t)
+                            null
+                        }
                     } ?: detail?.copy(pagesRead = 0)
-                    Toast.makeText(ctx, "Marked as unread", Toast.LENGTH_SHORT).show()
-                }.onFailure {
-                    KamiguraLog.w("Could not mark downloaded chapter ${record.chapterId} as unread.", it)
-                    Toast.makeText(ctx, "Could not mark issue as unread", Toast.LENGTH_SHORT).show()
+                    showMessage("Marked as unread")
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    KamiguraLog.w("Could not mark downloaded chapter ${record.chapterId} as unread.", t)
+                    showMessage("Could not mark issue as unread")
+                } finally {
+                    issueActionBusy = false
                 }
-                issueActionBusy = false
             }
         },
         onDownload = {},
