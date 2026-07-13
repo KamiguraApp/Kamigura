@@ -296,30 +296,41 @@ fun LibraryScreen(
         }
     }
 
-    fun removeFromWantToRead(series: SeriesDto) {
+    fun removeFromWantToRead(series: List<SeriesDto>) {
         val currentApi = api ?: return
+        val requestedIds = series.mapTo(mutableSetOf()) { it.id }
+        val removedItems = wantToRead.withIndex().filter { it.value.id in requestedIds }
+        if (removedItems.isEmpty()) return
+        val removedIds = removedItems.map { it.value.id }
         scope.launch {
-            val originalIndex = wantToRead.indexOfFirst { it.id == series.id }
             runCatchingCancellable {
-                currentApi.removeSeriesFromWantToRead(UpdateWantToReadDto(listOf(series.id)))
+                currentApi.removeSeriesFromWantToRead(UpdateWantToReadDto(removedIds))
             }.onSuccess {
-                wantToRead = wantToRead.filterNot { it.id == series.id }
+                wantToRead = wantToRead.filterNot { it.id in requestedIds }
                 val result = snackbarHostState.showSnackbar(
-                    message = "Removed from Want to Read",
+                    message = if (removedItems.size == 1) {
+                        "Removed from Want to Read"
+                    } else {
+                        "Removed ${removedItems.size} items from Want to Read"
+                    },
                     actionLabel = "Undo",
                     withDismissAction = true,
                     duration = SnackbarDuration.Long
                 )
                 if (result == SnackbarResult.ActionPerformed) {
                     runCatchingCancellable {
-                        currentApi.addSeriesToWantToRead(UpdateWantToReadDto(listOf(series.id)))
+                        currentApi.addSeriesToWantToRead(UpdateWantToReadDto(removedIds))
                     }.onSuccess {
                         val restored = wantToRead.toMutableList()
-                        restored.add(originalIndex.coerceIn(0, restored.size), series)
+                        removedItems.forEach { indexed ->
+                            if (restored.none { it.id == indexed.value.id }) {
+                                restored.add(indexed.index.coerceIn(0, restored.size), indexed.value)
+                            }
+                        }
                         wantToRead = restored.distinctBy { it.id }
                     }.onFailure {
                         KamiguraLog.w("Could not restore series to Want to Read.", it)
-                        snackbarHostState.showSnackbar("Could not restore Want to Read item")
+                        snackbarHostState.showSnackbar("Could not restore Want to Read items")
                     }
                 }
             }.onFailure {

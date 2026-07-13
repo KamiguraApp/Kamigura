@@ -1,6 +1,7 @@
 package li.mof.kamigura.library.internal
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -29,14 +30,16 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
@@ -91,6 +94,7 @@ import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.series.chapterCoverUrl
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
+import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 import li.mof.kamigura.ui.browse.SeriesPosterCard
@@ -307,7 +311,7 @@ internal fun HomeContent(
     onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
     onOpenShelf: (HomeShelfKind) -> Unit,
-    onRemoveWantToRead: (SeriesDto) -> Unit,
+    onRemoveWantToRead: (List<SeriesDto>) -> Unit,
     onOpenBookmarks: () -> Unit,
     onOpenCollections: () -> Unit,
     onOpenDownloaded: () -> Unit,
@@ -582,20 +586,100 @@ private fun WantToReadGrid(
     series: List<SeriesDto>,
     session: KavitaSession,
     onSelectSeries: (SeriesDto) -> Unit,
-    onRemove: (SeriesDto) -> Unit,
+    onRemove: (List<SeriesDto>) -> Unit,
     gridState: LazyGridState,
     modifier: Modifier = Modifier
 ) {
-    BrowsePageScaffold(title = "Want to Read", modifier = modifier) {
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedIds by rememberSaveable { mutableStateOf<List<Int>>(emptyList()) }
+    val selectedIdSet = selectedIds.toSet()
+
+    fun exitSelectionMode() {
+        selectionMode = false
+        selectedIds = emptyList()
+    }
+
+    fun toggleSelection(seriesId: Int) {
+        selectedIds = if (seriesId in selectedIdSet) {
+            selectedIds - seriesId
+        } else {
+            selectedIds + seriesId
+        }
+    }
+
+    LaunchedEffect(series) {
+        val availableIds = series.mapTo(mutableSetOf()) { it.id }
+        selectedIds = selectedIds.filter { it in availableIds }
+        if (series.isEmpty()) selectionMode = false
+    }
+
+    BackHandler(enabled = selectionMode, onBack = ::exitSelectionMode)
+
+    BrowsePageScaffold(
+        title = if (selectionMode) "${selectedIds.size} selected" else "Want to Read",
+        modifier = modifier,
+        onBack = if (selectionMode) ::exitSelectionMode else null,
+        statusBarPadding = false,
+        navigationIcon = Icons.Filled.Close,
+        navigationContentDescription = "Cancel selection",
+        actions = {
+            if (selectionMode) {
+                IconButton(
+                    onClick = {
+                        selectedIds = if (selectedIds.size == series.size) {
+                            emptyList()
+                        } else {
+                            series.map { it.id }
+                        }
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SelectAll,
+                        contentDescription = if (selectedIds.size == series.size) "Clear selection" else "Select all",
+                        tint = Color.White
+                    )
+                }
+                IconButton(
+                    enabled = selectedIds.isNotEmpty(),
+                    onClick = {
+                        val selected = series.filter { it.id in selectedIdSet }
+                        exitSelectionMode()
+                        onRemove(selected)
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Remove selected from Want to Read"
+                    )
+                }
+            } else if (series.isNotEmpty()) {
+                IconButton(onClick = { selectionMode = true }) {
+                    Icon(
+                        imageVector = Icons.Filled.Checklist,
+                        contentDescription = "Select items",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+    ) {
         if (series.isEmpty()) {
             DarkMessageState(title = "Want to Read", body = "No series added yet.")
         } else {
             PosterGrid(items = series, key = { it.id }, state = gridState) { item ->
-                SeriesPosterCardMenu(
+                SelectableSeriesPosterCard(
                     series = item,
                     session = session,
-                    onClick = { onSelectSeries(item) },
-                    onRemove = { onRemove(item) }
+                    selectionMode = selectionMode,
+                    selected = item.id in selectedIdSet,
+                    onClick = {
+                        if (selectionMode) toggleSelection(item.id) else onSelectSeries(item)
+                    },
+                    onLongClick = {
+                        if (!selectionMode) selectionMode = true
+                        toggleSelection(item.id)
+                    },
+                    onSelectionChange = { toggleSelection(item.id) }
                 )
             }
         }
@@ -604,13 +688,15 @@ private fun WantToReadGrid(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SeriesPosterCardMenu(
+private fun SelectableSeriesPosterCard(
     series: SeriesDto,
     session: KavitaSession,
     onClick: () -> Unit,
-    onRemove: () -> Unit
+    onLongClick: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onSelectionChange: () -> Unit
 ) {
-    var menuExpanded by remember { mutableStateOf(false) }
     Box {
         SeriesPosterCard(
             series = series,
@@ -619,20 +705,28 @@ private fun SeriesPosterCardMenu(
                 .fillMaxWidth()
                 .combinedClickable(
                     onClick = onClick,
-                    onLongClick = { menuExpanded = true }
+                    onLongClick = onLongClick
                 )
         )
-        DropdownMenu(
-            expanded = menuExpanded,
-            onDismissRequest = { menuExpanded = false }
-        ) {
-            DropdownMenuItem(
-                text = { Text("Remove from Want to Read") },
-                onClick = {
-                    menuExpanded = false
-                    onRemove()
-                }
-            )
+        if (selectionMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(KavitaCoverAspectRatio)
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                        else Color.Black.copy(alpha = 0.12f)
+                    )
+            ) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = { onSelectionChange() },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .background(Color.Black.copy(alpha = 0.62f), MaterialTheme.shapes.small)
+                )
+            }
         }
     }
 }

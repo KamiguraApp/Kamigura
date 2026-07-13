@@ -111,7 +111,7 @@ internal fun HomeShell(
     onSelectLibrary: (LibraryDto) -> Unit,
     onScanLibrary: (LibraryDto) -> Unit,
     onSelectSeries: (SeriesDto) -> Unit,
-    onRemoveWantToRead: (SeriesDto) -> Unit
+    onRemoveWantToRead: (List<SeriesDto>) -> Unit
 ) {
     var destination by rememberSaveable(
         initialSearchQuery,

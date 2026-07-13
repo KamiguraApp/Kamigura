@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -56,6 +57,8 @@ internal fun BrowsePageScaffold(
     modifier: Modifier = Modifier,
     onBack: (() -> Unit)? = null,
     statusBarPadding: Boolean = onBack != null,
+    navigationIcon: ImageVector = Icons.AutoMirrored.Filled.ArrowBack,
+    navigationContentDescription: String = "Back",
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -80,8 +83,8 @@ internal fun BrowsePageScaffold(
             if (onBack != null) {
                 IconButton(onClick = onBack) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        imageVector = navigationIcon,
+                        contentDescription = navigationContentDescription,
                         tint = Color.White
                     )
                 }
