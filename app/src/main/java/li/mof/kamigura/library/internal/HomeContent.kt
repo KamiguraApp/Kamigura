@@ -335,7 +335,7 @@ internal fun HomeContent(
     var browseDrilldown by rememberSaveable { mutableStateOf<BrowseDrilldown?>(null) }
     var searchQuery by rememberSaveable(initialSearchQuery) { mutableStateOf(initialSearchQuery) }
 
-    LaunchedEffect(destination, scrollToTopSignal) {
+    LaunchedEffect(scrollToTopSignal) {
         if (scrollToTopSignal <= 0) return@LaunchedEffect
         when (destination) {
             HomeDestination.Home -> homeListState.animateScrollToItem(0)

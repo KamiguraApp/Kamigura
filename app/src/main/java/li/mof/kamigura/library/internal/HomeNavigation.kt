@@ -41,6 +41,7 @@ import androidx.compose.material3.rememberWideNavigationRailState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -129,13 +130,11 @@ internal fun HomeShell(
             if (initialSearchQuery.isNotBlank()) HomeDestination.Search else HomeDestination.Home
         )
     }
-    var reselectionCounts by remember { mutableStateOf(IntArray(HomeDestination.entries.size)) }
+    var reselectionCount by remember { mutableIntStateOf(0) }
 
     fun selectDestination(next: HomeDestination) {
         if (next == destination) {
-            reselectionCounts = reselectionCounts.copyOf().also { counts ->
-                counts[next.ordinal]++
-            }
+            reselectionCount++
         } else {
             destination = next
         }
@@ -166,7 +165,7 @@ internal fun HomeShell(
                     )
                     HomeContent(
                         destination = destination,
-                        scrollToTopSignal = reselectionCounts[destination.ordinal],
+                        scrollToTopSignal = reselectionCount,
                         libraries = libraries,
                         librarySeriesCounts = librarySeriesCounts,
                         isAdmin = isAdmin,
@@ -208,7 +207,7 @@ internal fun HomeShell(
                 HomeTopBar(serverName = serverName, onOpenSettings = onOpenSettings)
                 HomeContent(
                     destination = destination,
-                    scrollToTopSignal = reselectionCounts[destination.ordinal],
+                    scrollToTopSignal = reselectionCount,
                     libraries = libraries,
                     librarySeriesCounts = librarySeriesCounts,
                     isAdmin = isAdmin,
