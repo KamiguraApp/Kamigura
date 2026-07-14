@@ -344,11 +344,10 @@ internal fun DownloadedScreen(
     fun deleteDownloaded(records: List<OfflineIssueRecord>, closeSheet: Boolean = false) {
         val deletingRecords = records.distinctBy { it.chapterId }
             .filterNot { it.chapterId in pendingDeleteIds }
-        if (deletingRecords.isEmpty() || issueActionBusy) return
+        if (deletingRecords.isEmpty()) return
         val deletingIds = deletingRecords.mapTo(mutableSetOf()) { it.chapterId }
-        issueActionBusy = true
+        pendingDeleteIds = pendingDeleteIds + deletingIds
         scope.launch {
-            pendingDeleteIds = pendingDeleteIds + deletingIds
             if (closeSheet && selectedDownload?.chapterId in deletingIds) {
                 selectedDownload = null
                 selectedChapter = null
@@ -394,8 +393,6 @@ internal fun DownloadedScreen(
             } catch (c: CancellationException) {
                 pendingDeleteIds = pendingDeleteIds - deletingIds
                 throw c
-            } finally {
-                issueActionBusy = false
             }
         }
     }
