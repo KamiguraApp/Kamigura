@@ -17,10 +17,13 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -46,7 +49,7 @@ import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.theme.KamiguraSurface
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun CollectionsScreen(
     sessionStore: KavitaSessionStore,
@@ -60,6 +63,7 @@ internal fun CollectionsScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
 
     suspend fun loadCollections(initialLoad: Boolean) {
         if (initialLoad) loading = true else refreshing = true
@@ -93,7 +97,17 @@ internal fun CollectionsScreen(
             )
             else -> PullToRefreshBox(
                 isRefreshing = refreshing,
-                onRefresh = { scope.launch { loadCollections(initialLoad = false) } }
+                onRefresh = { scope.launch { loadCollections(initialLoad = false) } },
+                state = pullRefreshState,
+                indicator = {
+                    PullToRefreshDefaults.LoadingIndicator(
+                        state = pullRefreshState,
+                        isRefreshing = refreshing,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        containerColor = Color(0xFF24352F),
+                        color = Color(0xFF86D39B)
+                    )
+                }
             ) {
                 if (collections.isEmpty()) {
                     DarkMessageState("Collections", "No collections yet.")

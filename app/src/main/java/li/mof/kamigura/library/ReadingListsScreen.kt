@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -25,6 +26,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -85,7 +88,7 @@ internal fun ReadingListsScreen(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun ReadingListsPane(
     api: KavitaApi?,
@@ -104,6 +107,7 @@ internal fun ReadingListsPane(
     var creating by remember { mutableStateOf(false) }
     var retryKey by remember { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
 
     suspend fun loadReadingLists(initialLoad: Boolean) {
         val loadedApi = api ?: return
@@ -160,6 +164,16 @@ internal fun ReadingListsPane(
                     } else {
                         scope.launch { loadReadingLists(initialLoad = false) }
                     }
+                },
+                state = pullRefreshState,
+                indicator = {
+                    PullToRefreshDefaults.LoadingIndicator(
+                        state = pullRefreshState,
+                        isRefreshing = refreshing,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        containerColor = Color(0xFF24352F),
+                        color = Color(0xFF86D39B)
+                    )
                 }
             ) {
                 LazyColumn(

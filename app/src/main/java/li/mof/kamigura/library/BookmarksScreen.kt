@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -45,7 +49,7 @@ import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun BookmarksScreen(
     sessionStore: KavitaSessionStore,
@@ -66,6 +70,7 @@ internal fun BookmarksScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullToRefreshState()
 
     suspend fun loadBookmarks(initialLoad: Boolean) {
         if (initialLoad) loading = true else refreshing = true
@@ -108,7 +113,17 @@ internal fun BookmarksScreen(
             )
             else -> PullToRefreshBox(
                 isRefreshing = refreshing,
-                onRefresh = { scope.launch { loadBookmarks(initialLoad = false) } }
+                onRefresh = { scope.launch { loadBookmarks(initialLoad = false) } },
+                state = pullRefreshState,
+                indicator = {
+                    PullToRefreshDefaults.LoadingIndicator(
+                        state = pullRefreshState,
+                        isRefreshing = refreshing,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                        containerColor = Color(0xFF24352F),
+                        color = Color(0xFF86D39B)
+                    )
+                }
             ) {
                 if (bookmarks.isEmpty()) {
                     DarkMessageState("Bookmarks", "No bookmarked pages yet.")
