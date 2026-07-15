@@ -63,7 +63,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.CancellationException
@@ -468,8 +467,7 @@ private fun SeriesReadSplitButton(
                             menuExpanded = false
                             showingReadingLists = false
                         },
-                        modifier = Modifier.width(240.dp),
-                        offset = DpOffset(x = trailingWidth - 240.dp, y = 0.dp)
+                        modifier = Modifier.width(240.dp)
                     ) {
                         DropdownMenuGroup(
                             shapes = MenuDefaults.groupShape(index = 0, count = 1)
