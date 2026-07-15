@@ -47,7 +47,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -97,6 +96,7 @@ import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.series.chapterCoverUrl
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
+import li.mof.kamigura.ui.KamiguraPullToRefreshIndicator
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.LazyGridLoadMoreEffect
@@ -369,14 +369,7 @@ internal fun HomeContent(
                     onRefresh = onRefresh,
                     modifier = Modifier.fillMaxSize(),
                     state = pullState,
-                    indicator = {
-                        // M3 Expressive contained (morphing) loading indicator.
-                        PullToRefreshDefaults.LoadingIndicator(
-                            state = pullState,
-                            isRefreshing = refreshing,
-                            modifier = Modifier.align(Alignment.TopCenter)
-                        )
-                    }
+                    indicator = { KamiguraPullToRefreshIndicator(pullState, refreshing) }
                 ) {
                     if (onDeck.isEmpty() && recentlyUpdated.isEmpty() && newlyAdded.isEmpty()) {
                         DarkMessageState(
@@ -715,9 +708,12 @@ private fun WantToReadGrid(
             }
         }
     ) {
+        val pullState = rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = refreshing && !selectionMode,
-            onRefresh = { if (!selectionMode) onRefresh() }
+            onRefresh = { if (!selectionMode) onRefresh() },
+            state = pullState,
+            indicator = { KamiguraPullToRefreshIndicator(pullState, refreshing && !selectionMode) }
         ) {
             if (series.isEmpty()) {
                 DarkMessageState(title = "Want to Read", body = "No series added yet.")

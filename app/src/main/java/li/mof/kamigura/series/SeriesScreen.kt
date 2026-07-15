@@ -47,7 +47,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -78,6 +77,7 @@ import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
+import li.mof.kamigura.ui.KamiguraPullToRefreshIndicator
 import li.mof.kamigura.ui.browse.SeriesPosterCard
 import li.mof.kamigura.ui.theme.KamiguraBackground
 import li.mof.kamigura.ui.theme.KamiguraChrome
@@ -398,15 +398,7 @@ fun SeriesScreen(
                     },
                     modifier = Modifier.fillMaxSize(),
                     state = pullRefreshState,
-                    indicator = {
-                        PullToRefreshDefaults.LoadingIndicator(
-                            state = pullRefreshState,
-                            isRefreshing = refreshing,
-                            modifier = Modifier.align(Alignment.TopCenter),
-                            containerColor = Color(0xFF24352F),
-                            color = Color(0xFF86D39B)
-                        )
-                    }
+                    indicator = { KamiguraPullToRefreshIndicator(pullRefreshState, refreshing) }
                 ) {
                     when {
                         error != null -> DarkMessageState(

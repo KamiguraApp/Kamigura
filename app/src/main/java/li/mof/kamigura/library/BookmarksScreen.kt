@@ -16,7 +16,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +44,7 @@ import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
+import li.mof.kamigura.ui.KamiguraPullToRefreshIndicator
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
@@ -115,15 +115,7 @@ internal fun BookmarksScreen(
                 isRefreshing = refreshing,
                 onRefresh = { scope.launch { loadBookmarks(initialLoad = false) } },
                 state = pullRefreshState,
-                indicator = {
-                    PullToRefreshDefaults.LoadingIndicator(
-                        state = pullRefreshState,
-                        isRefreshing = refreshing,
-                        modifier = Modifier.align(Alignment.TopCenter),
-                        containerColor = Color(0xFF24352F),
-                        color = Color(0xFF86D39B)
-                    )
-                }
+                indicator = { KamiguraPullToRefreshIndicator(pullRefreshState, refreshing) }
             ) {
                 if (bookmarks.isEmpty()) {
                     DarkMessageState("Bookmarks", "No bookmarked pages yet.")
