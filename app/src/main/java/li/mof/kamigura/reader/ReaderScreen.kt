@@ -506,14 +506,8 @@ fun ReaderScreen(
         } else {
             Color(0xFFFAF7F2)
         }
-        // In Curl mode every branch (curl, slide overlay, static fallback) letterboxes with
-        // the paper colour, so landing on a slide-fallback page (cover, wide-adjacent
-        // single) does not flip the margins back to near-black mid-read.
-        val readerPageBackground = if (settings.reader.pageTurnMode == PageTurnMode.Curl) {
-            curlBackPageColor
-        } else {
-            Color(0xFF111111)
-        }
+        // Every rendering branch letterboxes with the selected paper colour.
+        val readerPageBackground = curlBackPageColor
         val portraitCurlConfig = rememberPageCurlConfig(backPageColor = curlBackPageColor)
         val spreadCurlConfig = rememberPageCurlConfig(
             backPageColor = curlBackPageColor,
