@@ -55,6 +55,7 @@ import li.mof.kamigura.AppSettings
 import li.mof.kamigura.AppSettingsStore
 import li.mof.kamigura.FileDimensionDto
 import li.mof.kamigura.InvertMode
+import li.mof.kamigura.PageBackground
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KamiguraLog
@@ -495,10 +496,15 @@ fun ReaderScreen(
                 turnEndFractionX = ReaderSpreadCurlTurnEndFractionX
             )
         }
-        val curlBackPageColor = if (invertMode == InvertMode.Off) {
-            Color(0xFFFAF7F2)
-        } else {
+        // Inverting already forces the dark paper (a bright white flap next to an inverted
+        // page is what the invert mode exists to avoid); the setting picks the colour the
+        // rest of the time.
+        val darkPaper = invertMode != InvertMode.Off ||
+            settings.reader.pageBackground == PageBackground.Dark
+        val curlBackPageColor = if (darkPaper) {
             Color(0xFF101010)
+        } else {
+            Color(0xFFFAF7F2)
         }
         // In Curl mode every branch (curl, slide overlay, static fallback) letterboxes with
         // the paper colour, so landing on a slide-fallback page (cover, wide-adjacent

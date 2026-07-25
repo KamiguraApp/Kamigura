@@ -23,6 +23,12 @@ enum class PageTurnMode {
     Curl
 }
 
+/** Colour of the margins around a page (and of the curl flap's back face). */
+enum class PageBackground {
+    Paper,
+    Dark
+}
+
 internal const val DefaultReaderPrefetchTurns = 4
 internal const val MaxReaderPrefetchTurns = 8
 
@@ -33,6 +39,7 @@ data class ReaderSettings(
     val prefetchTurns: Int = DefaultReaderPrefetchTurns,
     val pageTransitionAnimation: Boolean = true,
     val pageTurnMode: PageTurnMode = PageTurnMode.Curl,
+    val pageBackground: PageBackground = PageBackground.Paper,
     val showSpreadShiftButtons: Boolean = true
 )
 
@@ -48,6 +55,7 @@ class AppSettingsStore(private val context: Context) {
     private val KEY_LEGACY_UNMETERED_PREFETCH_TURNS = intPreferencesKey("reader_unmetered_prefetch_turns")
     private val KEY_PAGE_TRANSITION_ANIMATION = booleanPreferencesKey("reader_page_transition_animation")
     private val KEY_PAGE_TURN_MODE = stringPreferencesKey("reader_page_turn_mode")
+    private val KEY_PAGE_BACKGROUND = stringPreferencesKey("reader_page_background")
     private val KEY_SHOW_SPREAD_SHIFT_BUTTONS = booleanPreferencesKey("reader_show_spread_shift_buttons")
 
     val flow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -66,6 +74,9 @@ class AppSettingsStore(private val context: Context) {
                 pageTurnMode = prefs[KEY_PAGE_TURN_MODE]
                     ?.let { runCatching { PageTurnMode.valueOf(it) }.getOrNull() }
                     ?: PageTurnMode.Curl,
+                pageBackground = prefs[KEY_PAGE_BACKGROUND]
+                    ?.let { runCatching { PageBackground.valueOf(it) }.getOrNull() }
+                    ?: PageBackground.Paper,
                 showSpreadShiftButtons = prefs[KEY_SHOW_SPREAD_SHIFT_BUTTONS] ?: true
             )
         )
@@ -93,6 +104,10 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setPageTurnMode(value: PageTurnMode) {
         context.settingsDataStore.edit { it[KEY_PAGE_TURN_MODE] = value.name }
+    }
+
+    suspend fun setPageBackground(value: PageBackground) {
+        context.settingsDataStore.edit { it[KEY_PAGE_BACKGROUND] = value.name }
     }
 
     suspend fun setShowSpreadShiftButtons(value: Boolean) {

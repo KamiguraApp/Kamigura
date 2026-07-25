@@ -644,6 +644,34 @@ fun ReaderSettingsScreen(
                 }
             }
 
+            Text("Page background", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Colour of the margins around a page, and of the back of a curling page. " +
+                    "Invert always uses the dark one.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+            ) {
+                val backgrounds = PageBackground.entries
+                backgrounds.forEachIndexed { index, background ->
+                    ToggleButton(
+                        checked = settings.reader.pageBackground == background,
+                        onCheckedChange = { scope.launch { settingsStore.setPageBackground(background) } },
+                        modifier = Modifier
+                            .weight(1f)
+                            .semantics { role = Role.RadioButton },
+                        shapes = when (index) {
+                            0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                            backgrounds.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                            else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                        }
+                    ) { Text(background.name) }
+                }
+            }
+
             SettingRow(
                 title = "Spread shift buttons",
                 desc = "Shows the +1 / -1 buttons in the reader menu (landscape) to correct a " +
