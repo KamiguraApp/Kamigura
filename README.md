@@ -16,7 +16,7 @@
 
 It is especially focused on people who digitize their own physical books and want a comfortable native reading experience on tablets and phones.
 
-> Status: **v0.19 (early)**. Usable, but still evolving.
+> Status: **v0.20 (early)**. Usable, but still evolving.
 
 <details>
   <summary>Screenshots</summary>
