@@ -74,7 +74,7 @@ private data class StatusMessage(val text: String, val isError: Boolean)
 
 private val StatusSuccessColor = Color(0xFF81C784)
 private val SettingsHubContentMaxWidth = 560.dp
-private val SettingsFormContentMaxWidth = 720.dp
+internal val SettingsFormContentMaxWidth = 720.dp
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
