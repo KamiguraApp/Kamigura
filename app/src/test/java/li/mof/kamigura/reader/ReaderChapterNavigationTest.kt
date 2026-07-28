@@ -3,6 +3,7 @@ package li.mof.kamigura.reader
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.VolumeDto
 import li.mof.kamigura.reader.internal.readerChapterNeighbors
+import li.mof.kamigura.reader.internal.readerChapterEntry
 import li.mof.kamigura.reader.internal.readerChapterSequence
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -35,7 +36,7 @@ class ReaderChapterNavigationTest {
 
         assertEquals(listOf(101, 201, 202), sequence.map { it.chapterId })
         assertEquals(listOf(10, 21, 20), sequence.map { it.volumeId })
-        assertEquals("Volume 1 · One", sequence.first().displayName)
+        assertEquals("Volume 1 / One", sequence.first().displayName)
     }
 
     @Test
@@ -78,5 +79,20 @@ class ReaderChapterNavigationTest {
 
         assertNull(neighbors.previous)
         assertNull(neighbors.next)
+    }
+
+    @Test
+    fun specialCanStillBeNamedOutsideTheSequence() {
+        val volumes = listOf(
+            VolumeDto(
+                id = 10,
+                name = "Extras",
+                chapters = listOf(ChapterDto(id = 2, title = "Bonus", isSpecial = true))
+            )
+        )
+
+        val entry = readerChapterEntry(volumes, chapterId = 2)
+
+        assertEquals("Extras / Bonus", entry?.displayName)
     }
 }

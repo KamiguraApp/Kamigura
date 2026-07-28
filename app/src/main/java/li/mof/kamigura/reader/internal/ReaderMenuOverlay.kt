@@ -18,6 +18,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
@@ -32,6 +33,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import li.mof.kamigura.InvertMode
 import li.mof.kamigura.ui.ValueBubbleSlider
@@ -40,6 +42,8 @@ import kotlin.math.roundToInt
 /** Internal to reader, not for external use. */
 @Composable
 internal fun ReaderMenuOverlay(
+    seriesName: String,
+    chapterName: String,
     page: Int,
     pages: Int,
     rightToLeft: Boolean,
@@ -92,11 +96,22 @@ internal fun ReaderMenuOverlay(
                     tint = Color.White
                 )
             }
-            Text(
-                text = "${page + 1} / $pages",
-                color = Color.White,
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = seriesName,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "$chapterName | ${page + 1} / $pages",
+                    color = Color.White.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Row(
                 horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
             ) {

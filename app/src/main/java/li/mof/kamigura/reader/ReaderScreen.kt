@@ -70,6 +70,8 @@ import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.internal.ReaderInvertCacheKey
 import li.mof.kamigura.reader.internal.ReaderPrefetchTarget
 import li.mof.kamigura.reader.internal.ReaderFullscreenEffect
+import li.mof.kamigura.reader.internal.ReaderChapterBoundary
+import li.mof.kamigura.reader.internal.ReaderChapterBoundaryScreen
 import li.mof.kamigura.reader.internal.ReaderChapterEntry
 import li.mof.kamigura.reader.internal.ReaderMenuOverlay
 import li.mof.kamigura.reader.internal.ReaderPageView
@@ -83,6 +85,7 @@ import li.mof.kamigura.reader.internal.prefetchReaderPages
 import li.mof.kamigura.reader.internal.readerPageLayout
 import li.mof.kamigura.reader.internal.readerPanBoundsPx
 import li.mof.kamigura.reader.internal.readerEstimatedDecodeBytes
+import li.mof.kamigura.reader.internal.readerChapterEntry
 import li.mof.kamigura.reader.internal.readerChapterNeighbors
 import li.mof.kamigura.reader.internal.readerChapterSequence
 import li.mof.kamigura.reader.internal.readerPrefetchMemoryPlan
@@ -177,6 +180,9 @@ fun ReaderScreen(
     }
     var seriesName by remember { mutableStateOf("") }
     var chapterSwitching by remember { mutableStateOf(false) }
+    var chapterBoundary by remember { mutableStateOf<ReaderChapterBoundary?>(null) }
+    var boundaryDragDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
+    var boundaryDragProgress by remember { mutableFloatStateOf(0f) }
     var pages by remember { mutableIntStateOf(0) }
     var pageDimensions by remember { mutableStateOf<Map<Int, FileDimensionDto>>(emptyMap()) }
     var page by remember { mutableIntStateOf(0) }
@@ -240,7 +246,9 @@ fun ReaderScreen(
     }
     suspend fun saveRemoteProgress(
         target: ReaderRemoteProgressTarget,
-        clearPending: Boolean = true
+        clearPending: Boolean = true,
+        targetApi: KavitaApi? = api,
+        targetSession: KavitaSession? = session
     ): Boolean {
         if (incognito) return false
         if (target.pageCount <= 0 || target.page !in 0 until target.pageCount) return false
@@ -250,8 +258,7 @@ fun ReaderScreen(
             }
             return true
         }
-        val loadedApi = api ?: return false
-        val loadedSession = session
+        val loadedApi = targetApi ?: return false
         return ReaderProgressWriteMutex.withLock {
             if (target.revision != target.revisionClock.get()) return@withLock false
             try {
@@ -268,9 +275,9 @@ fun ReaderScreen(
                 if (clearPending && pendingRemoteProgress?.target == target) {
                     pendingRemoteProgress = null
                 }
-                if (target.offline && loadedSession != null) {
+                if (target.offline && targetSession != null) {
                     offlineRepository.markProgressSynced(
-                        session = loadedSession,
+                        session = targetSession,
                         chapterId = target.chapterId,
                         expectedPage = target.page
                     )
@@ -287,7 +294,7 @@ fun ReaderScreen(
             }
         }
     }
-    fun completeChapter() {
+    fun completeChapter(exitAfter: Boolean = true) {
         if (completingRead || pages <= 0) return
         completingRead = true
         showReaderMenu = false
@@ -302,10 +309,9 @@ fun ReaderScreen(
             offline = offlineChapter != null
         )
         pendingRemoteProgress = null
-        // Return to the series page immediately; the read/progress writes continue on a
-        // process-lived scope so a slow or stalled server never blocks (or, without a
-        // timeout, indefinitely hangs) the navigation back.
-        onBack()
+        // Exit immediately when there is no neighbor; otherwise the same writes continue
+        // behind the chapter-boundary screen.
+        if (exitAfter) onBack()
         if (incognito) return
         val loadedApi = api
         val loadedSession = session
@@ -322,7 +328,9 @@ fun ReaderScreen(
                 }
                 val progressSaved = loadedApi != null && saveRemoteProgress(
                     target = progressTarget,
-                    clearPending = false
+                    clearPending = false,
+                    targetApi = loadedApi,
+                    targetSession = loadedSession
                 )
                 val readMarked = loadedApi != null && runCatching {
                     loadedApi.markChapterRead(
@@ -346,15 +354,15 @@ fun ReaderScreen(
             }
         }
     }
-    fun resetChapterAndExit() {
+    fun resetChapterAndExit(exitAfter: Boolean = true) {
         if (completingRead) return
         completingRead = true
         showReaderMenu = false
         val resetChapterId = currentChapterId
         progressRevisionClocks.getOrPut(resetChapterId) { AtomicLong(0L) }.incrementAndGet()
         pendingRemoteProgress = null
-        // Return immediately; the unread write continues on a process-lived scope.
-        onBack()
+        // Exit immediately when there is no neighbor; otherwise remain on the boundary.
+        if (exitAfter) onBack()
         if (incognito) return
         val loadedApi = api
         val loadedSession = session
@@ -399,6 +407,7 @@ fun ReaderScreen(
         val loadedApi = api ?: return
         chapterSwitching = true
         showReaderMenu = false
+        error = null
         scope.launch {
             try {
                 val local = runCatching {
@@ -441,6 +450,9 @@ fun ReaderScreen(
                 pageDimensions = loadedDimensions
                 page = landingPage
                 completingRead = false
+                chapterBoundary = null
+                boundaryDragDirection = null
+                boundaryDragProgress = 0f
                 error = null
                 readerReady = true
             } catch (cancelled: CancellationException) {
@@ -486,6 +498,14 @@ fun ReaderScreen(
         }.getOrNull()
         offlineChapter = local
         if (local != null) {
+            seriesName = local.record.seriesName
+            currentVolumeId = local.record.volumeId
+            currentChapter = ReaderChapterEntry(
+                chapterId = currentChapterId,
+                volumeId = currentVolumeId,
+                volumeName = null,
+                chapterName = local.record.issueName
+            )
             pages = local.pages.size
             pageDimensions = local.dimensions
             page = (initialPage ?: local.record.localPage).coerceIn(0, (pages - 1).coerceAtLeast(0))
@@ -502,15 +522,18 @@ fun ReaderScreen(
             readerImageLoader = client.buildReaderImageLoader(okHttp, loadedSession)
             runCatching { offlineRepository.syncPending(loadedSession, loadedApi) }
                 .onFailure { KamiguraLog.w("Could not sync pending offline progress from Reader.", it) }
-            seriesName = runCatching { loadedApi.series(seriesId).name }
-                .onFailure { KamiguraLog.w("Could not load reader series name for $seriesId.", it) }
-                .getOrDefault("")
-            chapterSequence = runCatching { readerChapterSequence(loadedApi.volumes(seriesId)) }
-                .onFailure { KamiguraLog.w("Could not load reader chapter sequence for $seriesId.", it) }
-                .getOrDefault(emptyList())
-            chapterSequence.firstOrNull { it.chapterId == currentChapterId }?.let {
-                currentChapter = it
-                currentVolumeId = it.volumeId
+            val chapterMetadataJob = launch {
+                seriesName = runCatching { loadedApi.series(seriesId).name }
+                    .onFailure { KamiguraLog.w("Could not load reader series name for $seriesId.", it) }
+                    .getOrDefault(seriesName)
+                val loadedVolumes = runCatching { loadedApi.volumes(seriesId) }
+                    .onFailure { KamiguraLog.w("Could not load reader chapter sequence for $seriesId.", it) }
+                    .getOrDefault(emptyList())
+                chapterSequence = readerChapterSequence(loadedVolumes)
+                readerChapterEntry(loadedVolumes, currentChapterId)?.let {
+                    currentChapter = it
+                    currentVolumeId = it.volumeId
+                }
             }
             val serverRightToLeft = try {
                 // A series-specific direction on the server (User/Implicit profile)
@@ -556,6 +579,7 @@ fun ReaderScreen(
                     lastRemoteProgressPages[currentChapterId] = page
                 }
             }
+            chapterMetadataJob.join()
             readerReady = true
         } catch (t: Throwable) {
             KamiguraLog.w("Could not initialize Reader for chapter $currentChapterId.", t)
@@ -873,9 +897,60 @@ fun ReaderScreen(
         )
 
         fun runBoundaryAction(direction: ReaderTurnDirection, completeWhenPastEnd: Boolean) {
+            val neighbors = readerChapterNeighbors(chapterSequence, currentChapterId)
             when (direction) {
-                ReaderTurnDirection.Next -> if (completeWhenPastEnd) completeChapter()
-                ReaderTurnDirection.Previous -> if (page == 0) resetChapterAndExit()
+                ReaderTurnDirection.Next -> if (completeWhenPastEnd) {
+                    val next = neighbors.next
+                    if (next == null) {
+                        completeChapter()
+                    } else {
+                        completeChapter(exitAfter = false)
+                        chapterBoundary = ReaderChapterBoundary(
+                            direction = direction,
+                            current = currentChapter,
+                            neighbor = next
+                        )
+                    }
+                }
+                ReaderTurnDirection.Previous -> if (page == 0) {
+                    val previous = neighbors.previous
+                    if (previous == null) {
+                        resetChapterAndExit()
+                    } else {
+                        resetChapterAndExit(exitAfter = false)
+                        chapterBoundary = ReaderChapterBoundary(
+                            direction = direction,
+                            current = currentChapter,
+                            neighbor = previous
+                        )
+                    }
+                }
+            }
+        }
+
+        fun continueFromChapterBoundary() {
+            val boundary = chapterBoundary ?: return
+            switchChapter(
+                target = boundary.neighbor,
+                openAtLastPage = boundary.direction == ReaderTurnDirection.Previous
+            )
+        }
+
+        fun returnFromChapterBoundary() {
+            if (chapterSwitching) return
+            chapterBoundary = null
+            boundaryDragDirection = null
+            boundaryDragProgress = 0f
+            completingRead = false
+            error = null
+        }
+
+        fun turnChapterBoundary(direction: ReaderTurnDirection) {
+            val boundary = chapterBoundary ?: return
+            if (direction == boundary.direction) {
+                continueFromChapterBoundary()
+            } else {
+                returnFromChapterBoundary()
             }
         }
 
@@ -1602,8 +1677,9 @@ fun ReaderScreen(
             }
         }
 
-        key(page, rtl, nextPageTurnStep, previousPageTurnStep, showingFinalPage) {
-            ReaderTapLayer(
+        if (chapterBoundary == null) {
+            key(page, rtl, nextPageTurnStep, previousPageTurnStep, showingFinalPage) {
+                ReaderTapLayer(
                 rightToLeft = rtl,
                 onNextSpread = { position ->
                     requestTurnFromTap(ReaderTurnDirection.Next, nextPageTurnStep, showingFinalPage, position)
@@ -1712,11 +1788,61 @@ fun ReaderScreen(
                         viewportHeightPx = viewportHeightPx
                     )
                 }
+                )
+            }
+        } else {
+            ReaderTapLayer(
+                rightToLeft = rtl,
+                onNextSpread = { turnChapterBoundary(ReaderTurnDirection.Next) },
+                onPreviousSpread = { turnChapterBoundary(ReaderTurnDirection.Previous) },
+                onNextSingle = { turnChapterBoundary(ReaderTurnDirection.Next) },
+                onPreviousSingle = { turnChapterBoundary(ReaderTurnDirection.Previous) },
+                onCenterTap = {},
+                turnVisualDistancePx = turnVisualDistancePx,
+                onTurnDragStart = { direction, _ ->
+                    boundaryDragDirection = direction
+                    boundaryDragProgress = 0f
+                },
+                onTurnDrag = { direction, progress, _ ->
+                    boundaryDragDirection = direction
+                    boundaryDragProgress = progress
+                },
+                onTurnDragEnd = { velocityX ->
+                    val direction = boundaryDragDirection
+                    if (direction != null && shouldCommitReaderTurn(
+                            progress = boundaryDragProgress,
+                            velocityX = velocityX,
+                            direction = direction,
+                            rightToLeft = rtl,
+                            minimumFlingVelocity = minimumFlingVelocity
+                        )) {
+                        turnChapterBoundary(direction)
+                    }
+                    boundaryDragDirection = null
+                    boundaryDragProgress = 0f
+                },
+                onTurnDragCancel = {
+                    boundaryDragDirection = null
+                    boundaryDragProgress = 0f
+                }
             )
         }
 
-        if (showReaderMenu) {
+        chapterBoundary?.let { boundary ->
+            ReaderChapterBoundaryScreen(
+                seriesName = seriesName,
+                boundary = boundary,
+                switching = chapterSwitching,
+                hasError = error != null,
+                onContinue = ::continueFromChapterBoundary,
+                onBackToSeries = onBack
+            )
+        }
+
+        if (showReaderMenu && chapterBoundary == null) {
             ReaderMenuOverlay(
+                seriesName = seriesName,
+                chapterName = currentChapter.displayName,
                 page = page,
                 pages = pages,
                 rightToLeft = rtl,
