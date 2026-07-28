@@ -70,6 +70,7 @@ import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.internal.ReaderInvertCacheKey
 import li.mof.kamigura.reader.internal.ReaderPrefetchTarget
 import li.mof.kamigura.reader.internal.ReaderFullscreenEffect
+import li.mof.kamigura.reader.internal.ReaderChapterEntry
 import li.mof.kamigura.reader.internal.ReaderMenuOverlay
 import li.mof.kamigura.reader.internal.ReaderPageView
 import li.mof.kamigura.reader.internal.ReaderTapLayer
@@ -82,6 +83,8 @@ import li.mof.kamigura.reader.internal.prefetchReaderPages
 import li.mof.kamigura.reader.internal.readerPageLayout
 import li.mof.kamigura.reader.internal.readerPanBoundsPx
 import li.mof.kamigura.reader.internal.readerEstimatedDecodeBytes
+import li.mof.kamigura.reader.internal.readerChapterNeighbors
+import li.mof.kamigura.reader.internal.readerChapterSequence
 import li.mof.kamigura.reader.internal.readerPrefetchMemoryPlan
 import li.mof.kamigura.reader.internal.readerPrefetchPageIndicesAround
 import li.mof.kamigura.reader.internal.readerPrefetchSlotWidthPx
@@ -91,17 +94,38 @@ import li.mof.kamigura.reader.internal.toPageDimensionMap
 import li.mof.kamigura.reader.internal.withDoubleTapZoom
 import li.mof.kamigura.reader.internal.withTransform
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToInt
 
 // Process-lived scope for chapter-exit writes (mark read/unread, final progress) so they
 // survive the reader being popped off the back stack the instant the user leaves.
 private val ReaderExitWriteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+private val ReaderProgressWriteMutex = Mutex()
+
+private data class ReaderRemoteProgressTarget(
+    val chapterId: Int,
+    val volumeId: Int,
+    val page: Int,
+    val pageCount: Int,
+    val offline: Boolean,
+    val revision: Long,
+    val revisionClock: AtomicLong
+)
+
+private data class PendingReaderRemoteProgress(
+    val target: ReaderRemoteProgressTarget,
+    val sinceMillis: Long
+)
 
 // Kavita reading-profile reading direction values (ReadingDirection enum).
 private const val KavitaReadingDirectionLtr = 0
@@ -138,6 +162,21 @@ fun ReaderScreen(
 
     var session by remember { mutableStateOf<KavitaSession?>(null) }
     var api by remember { mutableStateOf<KavitaApi?>(null) }
+    var currentChapterId by remember { mutableIntStateOf(chapterId) }
+    var currentVolumeId by remember { mutableIntStateOf(volumeId) }
+    var chapterSequence by remember { mutableStateOf<List<ReaderChapterEntry>>(emptyList()) }
+    var currentChapter by remember {
+        mutableStateOf(
+            ReaderChapterEntry(
+                chapterId = chapterId,
+                volumeId = volumeId,
+                volumeName = null,
+                chapterName = "Chapter"
+            )
+        )
+    }
+    var seriesName by remember { mutableStateOf("") }
+    var chapterSwitching by remember { mutableStateOf(false) }
     var pages by remember { mutableIntStateOf(0) }
     var pageDimensions by remember { mutableStateOf<Map<Int, FileDimensionDto>>(emptyMap()) }
     var page by remember { mutableIntStateOf(0) }
@@ -171,9 +210,9 @@ fun ReaderScreen(
     val minimumFlingVelocity = remember(ctx) {
         ViewConfiguration.get(ctx).scaledMinimumFlingVelocity.toFloat()
     }
-    var pendingRemoteProgressPage by remember { mutableStateOf<Int?>(null) }
-    var pendingRemoteProgressSinceMillis by remember { mutableStateOf<Long?>(null) }
-    var lastRemoteProgressPage by remember { mutableStateOf<Int?>(null) }
+    var pendingRemoteProgress by remember { mutableStateOf<PendingReaderRemoteProgress?>(null) }
+    val lastRemoteProgressPages = remember { ConcurrentHashMap<Int, Int>() }
+    val progressRevisionClocks = remember { mutableMapOf<Int, AtomicLong>() }
 
     DisposableEffect(readerImageLoader) {
         val activeLoader = readerImageLoader
@@ -181,51 +220,88 @@ fun ReaderScreen(
     }
 
     fun clampPage(value: Int): Int = value.coerceIn(0, (pages - 1).coerceAtLeast(0))
-    suspend fun saveRemoteProgress(targetPage: Int): Boolean {
-        if (!readerReady) return false
+    fun newRemoteProgressTarget(
+        targetChapterId: Int,
+        targetVolumeId: Int,
+        targetPage: Int,
+        targetPageCount: Int,
+        offline: Boolean
+    ): ReaderRemoteProgressTarget {
+        val revisionClock = progressRevisionClocks.getOrPut(targetChapterId) { AtomicLong(0L) }
+        return ReaderRemoteProgressTarget(
+            chapterId = targetChapterId,
+            volumeId = targetVolumeId,
+            page = targetPage,
+            pageCount = targetPageCount,
+            offline = offline,
+            revision = revisionClock.incrementAndGet(),
+            revisionClock = revisionClock
+        )
+    }
+    suspend fun saveRemoteProgress(
+        target: ReaderRemoteProgressTarget,
+        clearPending: Boolean = true
+    ): Boolean {
         if (incognito) return false
-        if (pages <= 0 || targetPage !in 0 until pages) return false
-        if (lastRemoteProgressPage == targetPage) {
-            if (pendingRemoteProgressPage == targetPage) {
-                pendingRemoteProgressPage = null
-                pendingRemoteProgressSinceMillis = null
+        if (target.pageCount <= 0 || target.page !in 0 until target.pageCount) return false
+        if (lastRemoteProgressPages[target.chapterId] == target.page) {
+            if (clearPending && pendingRemoteProgress?.target == target) {
+                pendingRemoteProgress = null
             }
             return true
         }
         val loadedApi = api ?: return false
         val loadedSession = session
-        return try {
-            loadedApi.saveProgress(
-                ProgressDto(
-                    libraryId = libraryId,
-                    seriesId = seriesId,
-                    volumeId = volumeId,
-                    chapterId = chapterId,
-                    pageNum = targetPage
+        return ReaderProgressWriteMutex.withLock {
+            if (target.revision != target.revisionClock.get()) return@withLock false
+            try {
+                loadedApi.saveProgress(
+                    ProgressDto(
+                        libraryId = libraryId,
+                        seriesId = seriesId,
+                        volumeId = target.volumeId,
+                        chapterId = target.chapterId,
+                        pageNum = target.page
+                    )
                 )
-            )
-            lastRemoteProgressPage = targetPage
-            if (pendingRemoteProgressPage == targetPage) {
-                pendingRemoteProgressPage = null
-                pendingRemoteProgressSinceMillis = null
-            }
-            if (offlineChapter != null && loadedSession != null) {
-                offlineRepository.markProgressSynced(
-                    session = loadedSession,
-                    chapterId = chapterId,
-                    expectedPage = targetPage
+                lastRemoteProgressPages[target.chapterId] = target.page
+                if (clearPending && pendingRemoteProgress?.target == target) {
+                    pendingRemoteProgress = null
+                }
+                if (target.offline && loadedSession != null) {
+                    offlineRepository.markProgressSynced(
+                        session = loadedSession,
+                        chapterId = target.chapterId,
+                        expectedPage = target.page
+                    )
+                }
+                true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                KamiguraLog.w(
+                    "Could not save remote reader progress for chapter ${target.chapterId}.",
+                    t
                 )
+                false
             }
-            true
-        } catch (t: Throwable) {
-            KamiguraLog.w("Could not save remote reader progress for chapter $chapterId.", t)
-            false
         }
     }
     fun completeChapter() {
         if (completingRead || pages <= 0) return
         completingRead = true
         showReaderMenu = false
+        val completedChapterId = currentChapterId
+        val completedVolumeId = currentVolumeId
+        val finalPage = pages - 1
+        val progressTarget = newRemoteProgressTarget(
+            targetChapterId = completedChapterId,
+            targetVolumeId = completedVolumeId,
+            targetPage = finalPage,
+            targetPageCount = pages,
+            offline = offlineChapter != null
+        )
+        pendingRemoteProgress = null
         // Return to the series page immediately; the read/progress writes continue on a
         // process-lived scope so a slow or stalled server never blocks (or, without a
         // timeout, indefinitely hangs) the navigation back.
@@ -234,45 +310,35 @@ fun ReaderScreen(
         val loadedApi = api
         val loadedSession = session
         val hasOffline = offlineChapter != null
-        val finalPage = pages - 1
         ReaderExitWriteScope.launch {
             runCatching {
                 if (hasOffline && loadedSession != null) {
                     offlineRepository.saveLocalProgress(
                         session = loadedSession,
-                        chapterId = chapterId,
+                        chapterId = completedChapterId,
                         page = finalPage,
                         markRead = true
                     )
                 }
-                val progressSaved = loadedApi != null && runCatching {
-                    loadedApi.saveProgress(
-                        ProgressDto(
-                            libraryId = libraryId,
-                            seriesId = seriesId,
-                            volumeId = volumeId,
-                            chapterId = chapterId,
-                            pageNum = finalPage
-                        )
-                    )
-                }.onFailure {
-                    KamiguraLog.w("Could not save final reader progress for chapter $chapterId.", it)
-                }.isSuccess
+                val progressSaved = loadedApi != null && saveRemoteProgress(
+                    target = progressTarget,
+                    clearPending = false
+                )
                 val readMarked = loadedApi != null && runCatching {
                     loadedApi.markChapterRead(
                         MarkChapterReadDto(
                             seriesId = seriesId,
-                            chapterId = chapterId,
+                            chapterId = completedChapterId,
                             generateReadingSession = false
                         )
                     )
                 }.onFailure {
-                    KamiguraLog.w("Could not mark chapter $chapterId as read.", it)
+                    KamiguraLog.w("Could not mark chapter $completedChapterId as read.", it)
                 }.isSuccess
                 if (hasOffline && loadedSession != null && progressSaved) {
                     offlineRepository.markProgressSynced(
                         session = loadedSession,
-                        chapterId = chapterId,
+                        chapterId = completedChapterId,
                         expectedPage = finalPage,
                         markedRead = readMarked
                     )
@@ -284,6 +350,9 @@ fun ReaderScreen(
         if (completingRead) return
         completingRead = true
         showReaderMenu = false
+        val resetChapterId = currentChapterId
+        progressRevisionClocks.getOrPut(resetChapterId) { AtomicLong(0L) }.incrementAndGet()
+        pendingRemoteProgress = null
         // Return immediately; the unread write continues on a process-lived scope.
         onBack()
         if (incognito) return
@@ -293,22 +362,24 @@ fun ReaderScreen(
         ReaderExitWriteScope.launch {
             runCatching {
                 if (hasOffline && loadedSession != null) {
-                    offlineRepository.markLocalUnread(loadedSession, chapterId)
+                    offlineRepository.markLocalUnread(loadedSession, resetChapterId)
                 }
                 val unreadMarked = loadedApi != null && runCatching {
-                    loadedApi.markChaptersUnread(
-                        MarkVolumesReadDto(
-                            seriesId = seriesId,
-                            chapterIds = listOf(chapterId)
+                    ReaderProgressWriteMutex.withLock {
+                        loadedApi.markChaptersUnread(
+                            MarkVolumesReadDto(
+                                seriesId = seriesId,
+                                chapterIds = listOf(resetChapterId)
+                            )
                         )
-                    )
+                    }
                 }.onFailure {
-                    KamiguraLog.w("Could not mark chapter $chapterId as unread.", it)
+                    KamiguraLog.w("Could not mark chapter $resetChapterId as unread.", it)
                 }.isSuccess
                 if (hasOffline && loadedSession != null && unreadMarked) {
                     offlineRepository.markProgressSynced(
                         session = loadedSession,
-                        chapterId = chapterId,
+                        chapterId = resetChapterId,
                         expectedPage = 0,
                         markedUnread = true
                     )
@@ -320,6 +391,66 @@ fun ReaderScreen(
         val nextPage = clampPage(targetPage)
         if (nextPage != page) {
             page = nextPage
+        }
+    }
+    fun switchChapter(target: ReaderChapterEntry, openAtLastPage: Boolean) {
+        if (chapterSwitching || target.chapterId == currentChapterId) return
+        val loadedSession = session ?: return
+        val loadedApi = api ?: return
+        chapterSwitching = true
+        showReaderMenu = false
+        scope.launch {
+            try {
+                val local = runCatching {
+                    offlineRepository.localChapter(loadedSession, target.chapterId)
+                }.onFailure {
+                    KamiguraLog.w("Could not load local offline chapter ${target.chapterId}.", it)
+                }.getOrNull()
+                val loadedPageCount: Int
+                val loadedDimensions: Map<Int, FileDimensionDto>
+                if (local != null) {
+                    loadedPageCount = local.pages.size
+                    loadedDimensions = local.dimensions
+                } else {
+                    val info = loadedApi.chapterInfo(target.chapterId, includeDimensions = true)
+                    loadedPageCount = info.pages ?: 0
+                    loadedDimensions = info.pageDimensions.toPageDimensionMap()
+                }
+                if (loadedPageCount <= 0) {
+                    error = "Chapter has no readable pages"
+                    return@launch
+                }
+                val landingPage = if (openAtLastPage) loadedPageCount - 1 else 0
+
+                pendingRemoteProgress = null
+                readerReady = false
+                activeTransition = null
+                transitionProgress = 0f
+                transitionSettling = false
+                activeCurlDirection = null
+                activeCurlTargetPage = null
+                curlDragStartPointer = null
+                curlDragProgress = 0f
+                queuedTurn = null
+                dragBoundaryDirection = null
+                currentChapterId = target.chapterId
+                currentVolumeId = target.volumeId
+                currentChapter = target
+                offlineChapter = local
+                pages = loadedPageCount
+                pageDimensions = loadedDimensions
+                page = landingPage
+                completingRead = false
+                error = null
+                readerReady = true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                KamiguraLog.w("Could not switch Reader to chapter ${target.chapterId}.", t)
+                error = t.message ?: t.toString()
+            } finally {
+                chapterSwitching = false
+            }
         }
     }
 
@@ -349,9 +480,9 @@ fun ReaderScreen(
             }
         }
         val local = runCatching {
-            offlineRepository.localChapter(loadedSession, chapterId)
+            offlineRepository.localChapter(loadedSession, currentChapterId)
         }.onFailure {
-            KamiguraLog.w("Could not load local offline chapter $chapterId.", it)
+            KamiguraLog.w("Could not load local offline chapter $currentChapterId.", it)
         }.getOrNull()
         offlineChapter = local
         if (local != null) {
@@ -359,7 +490,7 @@ fun ReaderScreen(
             pageDimensions = local.dimensions
             page = (initialPage ?: local.record.localPage).coerceIn(0, (pages - 1).coerceAtLeast(0))
             if (!local.record.progressPending) {
-                lastRemoteProgressPage = page
+                lastRemoteProgressPages[currentChapterId] = page
             }
             readerReady = pages > 0
         }
@@ -371,6 +502,16 @@ fun ReaderScreen(
             readerImageLoader = client.buildReaderImageLoader(okHttp, loadedSession)
             runCatching { offlineRepository.syncPending(loadedSession, loadedApi) }
                 .onFailure { KamiguraLog.w("Could not sync pending offline progress from Reader.", it) }
+            seriesName = runCatching { loadedApi.series(seriesId).name }
+                .onFailure { KamiguraLog.w("Could not load reader series name for $seriesId.", it) }
+                .getOrDefault("")
+            chapterSequence = runCatching { readerChapterSequence(loadedApi.volumes(seriesId)) }
+                .onFailure { KamiguraLog.w("Could not load reader chapter sequence for $seriesId.", it) }
+                .getOrDefault(emptyList())
+            chapterSequence.firstOrNull { it.chapterId == currentChapterId }?.let {
+                currentChapter = it
+                currentVolumeId = it.volumeId
+            }
             val serverRightToLeft = try {
                 // A series-specific direction on the server (User/Implicit profile)
                 // wins. When only the global Default profile applies, the series has
@@ -393,61 +534,92 @@ fun ReaderScreen(
                 rightToLeft = serverRightToLeft
             }
             if (local == null) {
-                val info = loadedApi.chapterInfo(chapterId, includeDimensions = true)
+                val info = loadedApi.chapterInfo(currentChapterId, includeDimensions = true)
                 val pageCount = info.pages ?: 0
                 pages = pageCount
                 pageDimensions = info.pageDimensions.toPageDimensionMap()
-                val savedPage = initialPage ?: loadedApi.getProgress(chapterId).pageNum
+                val savedPage = initialPage ?: loadedApi.getProgress(currentChapterId).pageNum
                 page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
-                lastRemoteProgressPage = page
+                lastRemoteProgressPages[currentChapterId] = page
             } else if (!local.record.progressPending) {
-                val savedPage = runCatching { loadedApi.getProgress(chapterId).pageNum }
-                    .onFailure { KamiguraLog.w("Could not load remote reader progress for chapter $chapterId.", it) }
+                val savedPage = runCatching { loadedApi.getProgress(currentChapterId).pageNum }
+                    .onFailure {
+                        KamiguraLog.w(
+                            "Could not load remote reader progress for chapter $currentChapterId.",
+                            it
+                        )
+                    }
                     .getOrNull()
                 val landingPage = initialPage ?: savedPage
                 if (landingPage != null) {
                     page = landingPage.coerceIn(0, pages - 1)
-                    lastRemoteProgressPage = page
+                    lastRemoteProgressPages[currentChapterId] = page
                 }
             }
             readerReady = true
         } catch (t: Throwable) {
-            KamiguraLog.w("Could not initialize Reader for chapter $chapterId.", t)
+            KamiguraLog.w("Could not initialize Reader for chapter $currentChapterId.", t)
             if (local == null) {
                 error = t.message ?: t.toString()
             }
         }
     }
 
-    LaunchedEffect(readerReady, pages, page, incognito, session, offlineChapter) {
+    LaunchedEffect(
+        currentChapterId,
+        readerReady,
+        pages,
+        page,
+        incognito,
+        session,
+        offlineChapter
+    ) {
         if (!readerReady) return@LaunchedEffect
         if (incognito) return@LaunchedEffect
         if (pages <= 0 || page !in 0 until pages) return@LaunchedEffect
         val loadedSession = session ?: return@LaunchedEffect
         if (offlineChapter != null) {
-            offlineRepository.saveLocalProgress(loadedSession, chapterId, page)
+            offlineRepository.saveLocalProgress(loadedSession, currentChapterId, page)
         }
     }
 
-    LaunchedEffect(api, readerReady, pages, page, incognito) {
+    LaunchedEffect(
+        api,
+        currentChapterId,
+        currentVolumeId,
+        readerReady,
+        pages,
+        page,
+        incognito,
+        chapterSwitching
+    ) {
         if (!readerReady) return@LaunchedEffect
         if (incognito) return@LaunchedEffect
+        if (chapterSwitching) return@LaunchedEffect
         if (pages <= 0 || page !in 0 until pages) return@LaunchedEffect
         if (api == null) return@LaunchedEffect
-        if (lastRemoteProgressPage == page) return@LaunchedEffect
-        pendingRemoteProgressPage = page
-        pendingRemoteProgressSinceMillis = SystemClock.elapsedRealtime()
+        if (lastRemoteProgressPages[currentChapterId] == page) return@LaunchedEffect
+        val target = newRemoteProgressTarget(
+            targetChapterId = currentChapterId,
+            targetVolumeId = currentVolumeId,
+            targetPage = page,
+            targetPageCount = pages,
+            offline = offlineChapter != null
+        )
+        pendingRemoteProgress = PendingReaderRemoteProgress(
+            target = target,
+            sinceMillis = SystemClock.elapsedRealtime()
+        )
         delay(ReaderProgressSyncDelayMillis)
-        saveRemoteProgress(page)
+        saveRemoteProgress(target)
     }
 
     val latestFlushProgress by rememberUpdatedState<suspend () -> Unit>({
-        val targetPage = pendingRemoteProgressPage
-        val pendingSince = pendingRemoteProgressSinceMillis
-        if (targetPage != null && pendingSince != null) {
-            val pendingAge = SystemClock.elapsedRealtime() - pendingSince
+        val pending = pendingRemoteProgress
+        if (pending != null) {
+            val pendingAge = SystemClock.elapsedRealtime() - pending.sinceMillis
             if (pendingAge >= ReaderProgressSyncDelayMillis) {
-                saveRemoteProgress(targetPage)
+                saveRemoteProgress(pending.target)
             }
         }
     })
@@ -474,7 +646,11 @@ fun ReaderScreen(
     val client = remember { KavitaClient(ctx, sessionStore) }
     val activeImageLoader = readerImageLoader ?: fallbackImageLoader
     fun pageModel(index: Int): Any? = offlineChapter?.pages?.getOrNull(index)
-        ?: if (index in 0 until pages) client.pageImageUrl(s.baseUrl, s.apiKey, chapterId, index) else null
+        ?: if (index in 0 until pages) {
+            client.pageImageUrl(s.baseUrl, s.apiKey, currentChapterId, index)
+        } else {
+            null
+        }
     val rtl = rightToLeft
     val spreadPages = spreadPagesFor(page, rtl)
 
@@ -489,8 +665,8 @@ fun ReaderScreen(
             portrait = portrait,
             pageDimensions = pageDimensions
         )
-        val portraitCurlState = remember(chapterId) { PageCurlState(initialCurrent = page) }
-        val spreadCurlState = remember(chapterId) {
+        val portraitCurlState = remember(currentChapterId) { PageCurlState(initialCurrent = page) }
+        val spreadCurlState = remember(currentChapterId) {
             PageCurlState(
                 initialCurrent = ReaderSpreadCurlVisualCurrent,
                 turnEndFractionX = ReaderSpreadCurlTurnEndFractionX
@@ -559,6 +735,7 @@ fun ReaderScreen(
             }
         }
         LaunchedEffect(
+            currentChapterId,
             page,
             pages,
             portrait,
@@ -1056,6 +1233,7 @@ fun ReaderScreen(
         }
 
         LaunchedEffect(
+            currentChapterId,
             activeTransition?.targetPage,
             pages,
             portrait,
