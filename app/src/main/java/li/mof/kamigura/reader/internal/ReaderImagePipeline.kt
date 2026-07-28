@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.BrokenImage
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -24,6 +28,7 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import coil.ImageLoader
 import coil.compose.AsyncImage
@@ -231,7 +236,7 @@ private fun RowScope.PageImage(
 
         when (pageModelState) {
             PageModelState.Loading -> ReaderPageLoadingPlaceholder()
-            PageModelState.Unavailable -> Text("-", color = Color.Gray)
+            PageModelState.Unavailable -> ReaderPageUnavailablePlaceholder()
             is PageModelState.Ready -> {
                 if (shouldInvert == null) {
                     ReaderPageLoadingPlaceholder()
@@ -253,7 +258,7 @@ private fun RowScope.PageImage(
                     )
                     when (imageLoadState) {
                         PageImageLoadState.Loading -> ReaderPageLoadingPlaceholder()
-                        PageImageLoadState.Error -> Text("-", color = Color.Gray)
+                        PageImageLoadState.Error -> ReaderPageUnavailablePlaceholder()
                         PageImageLoadState.Success -> Unit
                     }
                 }
@@ -262,9 +267,22 @@ private fun RowScope.PageImage(
     }
 }
 
+// Loading is transient and usually pre-warmed, so it stays a whisper. Unavailable persists,
+// and a scanned book can legitimately contain a blank page, so it gets a mark that cannot be
+// mistaken for one — still static and grey, never an animated indicator.
 @Composable
 private fun ReaderPageLoadingPlaceholder() {
     Text("...", color = Color.Gray)
+}
+
+@Composable
+private fun ReaderPageUnavailablePlaceholder() {
+    Icon(
+        imageVector = Icons.Outlined.BrokenImage,
+        contentDescription = "Page unavailable",
+        tint = Color.Gray,
+        modifier = Modifier.size(36.dp)
+    )
 }
 
 /** Internal to reader, not for external use. */
