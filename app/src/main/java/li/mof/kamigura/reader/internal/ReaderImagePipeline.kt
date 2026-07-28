@@ -11,7 +11,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -45,6 +48,18 @@ private const val SmartInvertColorThreshold = 0.1f
 private const val SmartInvertWhiteChannelMin = 217
 private const val SmartInvertSaturationMin = 0.2f
 private const val SmartInvertColorValueMin = 40
+
+private sealed interface PageModelState {
+    data object Loading : PageModelState
+    data object Unavailable : PageModelState
+    data class Ready(val model: Any) : PageModelState
+}
+
+private enum class PageImageLoadState {
+    Loading,
+    Success,
+    Error
+}
 
 private val NegativeColorFilter = ColorFilter.colorMatrix(
     ColorMatrix(
@@ -149,17 +164,32 @@ private fun RowScope.PageImage(
     ) {
         val targetWidth = with(density) { maxWidth.toPx().toInt() }
         val targetHeight = with(density) { maxHeight.toPx().toInt() }
-        val resolvedModel by produceState<Any?>(
-            initialValue = model.takeUnless { it is OfflinePage },
+        val pageModelState by produceState<PageModelState>(
+            initialValue = when (model) {
+                null -> PageModelState.Unavailable
+                is OfflinePage -> PageModelState.Loading
+                else -> PageModelState.Ready(model)
+            },
             model,
             targetWidth,
             targetHeight
         ) {
             value = when (model) {
-                is OfflinePage -> decodeOfflinePage(model, targetWidth, targetHeight)
-                else -> model
+                null -> PageModelState.Unavailable
+                is OfflinePage -> try {
+                    decodeOfflinePage(model, targetWidth, targetHeight)
+                        ?.let(PageModelState::Ready)
+                        ?: PageModelState.Unavailable
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (t: Throwable) {
+                    KamiguraLog.w("Reader offline page decode failed.", t)
+                    PageModelState.Unavailable
+                }
+                else -> PageModelState.Ready(model)
             }
         }
+        val resolvedModel = (pageModelState as? PageModelState.Ready)?.model
         val cacheKey = resolvedModel?.let { ReaderInvertCacheKey(it, whiteThreshold) }
         val shouldInvert by produceState<Boolean?>(
             initialValue = when (invertMode) {
@@ -181,31 +211,60 @@ private fun RowScope.PageImage(
                         null
                     } else {
                         val key = ReaderInvertCacheKey(loadedModel, whiteThreshold)
-                        invertDecisionCache[key] ?: analyzeShouldInvert(
-                            ctx,
-                            imageLoader,
-                            loadedModel,
-                            whiteThreshold
-                        ).also { invertDecisionCache[key] = it }
+                        invertDecisionCache[key] ?: try {
+                            analyzeShouldInvert(
+                                ctx,
+                                imageLoader,
+                                loadedModel,
+                                whiteThreshold
+                            ).also { invertDecisionCache[key] = it }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (t: Throwable) {
+                            KamiguraLog.w("Reader Smart Invert analysis failed.", t)
+                            false
+                        }
                     }
                 }
             }
         }
 
-        if (resolvedModel == null) {
-            Text("-", color = Color.Gray)
-        } else if (shouldInvert != null) {
-            AsyncImage(
-                model = resolvedModel,
-                imageLoader = imageLoader,
-                contentDescription = label,
-                modifier = Modifier.fillMaxSize(),
-                alignment = alignment,
-                contentScale = contentScale,
-                colorFilter = if (shouldInvert == true) NegativeColorFilter else null
-            )
+        when (pageModelState) {
+            PageModelState.Loading -> ReaderPageLoadingPlaceholder()
+            PageModelState.Unavailable -> Text("-", color = Color.Gray)
+            is PageModelState.Ready -> {
+                if (shouldInvert == null) {
+                    ReaderPageLoadingPlaceholder()
+                } else {
+                    var imageLoadState by remember(resolvedModel) {
+                        mutableStateOf(PageImageLoadState.Loading)
+                    }
+                    AsyncImage(
+                        model = resolvedModel,
+                        imageLoader = imageLoader,
+                        contentDescription = label,
+                        modifier = Modifier.fillMaxSize(),
+                        alignment = alignment,
+                        contentScale = contentScale,
+                        colorFilter = if (shouldInvert == true) NegativeColorFilter else null,
+                        onLoading = { imageLoadState = PageImageLoadState.Loading },
+                        onSuccess = { imageLoadState = PageImageLoadState.Success },
+                        onError = { imageLoadState = PageImageLoadState.Error }
+                    )
+                    when (imageLoadState) {
+                        PageImageLoadState.Loading -> ReaderPageLoadingPlaceholder()
+                        PageImageLoadState.Error -> Text("-", color = Color.Gray)
+                        PageImageLoadState.Success -> Unit
+                    }
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun ReaderPageLoadingPlaceholder() {
+    Text("...", color = Color.Gray)
 }
 
 /** Internal to reader, not for external use. */
