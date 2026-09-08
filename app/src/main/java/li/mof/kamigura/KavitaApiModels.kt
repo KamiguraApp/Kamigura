@@ -107,6 +107,7 @@ data class ReadingListItemDto(
 data class SeriesDto(
     val id: Int,
     val name: String,
+    val format: Int? = null,
     val originalName: String? = null,
     val localizedName: String? = null,
     val libraryId: Int? = null,
