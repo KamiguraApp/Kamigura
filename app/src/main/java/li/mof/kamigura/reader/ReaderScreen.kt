@@ -62,11 +62,13 @@ import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
+import li.mof.kamigura.MangaFormat
 import li.mof.kamigura.MarkChapterReadDto
 import li.mof.kamigura.MarkVolumesReadDto
 import li.mof.kamigura.PageTurnMode
 import li.mof.kamigura.ProgressDto
 import li.mof.kamigura.ReaderReadingDirection
+import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.download.OfflineChapter
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.internal.ReaderInvertCacheKey
@@ -76,12 +78,14 @@ import li.mof.kamigura.reader.internal.ReaderChapterBoundary
 import li.mof.kamigura.reader.internal.ReaderChapterBoundaryScreen
 import li.mof.kamigura.reader.internal.ReaderChapterEntry
 import li.mof.kamigura.reader.internal.ReaderMenuOverlay
+import li.mof.kamigura.reader.internal.ReaderLoadingScreen
 import li.mof.kamigura.reader.internal.ReaderPageView
 import li.mof.kamigura.reader.internal.ReaderTapLayer
 import li.mof.kamigura.reader.internal.ReaderVerticalScroll
 import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
+import li.mof.kamigura.reader.internal.loadReaderChapterInfo
 import li.mof.kamigura.reader.internal.pageIsWide
 import li.mof.kamigura.reader.internal.preAnalyzeReaderPages
 import li.mof.kamigura.reader.internal.prefetchReaderPages
@@ -191,6 +195,7 @@ fun ReaderScreen(
         )
     }
     var seriesName by remember { mutableStateOf("") }
+    var readerSeries by remember { mutableStateOf<SeriesDto?>(null) }
     var chapterSwitching by remember { mutableStateOf(false) }
     var chapterBoundary by remember { mutableStateOf<ReaderChapterBoundary?>(null) }
     var boundaryDragDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
@@ -435,7 +440,8 @@ fun ReaderScreen(
                     loadedPageCount = local.pages.size
                     loadedDimensions = local.dimensions
                 } else {
-                    val info = loadedApi.chapterInfo(target.chapterId, includeDimensions = true)
+                    val series = readerSeries ?: loadedApi.series(seriesId).also { readerSeries = it }
+                    val info = loadReaderChapterInfo(loadedApi, target.chapterId, series.format)
                     loadedPageCount = info.pages ?: 0
                     loadedDimensions = info.pageDimensions.toPageDimensionMap()
                 }
@@ -538,8 +544,20 @@ fun ReaderScreen(
             readerImageLoader = client.buildReaderImageLoader(okHttp, loadedSession)
             runCatching { offlineRepository.syncPending(loadedSession, loadedApi) }
                 .onFailure { KamiguraLog.w("Could not sync pending offline progress from Reader.", it) }
+            if (local == null) {
+                val series = loadedApi.series(seriesId)
+                readerSeries = series
+                seriesName = series.name
+                if (series.format == MangaFormat.Epub) {
+                    error = "EPUB is not supported in Kamigura."
+                    return@LaunchedEffect
+                }
+            }
             val chapterMetadataJob = launch {
-                seriesName = runCatching { loadedApi.series(seriesId).name }
+                seriesName = runCatching {
+                    val series = readerSeries ?: loadedApi.series(seriesId).also { readerSeries = it }
+                    series.name
+                }
                     .onFailure { KamiguraLog.w("Could not load reader series name for $seriesId.", it) }
                     .getOrDefault(seriesName)
                 val loadedVolumes = runCatching { loadedApi.volumes(seriesId) }
@@ -569,7 +587,7 @@ fun ReaderScreen(
             readingDirection = resolvedDirection
             cachedPreferences?.let { invertMode = it.invertMode }
             if (local == null) {
-                val info = loadedApi.chapterInfo(currentChapterId, includeDimensions = true)
+                val info = loadReaderChapterInfo(loadedApi, currentChapterId, readerSeries?.format)
                 val pageCount = info.pages ?: 0
                 pages = pageCount
                 pageDimensions = info.pageDimensions.toPageDimensionMap()
@@ -594,6 +612,8 @@ fun ReaderScreen(
             chapterMetadataJob.join()
             readerReady = true
             verticalRestoreNonce++
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (t: Throwable) {
             KamiguraLog.w("Could not initialize Reader for chapter $currentChapterId.", t)
             if (local == null) {
@@ -680,11 +700,23 @@ fun ReaderScreen(
         return
     }
 
+    if (!readerReady) {
+        ReaderLoadingScreen(
+            preparingPdf = readerSeries?.format == MangaFormat.Pdf,
+            error = error,
+            onBack = onBack
+        )
+        return
+    }
+
     val client = remember { KavitaClient(ctx, sessionStore) }
     val activeImageLoader = readerImageLoader ?: fallbackImageLoader
     fun pageModel(index: Int): Any? = offlineChapter?.pages?.getOrNull(index)
         ?: if (index in 0 until pages) {
-            client.pageImageUrl(s.baseUrl, s.apiKey, currentChapterId, index)
+            client.pageImageUrl(
+                s.baseUrl, s.apiKey, currentChapterId, index,
+                extractPdf = readerSeries?.format == MangaFormat.Pdf
+            )
         } else {
             null
         }
