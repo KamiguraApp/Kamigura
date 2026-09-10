@@ -331,8 +331,8 @@ private fun ReadingListRow(
                 Text(
                     text = readingList.itemCount?.let { count ->
                         when (count) {
-                            1 -> "1 series"
-                            else -> "$count series"
+                            1 -> "1 item"
+                            else -> "$count items"
                         }
                     } ?: "Reading List",
                     color = Color(0xFFB9BDBD),

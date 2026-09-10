@@ -66,7 +66,6 @@ import li.mof.kamigura.ReadingListDto
 import li.mof.kamigura.SearchHistoryStore
 import li.mof.kamigura.SearchResultDto
 import li.mof.kamigura.SearchResultGroupDto
-import li.mof.kamigura.SeriesByIdsDto
 import li.mof.kamigura.SeriesDto
 import li.mof.kamigura.SeriesFilterStatementDto
 import li.mof.kamigura.SeriesFilterV2Dto
@@ -630,17 +629,7 @@ private suspend fun KavitaApi.loadSearchSeriesPage(
             pageNumber,
             SearchFilteredSeriesPageSize
         ).let { SeriesPage(it, it.size == SearchFilteredSeriesPageSize) }
-        SearchSeriesTarget.ReadingList -> {
-            if (pageNumber > 0) {
-                SeriesPage(emptyList(), hasMore = false)
-            } else {
-                val ids = readingListItems(targetId).map { it.seriesId }.distinct()
-                SeriesPage(
-                    items = if (ids.isEmpty()) emptyList() else seriesByIds(SeriesByIdsDto(ids)),
-                    hasMore = false
-                )
-            }
-        }
+        SearchSeriesTarget.ReadingList -> error("Reading lists use the chapter item screen")
     }
 }
 

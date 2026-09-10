@@ -98,9 +98,20 @@ data class SeriesByIdsDto(
 @Serializable
 data class ReadingListItemDto(
     val id: Int? = null,
+    val order: Int = 0,
+    val chapterId: Int,
+    val volumeId: Int,
     val seriesId: Int,
     val seriesName: String? = null,
-    val libraryId: Int? = null
+    val libraryId: Int,
+    val volumeNumber: String? = null,
+    val chapterNumber: String? = null,
+    val chapterTitleName: String? = null,
+    val title: String? = null,
+    val pagesRead: Int = 0,
+    val pagesTotal: Int = 0,
+    val isSpecial: Boolean = false,
+    val seriesFormat: Int? = null
 )
 
 @Serializable

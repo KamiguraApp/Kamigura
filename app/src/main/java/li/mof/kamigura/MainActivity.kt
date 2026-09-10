@@ -51,6 +51,7 @@ import li.mof.kamigura.library.DownloadedScreen
 import li.mof.kamigura.library.LibraryScreen
 import li.mof.kamigura.library.HomeShelfKind
 import li.mof.kamigura.library.SearchSeriesScreen
+import li.mof.kamigura.library.ReadingListItemsScreen
 import li.mof.kamigura.library.SearchSeriesTarget
 import li.mof.kamigura.library.SeriesShelfScreen
 import li.mof.kamigura.download.OfflineIssueRepository
@@ -301,7 +302,19 @@ fun AppRoot(
                 ) ?: SearchSeriesTarget.Genre
                 val targetId = backStack.arguments!!.getInt("targetId")
                 val label = backStack.arguments!!.getString("label") ?: ""
-                SearchSeriesScreen(
+                if (target == SearchSeriesTarget.ReadingList) {
+                    ReadingListItemsScreen(
+                        sessionStore = sessionStore,
+                        readingListId = targetId,
+                        label = label,
+                        onBack = { nav.popBackStack() },
+                        onOpenItem = { item ->
+                            nav.navigate(
+                                "reader/${item.libraryId}/${item.seriesId}/${item.volumeId}/${item.chapterId}?incognito=false"
+                            )
+                        }
+                    )
+                } else SearchSeriesScreen(
                     sessionStore = sessionStore,
                     target = target,
                     targetId = targetId,
