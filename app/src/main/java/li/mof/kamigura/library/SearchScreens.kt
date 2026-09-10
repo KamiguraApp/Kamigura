@@ -491,7 +491,7 @@ internal fun SearchSeriesScreen(
         try {
             val page = currentApi.loadSearchSeriesPage(target, targetId, nextPage)
             if (requestRevision == pagingRevision) {
-                series = series.appendDistinct(page.items).sortedBy { it.name }
+                series = series.appendDistinct(page.items)
                 nextPage++
                 hasMore = page.hasMore
             }
@@ -519,7 +519,7 @@ internal fun SearchSeriesScreen(
             val (loadedApi, _) = KavitaClient(ctx, sessionStore).buildApi()
             api = loadedApi
             val page = loadedApi.loadSearchSeriesPage(target, targetId, pageNumber = 0)
-            series = page.items.sortedBy { it.name }
+            series = page.items
             nextPage = 1
             hasMore = page.hasMore
         } catch (c: CancellationException) {
