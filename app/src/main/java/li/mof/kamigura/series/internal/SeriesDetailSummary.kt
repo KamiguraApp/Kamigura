@@ -70,6 +70,7 @@ import kotlinx.coroutines.launch
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.CreateReadingListDto
 import li.mof.kamigura.KavitaApi
+import li.mof.kamigura.MarkSeriesReadDto
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.PersonDto
 import li.mof.kamigura.ReadingListDto
@@ -97,7 +98,8 @@ internal fun SeriesDetailSummary(
     isAdmin: Boolean,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onPick: (chapterId: Int, volumeId: Int) -> Unit,
-    onMessage: (String) -> Unit
+    onMessage: (String) -> Unit,
+    onProgressChanged: () -> Unit
 ) {
     val summary = metadata?.summary?.takeIf { it.isNotBlank() }
     val creditChips = metadata.creditChips()
@@ -132,6 +134,7 @@ internal fun SeriesDetailSummary(
                 isAdmin = isAdmin,
                 onRead = { onPick(item.chapter.id, item.volume.id) },
                 onMessage = onMessage,
+                onProgressChanged = onProgressChanged,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -386,6 +389,7 @@ private fun SeriesReadSplitButton(
     isAdmin: Boolean,
     onRead: () -> Unit,
     onMessage: (String) -> Unit,
+    onProgressChanged: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -414,6 +418,8 @@ private fun SeriesReadSplitButton(
     val mainMenuItems = buildList {
         add(SeriesMenuAction.WantToRead)
         add(SeriesMenuAction.AddToReadingList)
+        add(SeriesMenuAction.MarkRead)
+        add(SeriesMenuAction.MarkUnread)
         if (isAdmin) add(SeriesMenuAction.Refresh)
     }
 
@@ -545,6 +551,34 @@ private fun SeriesReadSplitButton(
                                                         onMessage("Could not load reading lists")
                                                     }
                                                 }
+                                                SeriesMenuAction.MarkRead -> {
+                                                    menuExpanded = false
+                                                    launchAction {
+                                                        try {
+                                                            api.markSeriesRead(MarkSeriesReadDto(seriesId = series.id))
+                                                            onMessage("Marked as read")
+                                                            onProgressChanged()
+                                                        } catch (c: CancellationException) {
+                                                            throw c
+                                                        } catch (_: Throwable) {
+                                                            onMessage("Could not mark series as read")
+                                                        }
+                                                    }
+                                                }
+                                                SeriesMenuAction.MarkUnread -> {
+                                                    menuExpanded = false
+                                                    launchAction {
+                                                        try {
+                                                            api.markSeriesUnread(MarkSeriesReadDto(seriesId = series.id))
+                                                            onMessage("Marked as unread")
+                                                            onProgressChanged()
+                                                        } catch (c: CancellationException) {
+                                                            throw c
+                                                        } catch (_: Throwable) {
+                                                            onMessage("Could not mark series as unread")
+                                                        }
+                                                    }
+                                                }
                                                 SeriesMenuAction.Refresh -> {
                                                     menuExpanded = false
                                                     val libraryId = series.libraryId
@@ -643,6 +677,8 @@ private fun SeriesReadSplitButton(
 private enum class SeriesMenuAction(val label: String) {
     WantToRead("Add to Want to Read"),
     AddToReadingList("Add to Reading List"),
+    MarkRead("Mark as Read"),
+    MarkUnread("Mark as Unread"),
     Refresh("Refresh")
 }
 

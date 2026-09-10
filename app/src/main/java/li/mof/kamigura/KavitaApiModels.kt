@@ -275,6 +275,12 @@ data class MarkChapterReadDto(
 )
 
 @Serializable
+data class MarkSeriesReadDto(
+    val seriesId: Int,
+    val generateReadingSession: Boolean = false
+)
+
+@Serializable
 data class MarkVolumesReadDto(
     val seriesId: Int,
     val volumeIds: List<Int> = emptyList(),

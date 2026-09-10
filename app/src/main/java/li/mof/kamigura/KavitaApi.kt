@@ -123,6 +123,12 @@ interface KavitaApi {
     @POST("api/Reader/mark-multiple-unread")
     suspend fun markChaptersUnread(@Body dto: MarkVolumesReadDto)
 
+    @POST("api/Reader/mark-read")
+    suspend fun markSeriesRead(@Body dto: MarkSeriesReadDto)
+
+    @POST("api/Reader/mark-unread")
+    suspend fun markSeriesUnread(@Body dto: MarkSeriesReadDto)
+
     @POST("api/want-to-read/add-series")
     suspend fun addSeriesToWantToRead(@Body dto: UpdateWantToReadDto)
 

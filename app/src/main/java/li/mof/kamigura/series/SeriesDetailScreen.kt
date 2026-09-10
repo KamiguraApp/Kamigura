@@ -415,7 +415,8 @@ fun ChapterPickScreen(
                     onOpenFilteredSeries = onOpenFilteredSeries,
                     onPick = { chapterId, volumeId -> onPick(chapterId, volumeId, false) },
                     onIssueClick = ::openIssue,
-                    onMessage = ::showMessage
+                    onMessage = ::showMessage,
+                    onProgressChanged = { scope.launch { loadSeriesDetails(initialLoad = false) } }
                 )
             }
         }
@@ -526,7 +527,8 @@ private fun SeriesDetailContent(
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onPick: (chapterId: Int, volumeId: Int) -> Unit,
     onIssueClick: (ChapterCardItem) -> Unit,
-    onMessage: (String) -> Unit
+    onMessage: (String) -> Unit,
+    onProgressChanged: () -> Unit
 ) {
     val specialCards = chapterCards.filter { it.chapter.isSpecial }
     val issueCards = chapterCards.filterNot { it.chapter.isSpecial }
@@ -558,7 +560,8 @@ private fun SeriesDetailContent(
                             isAdmin = isAdmin,
                             onOpenFilteredSeries = onOpenFilteredSeries,
                             onPick = onPick,
-                            onMessage = onMessage
+                            onMessage = onMessage,
+                            onProgressChanged = onProgressChanged
                         )
                     }
                 }
@@ -590,7 +593,8 @@ private fun SeriesDetailContent(
                         isAdmin = isAdmin,
                         onOpenFilteredSeries = onOpenFilteredSeries,
                         onPick = onPick,
-                        onMessage = onMessage
+                        onMessage = onMessage,
+                        onProgressChanged = onProgressChanged
                     )
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
