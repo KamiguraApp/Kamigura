@@ -389,18 +389,26 @@ private fun issueTitle(seriesName: String, chapter: ChapterDto): String {
         ?: seriesName
 }
 
-private fun issueLabel(volume: VolumeDto, chapter: ChapterDto): String {
-    val number = chapter.numberText()
-        ?: chapter.title?.trim()?.takeIf { it.toFloatOrNull() != null }
-        ?: (volume.number as? JsonPrimitive)?.contentOrNull
-        ?: volume.name?.trim()?.takeIf { it.toFloatOrNull() != null }
-        ?: chapter.id.toString()
-    return "Issue $number"
+private fun issueLabel(volume: VolumeDto, chapter: ChapterDto): String? {
+    if (chapter.isSpecial) return "Special"
+    val number = (chapter.number as? JsonPrimitive)?.contentOrNull?.trim()
+        ?.takeIf { it.isNotBlank() && !it.isKavitaPlaceholderNumber() }
+        ?: listOf(
+            chapter.title,
+            (volume.number as? JsonPrimitive)?.contentOrNull,
+            volume.name
+        ).firstNotNullOfOrNull { value ->
+            value?.trim()?.takeIf { it.toFloatOrNull() != null && !it.isKavitaPlaceholderNumber() }
+        }
+    // A lone file (e.g. a single PDF) has only Kavita's placeholder numbers; a made-up
+    // number would be worse than none.
+    return number?.let { "Issue $it" }
 }
 
-private fun ChapterDto.numberText(): String? {
-    return (number as? JsonPrimitive)?.contentOrNull
-        ?.takeIf { it.isNotBlank() && it != "-100000" }
+// Kavita fills missing chapter/volume numbers with -100000 and files specials under 100000.
+private fun String.isKavitaPlaceholderNumber(): Boolean {
+    val value = toFloatOrNull() ?: return false
+    return value == -100000f || value == 100000f
 }
 
 private fun ChapterDto.issueReleaseDate(): String? {

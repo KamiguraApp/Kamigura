@@ -41,7 +41,8 @@ private fun String?.isDisplayableChapterLabel(): Boolean {
 }
 
 private fun String?.isDisplayableVolumeLabel(): Boolean {
-    return !isNullOrBlank() && this != "-100000" && this != "0"
+    // 100000 is the volume Kavita files specials under, not a real volume number.
+    return !isNullOrBlank() && this != "-100000" && this != "100000" && this != "0"
 }
 
 
