@@ -35,13 +35,19 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import li.mof.kamigura.BookmarkDto
 import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.KavitaSessionStore
+import li.mof.kamigura.VolumeDto
 import li.mof.kamigura.normalizeKavitaBaseUrl
+import li.mof.kamigura.series.internal.displayShortName
+import li.mof.kamigura.series.internal.displayTitle
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.KamiguraPullToRefreshIndicator
@@ -65,7 +71,7 @@ internal fun BookmarksScreen(
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     var session by remember { mutableStateOf(KavitaSession()) }
-    var bookmarks by remember { mutableStateOf<List<BookmarkDto>>(emptyList()) }
+    var bookmarks by remember { mutableStateOf<List<BookmarkEntry>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var retryKey by remember { mutableIntStateOf(0) }
@@ -79,14 +85,18 @@ internal fun BookmarksScreen(
             val loadedSession = sessionStore.load()
             session = loadedSession
             val (api, _) = KavitaClient(ctx, sessionStore).buildApi()
-            bookmarks = api.allBookmarks()
-                .filter { it.seriesId > 0 && it.chapterId > 0 }
-                .sortedWith(
-                    compareBy<BookmarkDto> { it.series?.name.orEmpty() }
-                        .thenBy { it.volumeId }
-                        .thenBy { it.chapterId }
-                        .thenBy { it.page }
-                )
+            val loaded = api.allBookmarks().filter { it.seriesId > 0 && it.chapterId > 0 }
+            // Bookmarks carry no chapter number, so read each bookmarked series' chapters once.
+            val volumesBySeries = coroutineScope {
+                loaded.map { it.seriesId }.distinct().map { seriesId ->
+                    async {
+                        runCatching { seriesId to api.volumes(seriesId) }
+                            .onFailure { KamiguraLog.w("Could not load chapters for bookmarked series $seriesId.", it) }
+                            .getOrNull()
+                    }
+                }.awaitAll().filterNotNull().toMap()
+            }
+            bookmarks = bookmarkEntries(loaded, volumesBySeries)
             error = null
         } catch (c: CancellationException) {
             throw c
@@ -120,9 +130,10 @@ internal fun BookmarksScreen(
                 if (bookmarks.isEmpty()) {
                     DarkMessageState("Bookmarks", "No bookmarked pages yet.")
                 } else {
-                    PosterGrid(items = bookmarks, key = { bookmark -> bookmark.id ?: bookmark.stableKey() }) { bookmark ->
+                    PosterGrid(items = bookmarks, key = { entry -> entry.bookmark.id ?: entry.bookmark.stableKey() }) { entry ->
+                        val bookmark = entry.bookmark
                         BookmarkCard(
-                            bookmark = bookmark,
+                            entry = entry,
                             session = session,
                             onClick = {
                                 onOpenBookmark(
@@ -143,10 +154,11 @@ internal fun BookmarksScreen(
 
 @Composable
 private fun BookmarkCard(
-    bookmark: BookmarkDto,
+    entry: BookmarkEntry,
     session: KavitaSession,
     onClick: () -> Unit
 ) {
+    val bookmark = entry.bookmark
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -155,7 +167,7 @@ private fun BookmarkCard(
     ) {
         Column {
             AsyncImage(
-                model = bookmarkImageUrl(session, bookmark),
+                model = bookmarkImageUrl(session, entry),
                 contentDescription = bookmark.displayTitle(),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -174,7 +186,7 @@ private fun BookmarkCard(
                 )
                 Spacer(Modifier.height(3.dp))
                 Text(
-                    text = bookmark.displaySubtitle(),
+                    text = entry.displaySubtitle(),
                     color = Color(0xFFB9BDBD),
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 1,
@@ -185,22 +197,66 @@ private fun BookmarkCard(
     }
 }
 
-private fun bookmarkImageUrl(session: KavitaSession, bookmark: BookmarkDto): String? {
+private fun bookmarkImageUrl(session: KavitaSession, entry: BookmarkEntry): String? {
     if (session.baseUrl.isBlank() || session.apiKey.isBlank()) {
         return null
     }
     val root = normalizeKavitaBaseUrl(session.baseUrl)
     val apiKey = Uri.encode(session.apiKey)
-    return "$root/api/Reader/bookmark-image?seriesId=${bookmark.seriesId}&apiKey=$apiKey&page=${bookmark.page}"
+    val bookmark = entry.bookmark
+    // page is a position in the series' bookmarks, not the chapter page. Kavita ignores
+    // bookmarkId; it keeps the cache key apart when deleting a bookmark shifts the positions.
+    return "$root/api/Reader/bookmark-image?seriesId=${bookmark.seriesId}&apiKey=$apiKey" +
+        "&page=${entry.imageIndex}&bookmarkId=${bookmark.id ?: 0}"
 }
 
 private fun BookmarkDto.displayTitle(): String {
     return series?.name?.takeIf { it.isNotBlank() } ?: "Series $seriesId"
 }
 
-private fun BookmarkDto.displaySubtitle(): String {
-    val chapter = chapterTitle?.takeIf { it.isNotBlank() } ?: "Chapter $chapterId"
-    return "$chapter - Page ${page + 1}"
+private fun BookmarkEntry.displaySubtitle(): String {
+    val page = "Page ${bookmark.page + 1}"
+    val chapter = bookmark.chapterTitle?.takeIf { it.isNotBlank() } ?: chapterLabel
+    return if (chapter == null) page else "$chapter - $page"
+}
+
+internal data class BookmarkEntry(
+    val bookmark: BookmarkDto,
+    /** Position used by Kavita's bookmark-image endpoint: the series' bookmarks, oldest first. */
+    val imageIndex: Int,
+    val chapterLabel: String?
+)
+
+internal fun bookmarkEntries(
+    bookmarks: List<BookmarkDto>,
+    volumesBySeries: Map<Int, List<VolumeDto>>
+): List<BookmarkEntry> {
+    // Kavita caches a series' bookmark images in creation order; ids grow with creation.
+    val imageIndex = HashMap<BookmarkDto, Int>()
+    bookmarks.groupBy { it.seriesId }.values.forEach { seriesBookmarks ->
+        seriesBookmarks.sortedBy { it.id ?: Int.MAX_VALUE }
+            .forEachIndexed { index, bookmark -> imageIndex[bookmark] = index }
+    }
+    val readingOrder = HashMap<Int, Int>()
+    val chapterLabels = HashMap<Int, String>()
+    volumesBySeries.values.forEach { volumes ->
+        volumes.flatMap { volume -> volume.chapters.map { volume to it } }
+            .forEachIndexed { index, (volume, chapter) ->
+                readingOrder[chapter.id] = index
+                chapterLabels[chapter.id] = listOfNotNull(chapter.displayTitle(), volume.displayShortName())
+                    .distinct()
+                    .joinToString(" • ")
+            }
+    }
+    return bookmarks
+        .map { BookmarkEntry(it, imageIndex.getValue(it), chapterLabels[it.chapterId]) }
+        .sortedWith(
+            compareBy<BookmarkEntry> { it.bookmark.series?.name.orEmpty() }
+                .thenBy { it.bookmark.seriesId }
+                .thenBy { readingOrder[it.bookmark.chapterId] ?: Int.MAX_VALUE }
+                .thenBy { it.bookmark.chapterId }
+                .thenBy { it.bookmark.page }
+        )
 }
 
 private fun BookmarkDto.stableKey(): String {
