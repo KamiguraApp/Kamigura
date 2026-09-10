@@ -312,6 +312,12 @@ fun AppRoot(
                             nav.navigate(
                                 "reader/${item.libraryId}/${item.seriesId}/${item.volumeId}/${item.chapterId}?incognito=false"
                             )
+                        },
+                        onOpenSeries = { item ->
+                            nav.navigate(readingListSeriesRoute(item))
+                        },
+                        onOpenIssueDetail = { item ->
+                            nav.navigate(readingListSeriesRoute(item) + "?issue=${item.chapterId}")
                         }
                     )
                 } else SearchSeriesScreen(
@@ -351,21 +357,24 @@ fun AppRoot(
             }
 
             composable(
-                route = "chapters/{libraryId}/{seriesId}/{seriesName}",
+                route = "chapters/{libraryId}/{seriesId}/{seriesName}?issue={issue}",
                 arguments = listOf(
                     navArgument("libraryId") { type = NavType.IntType },
                     navArgument("seriesId") { type = NavType.IntType },
-                    navArgument("seriesName") { type = NavType.StringType }
+                    navArgument("seriesName") { type = NavType.StringType },
+                    navArgument("issue") { type = NavType.IntType; defaultValue = -1 }
                 )
             ) { backStack ->
                 val libraryId = backStack.arguments!!.getInt("libraryId")
                 val seriesId = backStack.arguments!!.getInt("seriesId")
                 val seriesName = backStack.arguments!!.getString("seriesName") ?: ""
+                val issueChapterId = backStack.arguments!!.getInt("issue").takeIf { it > 0 }
                 ChapterPickScreen(
                     sessionStore,
                     libraryId,
                     seriesId,
                     seriesName,
+                    initialIssueChapterId = issueChapterId,
                     onOpenFilteredSeries = { target, id, label ->
                         nav.navigate("search-series/${target.routeValue}/$id/${Uri.encode(label)}")
                     }
@@ -433,6 +442,11 @@ fun AppRoot(
                 CacheSettingsScreen(onBack = { nav.popBackStack() })
             }
         }
+}
+
+private fun readingListSeriesRoute(item: ReadingListItemDto): String {
+    val name = item.seriesName?.takeIf { it.isNotBlank() } ?: "Series ${item.seriesId}"
+    return "chapters/${item.libraryId}/${item.seriesId}/${Uri.encode(name)}"
 }
 
 data class LoginDefaults(

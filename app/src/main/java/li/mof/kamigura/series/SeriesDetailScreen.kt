@@ -61,6 +61,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -141,6 +142,7 @@ fun ChapterPickScreen(
     libraryId: Int,
     seriesId: Int,
     seriesName: String,
+    initialIssueChapterId: Int? = null,
     onOpenFilteredSeries: (SearchSeriesTarget, Int, String) -> Unit,
     onPick: (chapterId: Int, volumeId: Int, incognito: Boolean) -> Unit
 ) {
@@ -289,6 +291,15 @@ fun ChapterPickScreen(
                 issueLoading = false
             }
         }
+    }
+
+    // Saveable so coming back from the reader doesn't pop the sheet open again.
+    var initialIssueOpened by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(loading, loadedApi) {
+        if (initialIssueOpened || loading || loadedApi == null) return@LaunchedEffect
+        val chapterId = initialIssueChapterId ?: return@LaunchedEffect
+        initialIssueOpened = true
+        chapterCards.firstOrNull { it.chapter.id == chapterId }?.let(::openIssue)
     }
 
     fun markSelectedIssueRead() {

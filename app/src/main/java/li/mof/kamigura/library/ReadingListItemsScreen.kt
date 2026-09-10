@@ -15,9 +15,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -60,7 +64,9 @@ internal fun ReadingListItemsScreen(
     readingListId: Int,
     label: String,
     onBack: () -> Unit,
-    onOpenItem: (ReadingListItemDto) -> Unit
+    onOpenItem: (ReadingListItemDto) -> Unit,
+    onOpenSeries: (ReadingListItemDto) -> Unit,
+    onOpenIssueDetail: (ReadingListItemDto) -> Unit
 ) {
     val context = LocalContext.current
     var session by remember { mutableStateOf(KavitaSession()) }
@@ -122,7 +128,7 @@ internal fun ReadingListItemsScreen(
                 if (entries.isEmpty()) {
                     ReadingListEmpty()
                 } else {
-                    ReadingListItems(entries, session, onOpenItem)
+                    ReadingListItems(entries, session, onOpenItem, onOpenSeries, onOpenIssueDetail)
                 }
             }
         }
@@ -145,7 +151,9 @@ private fun ReadingListEmpty() {
 internal fun ReadingListItems(
     entries: List<ReadingListItemDto>,
     session: KavitaSession,
-    onOpenItem: (ReadingListItemDto) -> Unit
+    onOpenItem: (ReadingListItemDto) -> Unit,
+    onOpenSeries: (ReadingListItemDto) -> Unit,
+    onOpenIssueDetail: (ReadingListItemDto) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -168,16 +176,21 @@ internal fun ReadingListItems(
                     modifier = Modifier.width(56.dp).height(84.dp).background(Color(0xFF222626))
                 )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(item.seriesName?.takeIf { it.isNotBlank() } ?: "Series ${item.seriesId}",
-                        color = Color.White, style = MaterialTheme.typography.titleSmall,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(item.readingListChapterLabel(),
-                        color = Color(0xFFDCE2DE), style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White, style = MaterialTheme.typography.titleSmall,
                         maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    // Like Kavita's own list, the series name is the way to the series page.
+                    Text(item.seriesName?.takeIf { it.isNotBlank() } ?: "Series ${item.seriesId}",
+                        color = Color(0xFF86D39B), style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { onOpenSeries(item) })
                     if (item.pagesTotal > 0) {
                         Text("${item.pagesRead.coerceIn(0, item.pagesTotal)} / ${item.pagesTotal} pages",
                             color = Color(0xFFB9BDBD), style = MaterialTheme.typography.bodySmall)
                     }
+                }
+                IconButton(onClick = { onOpenIssueDetail(item) }) {
+                    Icon(Icons.Outlined.Info, contentDescription = "Issue details", tint = Color(0xFFB9BDBD))
                 }
             }
             HorizontalDivider(color = Color(0xFF303636), modifier = Modifier.padding(horizontal = 16.dp))

@@ -27,7 +27,10 @@ class ReadingListItemsTest {
         }
         var selected: ReadingListItemDto? = null
         compose.setContent {
-            MaterialTheme { ReadingListItems(entries, KavitaSession()) { selected = it } }
+            MaterialTheme {
+                ReadingListItems(entries, KavitaSession(), onOpenItem = { selected = it },
+                    onOpenSeries = {}, onOpenIssueDetail = {})
+            }
         }
         val first = compose.onNodeWithText("1").fetchSemanticsNode().boundsInRoot
         val second = compose.onNodeWithText("2").fetchSemanticsNode().boundsInRoot
@@ -39,6 +42,32 @@ class ReadingListItemsTest {
         compose.onNode(hasScrollToIndexAction()).performScrollToIndex(15)
         compose.onNodeWithText("16").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(entries[15], selected) }
+    }
+
+    @Test
+    fun seriesNameAndInfoButtonLeadAwayFromTheReader() {
+        val entries = listOf(
+            ReadingListItemDto(id = 1, order = 0, chapterId = 11, volumeId = 21, seriesId = 31,
+                libraryId = 7, seriesName = "Zebra", chapterNumber = "1"),
+            ReadingListItemDto(id = 2, order = 1, chapterId = 12, volumeId = 22, seriesId = 32,
+                libraryId = 7, seriesName = "Apple", chapterNumber = "2")
+        )
+        var read: ReadingListItemDto? = null
+        var series: ReadingListItemDto? = null
+        var issue: ReadingListItemDto? = null
+        compose.setContent {
+            MaterialTheme {
+                ReadingListItems(entries, KavitaSession(), onOpenItem = { read = it },
+                    onOpenSeries = { series = it }, onOpenIssueDetail = { issue = it })
+            }
+        }
+        compose.onNodeWithText("Apple").performClick()
+        compose.onAllNodesWithContentDescription("Issue details")[0].performClick()
+        compose.runOnIdle {
+            assertEquals(entries[1], series)
+            assertEquals(entries[0], issue)
+            assertNull(read)
+        }
     }
 
     @Test
