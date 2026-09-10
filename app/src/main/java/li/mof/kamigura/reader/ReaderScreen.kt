@@ -86,6 +86,7 @@ import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
 import li.mof.kamigura.reader.internal.loadReaderChapterInfo
+import li.mof.kamigura.reader.internal.readerLoadErrorMessage
 import li.mof.kamigura.reader.internal.pageIsWide
 import li.mof.kamigura.reader.internal.preAnalyzeReaderPages
 import li.mof.kamigura.reader.internal.prefetchReaderPages
@@ -480,7 +481,7 @@ fun ReaderScreen(
                 throw cancelled
             } catch (t: Throwable) {
                 KamiguraLog.w("Could not switch Reader to chapter ${target.chapterId}.", t)
-                error = t.message ?: t.toString()
+                error = readerLoadErrorMessage(t)
             } finally {
                 chapterSwitching = false
             }
@@ -549,7 +550,7 @@ fun ReaderScreen(
                 readerSeries = series
                 seriesName = series.name
                 if (series.format == MangaFormat.Epub) {
-                    error = "EPUB is not supported in Kamigura."
+                    error = "EPUB is not supported yet."
                     return@LaunchedEffect
                 }
             }
@@ -617,7 +618,7 @@ fun ReaderScreen(
         } catch (t: Throwable) {
             KamiguraLog.w("Could not initialize Reader for chapter $currentChapterId.", t)
             if (local == null) {
-                error = t.message ?: t.toString()
+                error = readerLoadErrorMessage(t)
             }
         }
     }

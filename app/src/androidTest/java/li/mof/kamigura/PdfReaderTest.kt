@@ -72,9 +72,9 @@ class PdfReaderTest {
         ReaderServer(format = 3).use { server ->
             val visible = open(server)
             compose.waitUntil(10_000) {
-                compose.onAllNodesWithText("EPUB is not supported in Kamigura.").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithText("EPUB is not supported yet.").fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithText("EPUB is not supported in Kamigura.").assertIsDisplayed()
+            compose.onNodeWithText("EPUB is not supported yet.").assertIsDisplayed()
             assertFalse(server.requests.any { it.path == "/api/Reader/chapter-info" || it.path == "/api/Reader/image" })
             compose.onNodeWithText("Back to series").performClick()
             compose.runOnIdle { assertFalse(visible.value) }

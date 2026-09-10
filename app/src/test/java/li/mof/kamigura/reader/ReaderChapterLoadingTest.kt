@@ -4,6 +4,10 @@ import kotlinx.coroutines.runBlocking
 import li.mof.kamigura.ChapterInfoDto
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.reader.internal.loadReaderChapterInfo
+import li.mof.kamigura.reader.internal.readerLoadErrorMessage
+import okhttp3.ResponseBody.Companion.toResponseBody
+import retrofit2.HttpException
+import retrofit2.Response
 import org.junit.Assert.*
 import org.junit.Test
 import java.lang.reflect.Proxy
@@ -32,7 +36,7 @@ class ReaderChapterLoadingTest {
             loadReaderChapterInfo(api, 42, 3)
             fail("EPUB must be rejected")
         } catch (e: IllegalArgumentException) {
-            assertEquals("EPUB is not supported in Kamigura.", e.message)
+            assertEquals("EPUB is not supported yet.", e.message)
         }
     }
 
@@ -54,4 +58,18 @@ class ReaderChapterLoadingTest {
             check(method.name == "chapterInfo")
             onChapterInfo(args)
         } as KavitaApi
+
+    @Test
+    fun proxyTimeoutsExplainThatTheServerIsStillWorking() {
+        val message = readerLoadErrorMessage(
+            HttpException(Response.error<Any>(504, "".toResponseBody(null)))
+        )
+        assertTrue(message.contains("wait a few minutes"))
+        assertFalse(message.contains("504"))
+    }
+
+    @Test
+    fun otherFailuresKeepTheirOwnMessage() {
+        assertEquals("boom", readerLoadErrorMessage(IllegalStateException("boom")))
+    }
 }
