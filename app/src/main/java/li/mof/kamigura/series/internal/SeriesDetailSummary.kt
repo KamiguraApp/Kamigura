@@ -418,8 +418,11 @@ private fun SeriesReadSplitButton(
     val mainMenuItems = buildList {
         add(SeriesMenuAction.WantToRead)
         add(SeriesMenuAction.AddToReadingList)
-        add(SeriesMenuAction.MarkRead)
-        add(SeriesMenuAction.MarkUnread)
+        // Same rule as the issue sheet: offer only the marks that would change something.
+        val pagesRead = series.pagesRead ?: 0
+        val allRead = (series.pages ?: 0).let { total -> total > 0 && pagesRead >= total }
+        if (!allRead) add(SeriesMenuAction.MarkRead)
+        if (pagesRead > 0) add(SeriesMenuAction.MarkUnread)
         if (isAdmin) add(SeriesMenuAction.Refresh)
     }
 
