@@ -118,12 +118,12 @@ internal data class ChapterCardItem(
 @Composable
 internal fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onClick: () -> Unit) {
     val chapter = item.chapter
-    val title = chapter.displayTitle()
-    val label = listOfNotNull(
-        title,
+    val title = chapter.issueLabel() ?: item.volume.displayShortName() ?: chapter.displayTitle()
+    // The date gets its own line: on a 160dp card "Issue 10 • 2023-09-22" no longer fits.
+    val details = listOfNotNull(
         item.volume.displayShortName(),
         chapter.releaseDateText()
-    ).joinToString(" • ")
+    ).filter { it != title }.joinToString(" • ")
     val progress = chapter.readingProgress()
     Card(
         modifier = Modifier
@@ -160,10 +160,18 @@ internal fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCl
                 )
                 Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
                     Text(
-                        text = label,
+                        text = title,
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    // Always present so cards in a row keep the same height.
+                    Text(
+                        text = details,
+                        color = Color(0xFFB9BDBD),
+                        style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
