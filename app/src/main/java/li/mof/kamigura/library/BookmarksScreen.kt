@@ -39,7 +39,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import li.mof.kamigura.BookmarkDto
+import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaClient
 import li.mof.kamigura.KavitaSession
@@ -47,7 +50,6 @@ import li.mof.kamigura.KavitaSessionStore
 import li.mof.kamigura.VolumeDto
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import li.mof.kamigura.series.internal.displayShortName
-import li.mof.kamigura.series.internal.displayTitle
 import li.mof.kamigura.ui.DarkLoadingState
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.KamiguraPullToRefreshIndicator
@@ -243,9 +245,7 @@ internal fun bookmarkEntries(
         volumes.flatMap { volume -> volume.chapters.map { volume to it } }
             .forEachIndexed { index, (volume, chapter) ->
                 readingOrder[chapter.id] = index
-                chapterLabels[chapter.id] = listOfNotNull(chapter.displayTitle(), volume.displayShortName())
-                    .distinct()
-                    .joinToString(" • ")
+                bookmarkChapterLabel(volume, chapter)?.let { chapterLabels[chapter.id] = it }
             }
     }
     return bookmarks
@@ -262,3 +262,17 @@ internal fun bookmarkEntries(
 private fun BookmarkDto.stableKey(): String {
     return "$seriesId-$volumeId-$chapterId-$page"
 }
+
+private fun bookmarkChapterLabel(volume: VolumeDto, chapter: ChapterDto): String? {
+    val name = chapter.title.kavitaLabel()
+        ?: (chapter.number as? JsonPrimitive)?.contentOrNull.kavitaLabel()
+    val issue = name?.let { if (it.toFloatOrNull() != null) "Issue $it" else it }
+    return listOfNotNull(issue, volume.displayShortName())
+        .distinct()
+        .joinToString(" • ")
+        .takeIf { it.isNotEmpty() }
+}
+
+// Kavita writes -100000 where a file has no chapter number and 100000 on specials.
+private fun String?.kavitaLabel(): String? =
+    this?.trim()?.takeIf { it.isNotEmpty() && it != "-100000" && it != "100000" }

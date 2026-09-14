@@ -34,7 +34,17 @@ class BookmarkEntriesTest {
             mapOf(7 to volumes)
         )
         assertEquals(listOf(10, 20, 30), entries.map { it.bookmark.id })
-        assertEquals(listOf("1 • Vol 1", "1 • Vol 1", "2 • Vol 2"), entries.map { it.chapterLabel })
+        assertEquals(listOf("Issue 1 • Vol 1", "Issue 1 • Vol 1", "Issue 2 • Vol 2"), entries.map { it.chapterLabel })
+    }
+
+    @Test
+    fun placeholderNumbersNeverBecomeALabel() {
+        val loose = listOf(VolumeDto(id = 3, name = "-100000", chapters = listOf(
+            ChapterDto(id = 60, title = "-100000", number = JsonPrimitive("-100000")),
+            ChapterDto(id = 61, title = "Afterword", number = JsonPrimitive("-100000"))
+        )))
+        val entries = bookmarkEntries(listOf(bookmark(1, 60, 0), bookmark(2, 61, 0)), mapOf(7 to loose))
+        assertEquals(listOf(null, "Afterword"), entries.map { it.chapterLabel })
     }
 
     @Test
