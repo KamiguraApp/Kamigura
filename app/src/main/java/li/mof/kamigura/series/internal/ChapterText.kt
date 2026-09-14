@@ -12,12 +12,12 @@ internal fun ChapterDto.displayTitle(): String {
 }
 
 /**
- * "Issue 4" for a numbered chapter, its own name otherwise, or null when Kavita only has
- * placeholder numbers for it (never the database id).
+ * "Issue 4" (or "#4" with the short prefix) for a numbered chapter, its own name otherwise,
+ * or null when Kavita only has placeholder numbers for it (never the database id).
  */
-internal fun ChapterDto.issueLabel(): String? {
+internal fun ChapterDto.issueLabel(numberPrefix: String = "Issue "): String? {
     val name = title.kavitaLabel() ?: number.displayText().kavitaLabel()
-    return name?.let { if (it.toFloatOrNull() != null) "Issue $it" else it }
+    return name?.let { if (it.toFloatOrNull() != null) "$numberPrefix$it" else it }
 }
 
 // Kavita writes -100000 where a file has no chapter number and 100000 on specials.
