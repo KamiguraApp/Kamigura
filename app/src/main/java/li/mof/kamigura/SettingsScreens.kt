@@ -138,8 +138,9 @@ fun SettingsHubScreen(
                     )
                 }
                 Spacer(Modifier.weight(1f))
+                val version = appVersionName(LocalContext.current)
                 Text(
-                    text = "Kamigura v0.22",
+                    text = if (version.isBlank()) "Kamigura" else "Kamigura v$version",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(bottom = 8.dp)

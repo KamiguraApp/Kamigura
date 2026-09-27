@@ -119,12 +119,7 @@ fun AppRoot(
 
     LaunchedEffect(Unit) {
         installImageLoader(null)
-        @Suppress("DEPRECATION")
-        val currentVersion = ctx.packageManager
-            .getPackageInfo(ctx.packageName, 0)
-            .versionName
-            .orEmpty()
-        availableUpdate = GitHubUpdateChecker(ctx).check(currentVersion)
+        availableUpdate = GitHubUpdateChecker(ctx).check(appVersionName(ctx))
     }
 
     LaunchedEffect(sessionRevision) {
