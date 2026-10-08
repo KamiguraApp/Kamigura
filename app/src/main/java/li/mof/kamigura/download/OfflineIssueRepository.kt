@@ -148,6 +148,13 @@ class OfflineIssueRepository(context: Context) {
         }
     }
 
+    fun observeDownloadQueue(session: KavitaSession): Flow<List<OfflineIssueRecord>> {
+        val key = sessionKey(session)
+        return appContext.offlineIssueDataStore.data.map { preferences ->
+            downloadQueueRecords(decode(preferences[recordsKey]), key)
+        }
+    }
+
     suspend fun cleanupUnavailableDownload(session: KavitaSession, chapterId: Int): Boolean {
         val record = current(sessionKey(session), chapterId) ?: return false
         if (record.errorMessage != LegacyUnavailableDownloadMessage) return false
@@ -238,6 +245,8 @@ class OfflineIssueRepository(context: Context) {
             val key = sessionKey(session)
             val record = current(key, chapterId) ?: return@withContext null
             if (record.status == OfflineDownloadStatus.Ready) return@withContext record
+            // Failed transfers may no longer exist in DownloadManager; keep the failure visible.
+            if (record.status == OfflineDownloadStatus.Failed) return@withContext record
             if (record.status == OfflineDownloadStatus.Unsupported) return@withContext record
             if (record.status == OfflineDownloadStatus.Removed) return@withContext record
 
