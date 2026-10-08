@@ -99,6 +99,10 @@ import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.KamiguraPullToRefreshIndicator
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.browse.BrowsePageScaffold
+import li.mof.kamigura.library.DownloadQueueScreen
+import androidx.compose.material.icons.filled.Downloading
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import li.mof.kamigura.ui.browse.LazyGridLoadMoreEffect
 import li.mof.kamigura.ui.browse.PagingFooter
 import li.mof.kamigura.ui.browse.PosterGrid
@@ -443,6 +447,13 @@ internal fun HomeContent(
             }
             HomeDestination.Browse -> {
                 when (browseDrilldown) {
+                    BrowseDrilldown.DownloadQueue -> {
+                        DownloadQueueScreen(
+                            session = session,
+                            onBack = { browseDrilldown = null },
+                            onOpenDownloaded = onOpenDownloaded
+                        )
+                    }
                     BrowseDrilldown.ReadingLists -> {
                         ReadingListsPane(
                             api = api,
@@ -466,6 +477,7 @@ internal fun HomeContent(
                             onOpenCollections = onOpenCollections,
                             onOpenReadingLists = { browseDrilldown = BrowseDrilldown.ReadingLists },
                             onOpenDownloaded = onOpenDownloaded,
+                            onOpenDownloadQueue = { browseDrilldown = BrowseDrilldown.DownloadQueue },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -495,12 +507,14 @@ private fun BrowseHub(
     onOpenCollections: () -> Unit,
     onOpenReadingLists: () -> Unit,
     onOpenDownloaded: () -> Unit,
+    onOpenDownloadQueue: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     BrowsePageScaffold(title = "Browse", modifier = modifier) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -523,6 +537,12 @@ private fun BrowseHub(
                 onClick = onOpenReadingLists
             )
             BrowseHubItem(
+                title = "Download queue",
+                subtitle = "Queued, active, and failed downloads",
+                icon = Icons.Filled.Downloading,
+                onClick = onOpenDownloadQueue
+            )
+            BrowseHubItem(
                 title = "Downloaded",
                 subtitle = when (downloadedCount) {
                     0 -> "No issues available offline"
@@ -537,7 +557,8 @@ private fun BrowseHub(
 }
 
 private enum class BrowseDrilldown {
-    ReadingLists
+    ReadingLists,
+    DownloadQueue
 }
 
 @Composable
