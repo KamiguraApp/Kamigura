@@ -29,15 +29,17 @@ internal suspend fun loadPagedSeries(
 ): List<SeriesDto> {
     require(pageSize > 0) { "pageSize must be positive" }
 
-    val result = mutableListOf<SeriesDto>()
+    // Keyed by id: a series whose sort key ties with another can come back on two
+    // consecutive pages, and a repeated id crashes the grid that keys on it.
+    val result = LinkedHashMap<Int, SeriesDto>()
     var pageNumber = 0
     while (true) {
         val page = loadPage(pageNumber, pageSize)
-        result += page
+        page.forEach { series -> result.putIfAbsent(series.id, series) }
         if (page.size < pageSize) break
         pageNumber += 1
     }
-    return result
+    return result.values.toList()
 }
 
 internal fun librarySeriesFilter(libraryId: Int): SeriesFilterV2Dto {
