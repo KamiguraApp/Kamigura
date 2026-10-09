@@ -114,6 +114,15 @@ interface KavitaApi {
     @POST("api/Reader/all-bookmarks")
     suspend fun allBookmarks(@Body body: SeriesFilterV2Dto = SeriesFilterV2Dto()): List<BookmarkDto>
 
+    @GET("api/Reader/chapter-bookmarks")
+    suspend fun chapterBookmarks(@Query("chapterId") chapterId: Int): List<BookmarkDto>
+
+    @POST("api/Reader/bookmark")
+    suspend fun bookmarkPage(@Body body: BookmarkPageDto)
+
+    @POST("api/Reader/unbookmark")
+    suspend fun unbookmarkPage(@Body body: BookmarkPageDto)
+
     @POST("api/Reader/progress")
     suspend fun saveProgress(@Body dto: ProgressDto)
 

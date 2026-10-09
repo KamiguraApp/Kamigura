@@ -300,3 +300,11 @@ data class BookmarkDto(
     val series: SeriesDto? = null,
     val chapterTitle: String? = null
 )
+
+@Serializable
+data class BookmarkPageDto(
+    val seriesId: Int,
+    val volumeId: Int,
+    val chapterId: Int,
+    val page: Int
+)
