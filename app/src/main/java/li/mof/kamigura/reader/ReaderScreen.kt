@@ -78,6 +78,8 @@ import li.mof.kamigura.reader.internal.ReaderChapterBoundary
 import li.mof.kamigura.reader.internal.ReaderChapterBoundaryScreen
 import li.mof.kamigura.reader.internal.ReaderChapterEntry
 import li.mof.kamigura.reader.internal.ReaderMenuOverlay
+import li.mof.kamigura.reader.internal.ReaderBookmarks
+import li.mof.kamigura.reader.internal.readerCanManageBookmarks
 import li.mof.kamigura.reader.internal.ReaderLoadingScreen
 import li.mof.kamigura.reader.internal.ReaderPageView
 import li.mof.kamigura.reader.internal.ReaderTapLayer
@@ -708,6 +710,14 @@ fun ReaderScreen(
             onBack = onBack
         )
         return
+    }
+
+    val bookmarks = remember(api, seriesId, currentChapterId, currentVolumeId, pages, incognito, offlineChapter != null) {
+        api?.takeIf { pages > 0 && readerCanManageBookmarks(incognito, offlineChapter != null) }
+            ?.let { ReaderBookmarks(it, seriesId, currentVolumeId, currentChapterId, pages) }
+    }
+    LaunchedEffect(bookmarks, showReaderMenu) {
+        if (showReaderMenu) bookmarks?.refresh()
     }
 
     val client = remember { KavitaClient(ctx, sessionStore) }
@@ -2030,6 +2040,16 @@ fun ReaderScreen(
                 chapterName = currentChapter.displayName,
                 page = page,
                 pages = pages,
+                bookmarkState = bookmarks?.state,
+                onBookmark = {
+                    val targetPage = page
+                    bookmarks?.let { chapterBookmarks ->
+                        scope.launch {
+                            if (chapterBookmarks.state.loaded) chapterBookmarks.toggle(targetPage)
+                            else chapterBookmarks.refresh()
+                        }
+                    }
+                },
                 readingDirection = readingDirection,
                 showSpreadShift = !vertical && !portrait && settings.reader.showSpreadShiftButtons,
                 onBack = onBack,
@@ -2084,4 +2104,3 @@ fun ReaderScreen(
 
     }
 }
-

@@ -3,13 +3,15 @@ package li.mof.kamigura.reader.internal
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -47,6 +49,8 @@ internal fun ReaderMenuOverlay(
     seriesName: String,
     chapterName: String,
     page: Int,
+    bookmarkState: ReaderBookmarkState?,
+    onBookmark: () -> Unit,
     pages: Int,
     readingDirection: ReaderReadingDirection,
     // Spread shift only means something while spreads are shown; portrait hides the row
@@ -76,60 +80,79 @@ internal fun ReaderMenuOverlay(
         return if (rightToLeft) safePageCount - 1 - sliderPage else sliderPage
     }
 
-    Box(
+    Column(
         Modifier
             .fillMaxSize()
             .pointerInput(onDismiss) {
                 detectTapGestures(onTap = { onDismiss() })
             }
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.TopCenter)
                 .background(Color(0xCC000000))
                 .statusBarsPadding()
                 .padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = Color.White
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = seriesName,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "$chapterName | ${page + 1} / $pages",
+                        color = Color.White.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                bookmarkState?.let { state ->
+                    ReaderBookmarkButton(currentPage, state, onBookmark)
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close menu",
+                        tint = Color.White
+                    )
+                }
             }
-            Column(modifier = Modifier.weight(1f)) {
+            val feedback = bookmarkState?.error ?: bookmarkState?.message
+            if (feedback != null) {
                 Text(
-                    text = seriesName,
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "$chapterName | ${page + 1} / $pages",
-                    color = Color.White.copy(alpha = 0.72f),
+                    text = feedback,
+                    color = if (bookmarkState?.error != null) MaterialTheme.colorScheme.error
+                        else Color.White.copy(alpha = 0.9f),
                     style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "Close menu",
-                    tint = Color.White
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
         }
 
+        Spacer(Modifier.weight(1f))
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.BottomCenter)
                 .background(Color(0xCC000000))
+                .verticalScroll(rememberScrollState())
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
