@@ -1,0 +1,90 @@
+package li.mof.kamigura.reader.internal
+
+import android.graphics.drawable.ColorDrawable
+import android.text.Html
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import li.mof.kamigura.KavitaApi
+import li.mof.kamigura.normalizeKavitaBaseUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
+
+private const val ImageEpubPageConcurrency = 4
+internal const val UnsupportedImageEpubMessage =
+    "This EPUB is not supported yet. Only image-only manga EPUBs can be read."
+
+internal class UnsupportedImageEpubException : IllegalArgumentException(UnsupportedImageEpubMessage)
+
+internal data class EpubImagePageContent(
+    val images: List<String>,
+    val text: String,
+    val unsupportedContent: Boolean = false
+)
+
+internal fun parseEpubImagePage(html: String): EpubImagePageContent {
+    val images = mutableListOf<String>()
+    var unsupported = false
+    var styleStart: Int? = null
+    val text = Html.fromHtml(
+        html,
+        Html.FROM_HTML_MODE_COMPACT,
+        { source -> images += source.orEmpty(); ColorDrawable() },
+        { opening, tag, output, _ ->
+            when (tag.lowercase()) {
+                "style" -> if (opening) styleStart = output.length else {
+                    styleStart?.let { output.delete(it, output.length) }
+                    styleStart = null
+                }
+                "script", "iframe", "object", "embed", "svg", "canvas", "math",
+                "video", "audio", "form" -> unsupported = true
+            }
+        }
+    ).toString()
+    return EpubImagePageContent(images, text, unsupported || styleStart != null)
+}
+
+internal fun epubPageImageUrl(content: EpubImagePageContent, baseUrl: String, chapterId: Int): String {
+    if (content.unsupportedContent || content.images.size != 1 || content.text.any {
+            !it.isWhitespace() && it != '\uFFFC' && it != '\u200B' && it != '\uFEFF'
+        }) throw UnsupportedImageEpubException()
+
+    val root = normalizeKavitaBaseUrl(baseUrl).toHttpUrl()
+    val source = content.images.single().trim()
+    val image = root.resolve(source) ?: throw UnsupportedImageEpubException()
+    val expectedPath = root.encodedPath.trimEnd('/') + "/api/book/$chapterId/book-resources"
+    // The image client sends authentication headers. Never accept an EPUB URL that could
+    // send those credentials to another origin or a non-resource endpoint.
+    if (source.isBlank() || image.scheme != root.scheme || image.host != root.host ||
+        image.port != root.port || image.username.isNotEmpty() || image.password.isNotEmpty() ||
+        !image.encodedPath.equals(expectedPath, ignoreCase = true) ||
+        image.queryParameter("file").isNullOrBlank()
+    ) throw UnsupportedImageEpubException()
+    return image.toString()
+}
+
+internal suspend fun loadImageEpubPages(
+    api: KavitaApi,
+    chapterId: Int,
+    pageCount: Int,
+    baseUrl: String,
+    parse: (String) -> EpubImagePageContent = ::parseEpubImagePage
+): List<String> = coroutineScope {
+    require(pageCount > 0) { "Chapter has no readable pages" }
+    val semaphore = Semaphore(ImageEpubPageConcurrency)
+    // Validate every spine before exposing the reader: a novel may also start with an
+    // image-only cover. Only HTML is fetched here; image preloading remains unchanged.
+    (0 until pageCount).map { page ->
+        async {
+            semaphore.withPermit {
+                val html = api.bookPage(chapterId, page).use { it.string() }
+                withContext(Dispatchers.Default) {
+                    epubPageImageUrl(parse(html), baseUrl, chapterId)
+                }
+            }
+        }
+    }.awaitAll()
+}
