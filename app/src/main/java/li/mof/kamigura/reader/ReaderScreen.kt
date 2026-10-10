@@ -87,7 +87,7 @@ import li.mof.kamigura.reader.internal.ReaderVerticalScroll
 import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
-import li.mof.kamigura.reader.internal.loadReaderChapterInfo
+import li.mof.kamigura.reader.internal.loadReaderChapterPages
 import li.mof.kamigura.reader.internal.readerLoadErrorMessage
 import li.mof.kamigura.reader.internal.pageIsWide
 import li.mof.kamigura.reader.internal.preAnalyzeReaderPages
@@ -199,6 +199,7 @@ fun ReaderScreen(
     }
     var seriesName by remember { mutableStateOf("") }
     var readerSeries by remember { mutableStateOf<SeriesDto?>(null) }
+    var epubPageImages by remember { mutableStateOf<List<String>?>(null) }
     var chapterSwitching by remember { mutableStateOf(false) }
     var chapterBoundary by remember { mutableStateOf<ReaderChapterBoundary?>(null) }
     var boundaryDragDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
@@ -439,14 +440,20 @@ fun ReaderScreen(
                 }.getOrNull()
                 val loadedPageCount: Int
                 val loadedDimensions: Map<Int, FileDimensionDto>
+                val loadedEpubImages: List<String>?
                 if (local != null) {
                     loadedPageCount = local.pages.size
                     loadedDimensions = local.dimensions
+                    loadedEpubImages = null
                 } else {
                     val series = readerSeries ?: loadedApi.series(seriesId).also { readerSeries = it }
-                    val info = loadReaderChapterInfo(loadedApi, target.chapterId, series.format)
+                    val loaded = loadReaderChapterPages(
+                        loadedApi, target.chapterId, series.format, loadedSession.baseUrl
+                    )
+                    val info = loaded.info
                     loadedPageCount = info.pages ?: 0
                     loadedDimensions = info.pageDimensions.toPageDimensionMap()
+                    loadedEpubImages = loaded.epubImageUrls
                 }
                 if (loadedPageCount <= 0) {
                     error = "Chapter has no readable pages"
@@ -469,6 +476,7 @@ fun ReaderScreen(
                 currentVolumeId = target.volumeId
                 currentChapter = target
                 offlineChapter = local
+                epubPageImages = loadedEpubImages
                 pages = loadedPageCount
                 pageDimensions = loadedDimensions
                 page = landingPage
@@ -551,10 +559,6 @@ fun ReaderScreen(
                 val series = loadedApi.series(seriesId)
                 readerSeries = series
                 seriesName = series.name
-                if (series.format == MangaFormat.Epub) {
-                    error = "EPUB is not supported yet."
-                    return@LaunchedEffect
-                }
             }
             val chapterMetadataJob = launch {
                 seriesName = runCatching {
@@ -590,7 +594,11 @@ fun ReaderScreen(
             readingDirection = resolvedDirection
             cachedPreferences?.let { invertMode = it.invertMode }
             if (local == null) {
-                val info = loadReaderChapterInfo(loadedApi, currentChapterId, readerSeries?.format)
+                val loaded = loadReaderChapterPages(
+                    loadedApi, currentChapterId, readerSeries?.format, loadedSession.baseUrl
+                )
+                val info = loaded.info
+                epubPageImages = loaded.epubImageUrls
                 val pageCount = info.pages ?: 0
                 pages = pageCount
                 pageDimensions = info.pageDimensions.toPageDimensionMap()
@@ -724,7 +732,8 @@ fun ReaderScreen(
     val activeImageLoader = readerImageLoader ?: fallbackImageLoader
     fun pageModel(index: Int): Any? = offlineChapter?.pages?.getOrNull(index)
         ?: if (index in 0 until pages) {
-            client.pageImageUrl(
+            if (readerSeries?.format == MangaFormat.Epub) epubPageImages?.getOrNull(index)
+            else client.pageImageUrl(
                 s.baseUrl, s.apiKey, currentChapterId, index,
                 extractPdf = readerSeries?.format == MangaFormat.Pdf
             )

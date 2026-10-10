@@ -10,7 +10,6 @@ internal suspend fun loadReaderChapterInfo(
     chapterId: Int,
     seriesFormat: Int?
 ): ChapterInfoDto {
-    require(seriesFormat != MangaFormat.Epub) { "EPUB is not supported yet." }
     val info = api.chapterInfo(
         chapterId = chapterId,
         includeDimensions = true,
@@ -18,6 +17,25 @@ internal suspend fun loadReaderChapterInfo(
     )
     check((info.pages ?: 0) > 0) { "Chapter has no readable pages" }
     return info
+}
+
+internal data class ReaderChapterPages(
+    val info: ChapterInfoDto,
+    val epubImageUrls: List<String>? = null
+)
+
+internal suspend fun loadReaderChapterPages(
+    api: KavitaApi,
+    chapterId: Int,
+    seriesFormat: Int?,
+    baseUrl: String,
+    parseEpubPage: (String) -> EpubImagePageContent = ::parseEpubImagePage
+): ReaderChapterPages {
+    val info = loadReaderChapterInfo(api, chapterId, seriesFormat)
+    val epubImages = if (seriesFormat == MangaFormat.Epub) {
+        loadImageEpubPages(api, chapterId, requireNotNull(info.pages), baseUrl, parseEpubPage)
+    } else null
+    return ReaderChapterPages(info, epubImages)
 }
 
 /**

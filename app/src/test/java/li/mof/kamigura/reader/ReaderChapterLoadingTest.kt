@@ -4,6 +4,9 @@ import kotlinx.coroutines.runBlocking
 import li.mof.kamigura.ChapterInfoDto
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.reader.internal.loadReaderChapterInfo
+import li.mof.kamigura.reader.internal.loadReaderChapterPages
+import li.mof.kamigura.reader.internal.EpubImagePageContent
+import okhttp3.ResponseBody
 import li.mof.kamigura.reader.internal.readerLoadErrorMessage
 import okhttp3.ResponseBody.Companion.toResponseBody
 import retrofit2.HttpException
@@ -15,7 +18,7 @@ import java.lang.reflect.Proxy
 class ReaderChapterLoadingTest {
     @Test
     fun onlyPdfRequestsExtractionAndAlwaysLoadsDimensions() = runBlocking {
-        for (format in listOf(null, 0, 1, 2, 4, 99)) {
+        for (format in listOf(null, 0, 1, 2, 3, 4, 99)) {
             var called = false
             val api = api { args ->
                 called = true
@@ -30,13 +33,32 @@ class ReaderChapterLoadingTest {
     }
 
     @Test
-    fun epubStopsBeforeAnyPageRequest() = runBlocking {
-        val api = api { error("EPUB must not request chapter images") }
-        try {
-            loadReaderChapterInfo(api, 42, 3)
-            fail("EPUB must be rejected")
-        } catch (e: IllegalArgumentException) {
-            assertEquals("EPUB is not supported yet.", e.message)
+    fun onlyEpubResolvesSpineImagesAndNeverRequestsPdfExtraction() = runBlocking {
+        for (format in listOf(null, 0, 1, 2, 3, 4, 99)) {
+            val requestedPages = mutableListOf<Int>()
+            val metadataApi = api { args ->
+                assertEquals(format == 4, args[2])
+                ChapterInfoDto(pages = 2)
+            }
+            val fullApi = object : KavitaApi by metadataApi {
+                override suspend fun bookPage(chapterId: Int, page: Int): ResponseBody {
+                    assertEquals(42, chapterId)
+                    requestedPages += page
+                    return "$page".toResponseBody()
+                }
+            }
+            val loaded = loadReaderChapterPages(fullApi, 42, format, "http://server") {
+                EpubImagePageContent(listOf("//server/api/book/42/book-resources?file=$it.jpg"), "")
+            }
+            assertEquals(2, loaded.info.pages)
+            if (format == 3) {
+                assertEquals(setOf(0, 1), requestedPages.toSet())
+                assertEquals(listOf("http://server/api/book/42/book-resources?file=0.jpg",
+                    "http://server/api/book/42/book-resources?file=1.jpg"), loaded.epubImageUrls)
+            } else {
+                assertTrue(requestedPages.isEmpty())
+                assertNull(loaded.epubImageUrls)
+            }
         }
     }
 
