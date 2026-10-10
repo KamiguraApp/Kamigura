@@ -12,6 +12,8 @@ import kotlinx.coroutines.withContext
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import org.xml.sax.Attributes
+import org.xml.sax.ContentHandler
 
 private const val ImageEpubPageConcurrency = 4
 internal const val UnsupportedImageEpubMessage =
@@ -28,23 +30,53 @@ internal data class EpubImagePageContent(
 internal fun parseEpubImagePage(html: String): EpubImagePageContent {
     val images = mutableListOf<String>()
     var unsupported = false
-    var styleStart: Int? = null
+    val ignoredTextStarts = mutableMapOf<String, Int>()
+    var svgDepth = 0
+    var inspectingAttributes = false
     val text = Html.fromHtml(
         html,
         Html.FROM_HTML_MODE_COMPACT,
         { source -> images += source.orEmpty(); ColorDrawable() },
-        { opening, tag, output, _ ->
-            when (tag.lowercase()) {
-                "style" -> if (opening) styleStart = output.length else {
-                    styleStart?.let { output.delete(it, output.length) }
-                    styleStart = null
+        { opening, tag, output, reader ->
+            // Html's public TagHandler supplies its SAX reader. Observe attributes of
+            // unknown SVG <image> tags while retaining the standard HTML parser/formatter.
+            if (!inspectingAttributes) {
+                val delegate = reader.contentHandler
+                reader.contentHandler = object : ContentHandler by delegate {
+                    override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes) {
+                        val name = localName.orEmpty().ifEmpty { qName.orEmpty().substringAfter(':') }.lowercase()
+                        if (svgDepth > 0) {
+                            when (name) {
+                                "image" -> images += (attributes.getValue("href")
+                                    ?: attributes.getValue("xlink:href")
+                                    ?: attributes.getValue("http://www.w3.org/1999/xlink", "href")).orEmpty()
+                                "g", "title", "desc" -> Unit
+                                else -> unsupported = true
+                            }
+                            if (!attributes.getValue("transform").isNullOrBlank() ||
+                                !attributes.getValue("clip-path").isNullOrBlank() ||
+                                !attributes.getValue("filter").isNullOrBlank()) unsupported = true
+                        }
+                        delegate.startElement(uri, localName, qName, attributes)
+                    }
                 }
-                "script", "iframe", "object", "embed", "svg", "canvas", "math",
+                inspectingAttributes = true
+            }
+            val name = tag.lowercase()
+            if (name == "style" || (svgDepth > 0 && name in setOf("title", "desc"))) {
+                if (opening) ignoredTextStarts[name] = output.length else {
+                    ignoredTextStarts.remove(name)?.let { output.delete(it, output.length) }
+                }
+            }
+            when (name) {
+                "svg" -> if (opening) svgDepth++ else svgDepth--
+                "image" -> if (svgDepth <= 0) unsupported = true
+                "script", "iframe", "object", "embed", "canvas", "math",
                 "video", "audio", "form" -> unsupported = true
             }
         }
     ).toString()
-    return EpubImagePageContent(images, text, unsupported || styleStart != null)
+    return EpubImagePageContent(images, text, unsupported || ignoredTextStarts.isNotEmpty() || svgDepth != 0)
 }
 
 internal fun epubPageImageUrl(content: EpubImagePageContent, baseUrl: String, chapterId: Int): String {

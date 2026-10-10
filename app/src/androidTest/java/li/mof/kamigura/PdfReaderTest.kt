@@ -16,6 +16,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import li.mof.kamigura.reader.ReaderScreen
+import li.mof.kamigura.reader.internal.UnsupportedImageEpubMessage
 import li.mof.kamigura.download.OfflineDownloadStatus
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.download.OfflinePage
@@ -68,14 +69,17 @@ class PdfReaderTest {
     }
 
     @Test
-    fun epubShowsUnsupportedMessageWithoutRequestingPages() {
+    fun textEpubShowsUnsupportedMessageWithoutRequestingReaderImages() {
         ReaderServer(format = 3).use { server ->
             val visible = open(server)
             compose.waitUntil(10_000) {
-                compose.onAllNodesWithText("EPUB is not supported yet.").fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithText(UnsupportedImageEpubMessage).fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithText("EPUB is not supported yet.").assertIsDisplayed()
-            assertFalse(server.requests.any { it.path == "/api/Reader/chapter-info" || it.path == "/api/Reader/image" })
+            compose.onNodeWithText(UnsupportedImageEpubMessage).assertIsDisplayed()
+            assertFalse(server.requests.any { it.path == "/api/Reader/image" })
+            assertTrue(server.requests.any { it.path == "/api/Book/1/book-page" })
+            assertTrue(server.requests.filter { it.path == "/api/Reader/chapter-info" }
+                .all { it.getQueryParameter("extractPdf") == "false" })
             compose.onNodeWithText("Back to series").performClick()
             compose.runOnIdle { assertFalse(visible.value) }
         }
@@ -299,6 +303,7 @@ private class ReaderServer(format: Int, holdChapter: Boolean = false, neighbor: 
                                 """[{"id":1,"chapters":[{"id":1,"title":"First"},{"id":2,"title":"Second"}]}]""" else "[]"
                             "/api/reading-profile/1/1" -> """{"kind":1,"readingDirection":1}"""
                             "/api/Reader/get-progress" -> """{"libraryId":1,"seriesId":1,"volumeId":1,"chapterId":1,"pageNum":0}"""
+                            "/api/Book/1/book-page" -> "<div><p>Novel prose requiring a text reader.</p></div>"
                             "/api/Reader/chapter-info" -> {
                                 chapterRequested.countDown()
                                 releaseChapter.await(45, TimeUnit.SECONDS)
@@ -312,7 +317,8 @@ private class ReaderServer(format: Int, holdChapter: Boolean = false, neighbor: 
                         val isImage = uri.path == "/api/Reader/image"
                         val isDownload = uri.path == "/api/Download/chapter"
                         val body = if (isImage) image else if (isDownload) pdf else json.toByteArray()
-                        val type = if (isImage) "image/png" else if (isDownload) "application/pdf" else "application/json"
+                        val type = if (isImage) "image/png" else if (isDownload) "application/pdf"
+                            else if (uri.path == "/api/Book/1/book-page") "text/html" else "application/json"
                         runCatching {
                             it.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: $type\r\n" +
                                 "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray() + body)
