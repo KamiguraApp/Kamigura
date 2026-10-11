@@ -84,6 +84,11 @@ import li.mof.kamigura.reader.internal.ReaderBookmarks
 import li.mof.kamigura.reader.internal.readerCanManageBookmarks
 import li.mof.kamigura.reader.internal.ReaderLoadingScreen
 import li.mof.kamigura.reader.internal.ReaderPageView
+import li.mof.kamigura.reader.internal.ReaderPageRetryState
+import li.mof.kamigura.reader.internal.ReaderPageRetryEffects
+import li.mof.kamigura.reader.internal.ReaderRetryWidth
+import li.mof.kamigura.reader.internal.ReaderRetryHeight
+import li.mof.kamigura.reader.internal.readerPageRetryTargets
 import li.mof.kamigura.reader.internal.ReaderTapLayer
 import li.mof.kamigura.reader.internal.ReaderVerticalScroll
 import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
@@ -241,6 +246,7 @@ fun ReaderScreen(
     var closeAnimationJob by remember { mutableStateOf<Job?>(null) }
     var verticalRestoreNonce by remember { mutableIntStateOf(0) }
     val invertDecisionCache = remember { mutableStateMapOf<ReaderInvertCacheKey, Boolean>() }
+    val pageRetryState = remember(currentChapterId) { ReaderPageRetryState() }
     val offlineRepository = remember(ctx) { OfflineIssueRepository(ctx) }
     val minimumFlingVelocity = remember(ctx) {
         ViewConfiguration.get(ctx).scaledMinimumFlingVelocity.toFloat()
@@ -1536,6 +1542,24 @@ fun ReaderScreen(
         val transition = activeTransition
         val transitionVisible =
             transition != null && settings.reader.pageTransitionAnimation
+        val visibleRetryPages = if (vertical) {
+            verticalListState.layoutInfo.visibleItemsInfo.mapNotNull { item ->
+                (item.key as? String)?.takeIf { it.startsWith("page-") }?.removePrefix("page-")?.toIntOrNull()
+            }.toSet()
+        } else {
+            readerVisiblePageIndices(page, pages, portrait, pageDimensions).toSet()
+        }
+        ReaderPageRetryEffects(pageRetryState, visibleRetryPages, enabled = offlineChapter == null)
+        val retryTargets = if (!vertical && offlineChapter == null && !zoomPanEnabled &&
+            activeTransition == null && activeCurlDirection == null && !transitionSettling &&
+            !showReaderMenu && closeDragOffsetY == 0f && chapterBoundary == null
+        ) {
+            readerPageRetryTargets(
+                if (layout.singlePage) listOf(page) else listOf(spreadPages.leftPage, spreadPages.rightPage),
+                pageRetryState::failed, viewportWidthPx, viewportHeightPx,
+                with(density) { ReaderRetryWidth.toPx() }, with(density) { ReaderRetryHeight.toPx() }
+            )
+        } else emptyList()
         Box(
             Modifier
                 .fillMaxSize()
@@ -1570,6 +1594,7 @@ fun ReaderScreen(
                     invertMode = invertMode,
                     whiteThreshold = settings.reader.invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
+                    retryState = pageRetryState,
                     pageBackground = readerPageBackground,
                     viewportHeight = viewportHeight,
                     fallbackPageAspectRatio = (viewportWidthPx / viewportHeightPx.coerceAtLeast(1f))
@@ -1651,6 +1676,7 @@ fun ReaderScreen(
                             invertMode = invertMode,
                             whiteThreshold = settings.reader.invertWhiteThreshold,
                             invertDecisionCache = invertDecisionCache,
+                            retryState = pageRetryState,
                             pageBackground = curlBackPageColor,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -1703,6 +1729,7 @@ fun ReaderScreen(
                                     invertMode = invertMode,
                                     whiteThreshold = settings.reader.invertWhiteThreshold,
                                     invertDecisionCache = invertDecisionCache,
+                                    retryState = pageRetryState,
                                     pageBackground = curlBackPageColor,
                                     modifier = Modifier.fillMaxSize()
                                 )
@@ -1738,6 +1765,7 @@ fun ReaderScreen(
                                         invertMode = invertMode,
                                         whiteThreshold = settings.reader.invertWhiteThreshold,
                                         invertDecisionCache = invertDecisionCache,
+                                        retryState = pageRetryState,
                                         pageBackground = curlBackPageColor,
                                         singlePageAlignmentOverride = backPageAlignment,
                                         modifier = Modifier.fillMaxSize()
@@ -1771,6 +1799,7 @@ fun ReaderScreen(
                             invertMode = invertMode,
                             whiteThreshold = settings.reader.invertWhiteThreshold,
                             invertDecisionCache = invertDecisionCache,
+                            retryState = pageRetryState,
                             pageBackground = curlBackPageColor,
                             modifier = Modifier.fillMaxSize()
                         )
@@ -1788,6 +1817,7 @@ fun ReaderScreen(
                     invertMode = invertMode,
                     whiteThreshold = settings.reader.invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
+                    retryState = pageRetryState,
                     pageBackground = readerPageBackground,
                     modifier = Modifier
                         .fillMaxSize()
@@ -1874,6 +1904,7 @@ fun ReaderScreen(
                                             invertMode = invertMode,
                                             whiteThreshold = settings.reader.invertWhiteThreshold,
                                             invertDecisionCache = invertDecisionCache,
+                                            retryState = pageRetryState,
                                             pageBackground = readerPageBackground,
                                             modifier = Modifier.fillMaxSize()
                                         )
@@ -1894,6 +1925,7 @@ fun ReaderScreen(
                     invertMode = invertMode,
                     whiteThreshold = settings.reader.invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
+                    retryState = pageRetryState,
                     pageBackground = readerPageBackground,
                     modifier = Modifier
                         .fillMaxSize()
@@ -1915,6 +1947,7 @@ fun ReaderScreen(
                     invertMode = invertMode,
                     whiteThreshold = settings.reader.invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
+                    retryState = pageRetryState,
                     pageBackground = readerPageBackground,
                     modifier = Modifier
                         .fillMaxSize()
@@ -1948,6 +1981,8 @@ fun ReaderScreen(
                 },
                 onCenterTap = { showReaderMenu = !showReaderMenu },
                 turnVisualDistancePx = turnVisualDistancePx,
+                retryTargets = retryTargets,
+                onRetryPage = { pageRetryState.retry(it) },
                 zoomPanEnabled = zoomPanEnabled,
                 panOffsetX = zoomPan.offsetX,
                 panOffsetY = zoomPan.offsetY,

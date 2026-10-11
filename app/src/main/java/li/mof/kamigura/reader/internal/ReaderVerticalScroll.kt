@@ -80,6 +80,7 @@ internal fun ReaderVerticalScroll(
     invertMode: InvertMode,
     whiteThreshold: Float,
     invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>,
+    retryState: ReaderPageRetryState? = null,
     pageBackground: Color,
     viewportHeight: Dp,
     fallbackPageAspectRatio: Float,
@@ -168,6 +169,8 @@ internal fun ReaderVerticalScroll(
                     invertMode = invertMode,
                     whiteThreshold = whiteThreshold,
                     invertDecisionCache = invertDecisionCache,
+                    retryState = retryState,
+                    interactiveRetry = true,
                     pageBackground = pageBackground,
                     modifier = Modifier.fillMaxSize()
                 )

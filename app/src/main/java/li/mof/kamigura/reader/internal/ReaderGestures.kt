@@ -4,6 +4,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
@@ -13,6 +15,13 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -33,6 +42,8 @@ internal fun ReaderTapLayer(
     onPreviousSingle: () -> Unit,
     onCenterTap: () -> Unit,
     turnVisualDistancePx: Float,
+    retryTargets: List<ReaderPageRetryTarget> = emptyList(),
+    onRetryPage: (Int) -> Unit = {},
     zoomPanEnabled: Boolean = false,
     panOffsetX: Float = 0f,
     panOffsetY: Float = 0f,
@@ -58,6 +69,7 @@ internal fun ReaderTapLayer(
     val latestOnPreviousSingle by rememberUpdatedState(onPreviousSingle)
     val latestOnCenterTap by rememberUpdatedState(onCenterTap)
     val latestOnDoubleTap by rememberUpdatedState(onDoubleTap)
+    val density = LocalDensity.current
 
     Box(
         Modifier
@@ -103,9 +115,25 @@ internal fun ReaderTapLayer(
                         if (rightToLeft) latestOnPreviousSingle() else latestOnNextSingle()
                     }
                 },
-                onCenterDoubleTap = latestOnDoubleTap
+                onCenterDoubleTap = latestOnDoubleTap,
+                onRetryTap = { position ->
+                    retryTargets.retryPageAt(position)?.let { onRetryPage(it); true } ?: false
+                }
             )
-    )
+    ) {
+        // These targets expose accessibility actions only. readerGestures still owns all
+        // pointer input, including drags starting on Retry; its picture belongs to the page.
+        retryTargets.forEach { target ->
+            Box(Modifier
+                .offset { IntOffset(target.bounds.left.toInt(), target.bounds.top.toInt()) }
+                .size(with(density) { target.bounds.width.toDp() }, with(density) { target.bounds.height.toDp() })
+                .semantics {
+                    role = Role.Button
+                    contentDescription = "Retry page ${target.page + 1}"
+                    onClick("Retry") { onRetryPage(target.page); true }
+                })
+        }
+    }
 }
 
 @Composable
@@ -181,7 +209,8 @@ private fun Modifier.readerGestures(
     onRightTap: (Offset) -> Unit = {},
     onLeftLongPress: () -> Unit = {},
     onRightLongPress: () -> Unit = {},
-    onCenterDoubleTap: (Offset) -> Unit = {}
+    onCenterDoubleTap: (Offset) -> Unit = {},
+    onRetryTap: (Offset) -> Boolean = { false }
 ): Modifier {
     val latestRightToLeft by rememberUpdatedState(rightToLeft)
     val latestTurnVisualDistancePx by rememberUpdatedState(turnVisualDistancePx)
@@ -207,6 +236,7 @@ private fun Modifier.readerGestures(
     val latestOnLeftLongPress by rememberUpdatedState(onLeftLongPress)
     val latestOnRightLongPress by rememberUpdatedState(onRightLongPress)
     val latestOnCenterDoubleTap by rememberUpdatedState(onCenterDoubleTap)
+    val latestOnRetryTap by rememberUpdatedState(onRetryTap)
     // Keep the pointerInput key stable; volatile gesture state is read through rememberUpdatedState to avoid restarting mid-swipe.
     return pointerInput(Unit) {
         var totalDragX = 0f
@@ -289,6 +319,10 @@ private fun Modifier.readerGestures(
         }
 
         fun handleTap(position: Offset, uptimeMillis: Long) {
+            if (latestOnRetryTap(position)) {
+                flushPendingCenterTap()
+                return
+            }
             when (tapZone(position)) {
                 ReaderTapZone.Left -> {
                     flushPendingCenterTap()

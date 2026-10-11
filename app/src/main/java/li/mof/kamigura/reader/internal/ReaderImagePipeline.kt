@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
@@ -11,9 +13,14 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -88,6 +95,8 @@ internal fun ReaderPageView(
     invertMode: InvertMode,
     whiteThreshold: Float,
     invertDecisionCache: MutableMap<ReaderInvertCacheKey, Boolean>,
+    retryState: ReaderPageRetryState? = null,
+    interactiveRetry: Boolean = false,
     pageBackground: Color = Color(0xFF111111),
     singlePageAlignmentOverride: Alignment? = null,
     modifier: Modifier = Modifier
@@ -103,6 +112,9 @@ internal fun ReaderPageView(
         if (layout.singlePage) {
             key(cursor) {
                 PageImage(
+                    page = cursor,
+                    retryState = retryState,
+                    interactiveRetry = interactiveRetry,
                     model = pageModel(cursor),
                     imageLoader = imageLoader,
                     label = "Page $cursor",
@@ -116,6 +128,9 @@ internal fun ReaderPageView(
         } else {
             key(spread.leftPage) {
                 PageImage(
+                    page = spread.leftPage,
+                    retryState = retryState,
+                    interactiveRetry = interactiveRetry,
                     model = pageModel(spread.leftPage),
                     imageLoader = imageLoader,
                     label = "Left ${spread.leftPage}",
@@ -128,6 +143,9 @@ internal fun ReaderPageView(
             }
             key(spread.rightPage) {
                 PageImage(
+                    page = spread.rightPage,
+                    retryState = retryState,
+                    interactiveRetry = interactiveRetry,
                     model = pageModel(spread.rightPage),
                     imageLoader = imageLoader,
                     label = "Right ${spread.rightPage}",
@@ -144,6 +162,9 @@ internal fun ReaderPageView(
 
 @Composable
 private fun RowScope.PageImage(
+    page: Int,
+    retryState: ReaderPageRetryState?,
+    interactiveRetry: Boolean,
     model: Any?,
     imageLoader: ImageLoader,
     label: String,
@@ -193,9 +214,23 @@ private fun RowScope.PageImage(
             }
         }
         val resolvedModel = (pageModelState as? PageModelState.Ready)?.model
+        val canRetry = retryState != null && model is String
+        val attempt = if (canRetry) retryState?.attempt(page) ?: 0 else 0
+        val requestNetworkGeneration = remember(resolvedModel, attempt) { retryState?.networkGeneration ?: 0 }
+        val requestModel = remember(resolvedModel, attempt) {
+            if (!canRetry || retryState?.needsFreshRequest(page) != true) resolvedModel else {
+                ImageRequest.Builder(ctx)
+                    .data(resolvedModel)
+                    .memoryCachePolicy(CachePolicy.WRITE_ONLY)
+                    .diskCachePolicy(CachePolicy.WRITE_ONLY)
+                    .networkCachePolicy(CachePolicy.ENABLED)
+                    .addHeader("Cache-Control", "no-cache")
+                    .build()
+            }
+        }
         val cacheKey = resolvedModel?.let { ReaderInvertCacheKey(it, whiteThreshold) }
         val cachedInvertDecision = cacheKey?.let(invertDecisionCache::get)
-        var loadedDrawable by remember(resolvedModel, imageLoader) {
+        var loadedDrawable by remember(resolvedModel, imageLoader, attempt) {
             mutableStateOf<Drawable?>(null)
         }
         val shouldInvert by produceState<Boolean?>(
@@ -250,38 +285,73 @@ private fun RowScope.PageImage(
             PageModelState.Loading -> ReaderPageLoadingPlaceholder()
             PageModelState.Unavailable -> ReaderPageUnavailablePlaceholder()
             is PageModelState.Ready -> {
-                SubcomposeAsyncImage(
-                    model = resolvedModel,
-                    imageLoader = imageLoader,
-                    contentDescription = label,
-                    modifier = Modifier.fillMaxSize(),
-                    alignment = alignment,
-                    contentScale = contentScale,
-                    colorFilter = if (shouldInvert == true) NegativeColorFilter else null,
-                    onSuccess = { state ->
-                        loadedDrawable = state.result.drawable
-                    },
-                    loading = {
-                        PagePlaceholderContainer {
-                            ReaderPageLoadingPlaceholder()
-                        }
-                    },
-                    error = {
-                        PagePlaceholderContainer {
-                            ReaderPageUnavailablePlaceholder()
-                        }
-                    },
-                    success = {
-                        if (invertMode == InvertMode.Smart && shouldInvert == null) {
+                key(attempt) {
+                    SubcomposeAsyncImage(
+                        model = requestModel,
+                        imageLoader = imageLoader,
+                        contentDescription = label,
+                        modifier = Modifier.fillMaxSize(),
+                        alignment = alignment,
+                        contentScale = contentScale,
+                        colorFilter = if (shouldInvert == true) NegativeColorFilter else null,
+                        onSuccess = { state ->
+                            loadedDrawable = state.result.drawable
+                            if (canRetry) retryState?.onSuccess(page, attempt)
+                        },
+                        onError = { if (canRetry) retryState?.onFailure(page, attempt, requestNetworkGeneration) },
+                        loading = {
                             PagePlaceholderContainer {
                                 ReaderPageLoadingPlaceholder()
                             }
-                        } else {
-                            SubcomposeAsyncImageContent()
+                        },
+                        error = {
+                            PagePlaceholderContainer {
+                                if (canRetry) {
+                                    ReaderPageRetryButton(
+                                        pageBackground = pageBackground,
+                                        onClick = if (interactiveRetry) ({ retryState?.retry(page); Unit }) else null
+                                    )
+                                } else ReaderPageUnavailablePlaceholder()
+                            }
+                        },
+                        success = {
+                            if (invertMode == InvertMode.Smart && shouldInvert == null) {
+                                PagePlaceholderContainer {
+                                    ReaderPageLoadingPlaceholder()
+                                }
+                            } else {
+                                SubcomposeAsyncImageContent()
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReaderPageRetryButton(pageBackground: Color, onClick: (() -> Unit)?) {
+    val foreground = if (pageBackground.red + pageBackground.green + pageBackground.blue > 1.5f) {
+        Color(0xFF202020)
+    } else Color.White
+    val border = BorderStroke(1.5.dp, foreground)
+    val shape = RoundedCornerShape(8.dp)
+    val modifier = Modifier.size(ReaderRetryWidth, ReaderRetryHeight)
+    val content: @Composable () -> Unit = {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
+            Text("Retry")
+        }
+    }
+    if (onClick != null) {
+        OutlinedButton(
+            onClick = onClick, modifier = modifier, shape = shape, border = border,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = foreground, containerColor = pageBackground)
+        ) { content() }
+    } else {
+        Surface(modifier = modifier, shape = shape, color = pageBackground, contentColor = foreground, border = border) {
+            Box(contentAlignment = Alignment.Center) { content() }
         }
     }
 }
