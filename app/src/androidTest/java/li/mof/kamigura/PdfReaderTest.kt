@@ -444,7 +444,8 @@ internal class ReaderServer(
     holdChapter: Boolean = false,
     neighbor: Boolean = false,
     cacheImages: Boolean = false,
-    failPage: (Int) -> Boolean = { false }
+    failPage: (Int) -> Boolean = { false },
+    imageResponseGate: (Int) -> CountDownLatch? = { null }
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -531,6 +532,8 @@ internal class ReaderServer(
                         }
                         val isImage = uri.path == "/api/Reader/image"
                         val isDownload = uri.path == "/api/Download/chapter"
+                        if (isImage) imageResponseGate(uri.getQueryParameter("page")?.toInt() ?: 0)
+                            ?.await(30, TimeUnit.SECONDS)
                         val invalidImage = isImage && failPage(uri.getQueryParameter("page")?.toInt() ?: 0)
                         val body = if (invalidImage) "invalid cached image".toByteArray()
                             else if (isImage) image else if (isDownload) pdf else json.toByteArray()

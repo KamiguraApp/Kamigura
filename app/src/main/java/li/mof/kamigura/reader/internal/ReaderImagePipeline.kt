@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import coil.ImageLoader
@@ -216,6 +218,7 @@ private fun RowScope.PageImage(
         val resolvedModel = (pageModelState as? PageModelState.Ready)?.model
         val canRetry = retryState != null && model is String
         val attempt = if (canRetry) retryState?.attempt(page) ?: 0 else 0
+        val requestIsRetry = remember(resolvedModel, attempt) { canRetry && retryState?.retrying(page) == true }
         val requestNetworkGeneration = remember(resolvedModel, attempt) { retryState?.networkGeneration ?: 0 }
         val requestModel = remember(resolvedModel, attempt) {
             if (!canRetry || retryState?.needsFreshRequest(page) != true) resolvedModel else {
@@ -281,11 +284,18 @@ private fun RowScope.PageImage(
             }
         }
 
+        val retryClick: (() -> Unit)? = if (canRetry && interactiveRetry) ({ retryState?.retry(page); Unit }) else null
         when (pageModelState) {
             PageModelState.Loading -> ReaderPageLoadingPlaceholder()
             PageModelState.Unavailable -> ReaderPageUnavailablePlaceholder()
             is PageModelState.Ready -> {
-                key(attempt) {
+                // Curl rekeys its content while folding; known failures must not restart Coil.
+                if (canRetry && retryState?.failed(page) == true) {
+                    ReaderPageRetryButton(
+                        pageBackground = pageBackground,
+                        onClick = retryClick
+                    )
+                } else key(attempt) {
                     SubcomposeAsyncImage(
                         model = requestModel,
                         imageLoader = imageLoader,
@@ -301,7 +311,8 @@ private fun RowScope.PageImage(
                         onError = { if (canRetry) retryState?.onFailure(page, attempt, requestNetworkGeneration) },
                         loading = {
                             PagePlaceholderContainer {
-                                ReaderPageLoadingPlaceholder()
+                                if (requestIsRetry) ReaderPageRetryButton(pageBackground, retryClick, busy = true)
+                                else ReaderPageLoadingPlaceholder()
                             }
                         },
                         error = {
@@ -309,7 +320,7 @@ private fun RowScope.PageImage(
                                 if (canRetry) {
                                     ReaderPageRetryButton(
                                         pageBackground = pageBackground,
-                                        onClick = if (interactiveRetry) ({ retryState?.retry(page); Unit }) else null
+                                        onClick = retryClick
                                     )
                                 } else ReaderPageUnavailablePlaceholder()
                             }
@@ -317,7 +328,8 @@ private fun RowScope.PageImage(
                         success = {
                             if (invertMode == InvertMode.Smart && shouldInvert == null) {
                                 PagePlaceholderContainer {
-                                    ReaderPageLoadingPlaceholder()
+                                    if (requestIsRetry) ReaderPageRetryButton(pageBackground, retryClick, busy = true)
+                                    else ReaderPageLoadingPlaceholder()
                                 }
                             } else {
                                 SubcomposeAsyncImageContent()
@@ -331,13 +343,19 @@ private fun RowScope.PageImage(
 }
 
 @Composable
-private fun ReaderPageRetryButton(pageBackground: Color, onClick: (() -> Unit)?) {
-    val foreground = if (pageBackground.red + pageBackground.green + pageBackground.blue > 1.5f) {
+private fun ReaderPageRetryButton(
+    pageBackground: Color,
+    onClick: (() -> Unit)? = null,
+    busy: Boolean = false
+) {
+    val foreground = (if (pageBackground.red + pageBackground.green + pageBackground.blue > 1.5f) {
         Color(0xFF202020)
-    } else Color.White
+    } else Color.White).let { if (busy) it.copy(alpha = 0.45f) else it }
     val border = BorderStroke(1.5.dp, foreground)
     val shape = RoundedCornerShape(8.dp)
-    val modifier = Modifier.size(ReaderRetryWidth, ReaderRetryHeight)
+    val modifier = Modifier.size(ReaderRetryWidth, ReaderRetryHeight).semantics {
+        if (busy) stateDescription = "Retrying"
+    }
     val content: @Composable () -> Unit = {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
@@ -347,7 +365,11 @@ private fun ReaderPageRetryButton(pageBackground: Color, onClick: (() -> Unit)?)
     if (onClick != null) {
         OutlinedButton(
             onClick = onClick, modifier = modifier, shape = shape, border = border,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = foreground, containerColor = pageBackground)
+            enabled = !busy,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = foreground, containerColor = pageBackground,
+                disabledContentColor = foreground, disabledContainerColor = pageBackground
+            )
         ) { content() }
     } else {
         Surface(modifier = modifier, shape = shape, color = pageBackground, contentColor = foreground, border = border) {

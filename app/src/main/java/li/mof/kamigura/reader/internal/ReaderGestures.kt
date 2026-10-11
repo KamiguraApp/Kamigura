@@ -18,9 +18,11 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -117,7 +119,11 @@ internal fun ReaderTapLayer(
                 },
                 onCenterDoubleTap = latestOnDoubleTap,
                 onRetryTap = { position ->
-                    retryTargets.retryPageAt(position)?.let { onRetryPage(it); true } ?: false
+                    val target = retryTargets.firstOrNull { it.bounds.contains(position) }
+                    if (target == null) false else {
+                        if (target.enabled) onRetryPage(target.page)
+                        true
+                    }
                 }
             )
     ) {
@@ -130,7 +136,12 @@ internal fun ReaderTapLayer(
                 .semantics {
                     role = Role.Button
                     contentDescription = "Retry page ${target.page + 1}"
-                    onClick("Retry") { onRetryPage(target.page); true }
+                    if (target.enabled) {
+                        onClick("Retry") { onRetryPage(target.page); true }
+                    } else {
+                        disabled()
+                        stateDescription = "Retrying"
+                    }
                 })
         }
     }

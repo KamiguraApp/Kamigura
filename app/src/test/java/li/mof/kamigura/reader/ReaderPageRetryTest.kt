@@ -19,8 +19,48 @@ class ReaderPageRetryTest {
         assertEquals(0, state.attempt(3))
         assertTrue(state.failed(3))
         assertTrue(state.needsFreshRequest(2))
+        assertTrue(state.hasRetryPlaceholder(2))
+        assertTrue(state.retrying(2))
         state.onSuccess(2, 1)
         assertFalse(state.needsFreshRequest(2))
+        assertFalse(state.hasRetryPlaceholder(2))
+    }
+
+    @Test
+    fun failureAndBusyStateSurviveRendererRecreationUntilTheAttemptCompletes() {
+        val state = ReaderPageRetryState()
+        state.onFailure(7, 0)
+        repeat(4) {
+            assertTrue(state.failed(7))
+            assertTrue(state.hasRetryPlaceholder(7))
+            assertFalse(state.needsFreshRequest(7))
+            assertEquals(0, state.attempt(7))
+        }
+        state.retry(7)
+        repeat(4) {
+            assertFalse(state.failed(7))
+            assertTrue(state.retrying(7))
+            assertTrue(state.hasRetryPlaceholder(7))
+            assertFalse(state.retry(7))
+            assertEquals(1, state.attempt(7))
+        }
+        state.onFailure(7, 1)
+        assertTrue(state.failed(7))
+        assertFalse(state.retrying(7))
+        assertTrue(state.hasRetryPlaceholder(7))
+    }
+
+    @Test
+    fun busyHitTargetRetainsItsBoundsButIsDisabled() {
+        val state = ReaderPageRetryState()
+        state.onFailure(1, 0)
+        state.retry(1)
+        val target = readerPageRetryTargets(listOf(1, 2), state::hasRetryPlaceholder,
+            1080f, 600f, 112f, 48f, retrying = state::retrying).single()
+        assertFalse(target.enabled)
+        assertEquals(1, target.page)
+        assertEquals(Offset(270f, 300f), target.bounds.center)
+        assertEquals(1, listOf(target).retryPageAt(target.bounds.center))
     }
 
     @Test

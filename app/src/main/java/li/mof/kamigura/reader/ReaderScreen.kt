@@ -1556,8 +1556,9 @@ fun ReaderScreen(
         ) {
             readerPageRetryTargets(
                 if (layout.singlePage) listOf(page) else listOf(spreadPages.leftPage, spreadPages.rightPage),
-                pageRetryState::failed, viewportWidthPx, viewportHeightPx,
-                with(density) { ReaderRetryWidth.toPx() }, with(density) { ReaderRetryHeight.toPx() }
+                pageRetryState::hasRetryPlaceholder, viewportWidthPx, viewportHeightPx,
+                with(density) { ReaderRetryWidth.toPx() }, with(density) { ReaderRetryHeight.toPx() },
+                retrying = pageRetryState::retrying
             )
         } else emptyList()
         Box(

@@ -19,23 +19,25 @@ import li.mof.kamigura.KamiguraLog
 internal val ReaderRetryWidth = 112.dp
 internal val ReaderRetryHeight = 48.dp
 
+private enum class ReaderPageRetryStatus { Failed, Retrying }
+
 internal class ReaderPageRetryState {
     private val attempts = mutableStateMapOf<Int, Int>()
-    private val failures = mutableStateMapOf<Int, Int>()
-    private val successes = mutableMapOf<Int, Int>()
+    private val statuses = mutableStateMapOf<Int, ReaderPageRetryStatus>()
     private var visiblePages = emptySet<Int>()
     var networkGeneration: Int = 0
         private set
 
     fun attempt(page: Int): Int = attempts[page] ?: 0
-    fun failed(page: Int): Boolean = failures[page] == attempt(page)
-    fun needsFreshRequest(page: Int): Boolean = attempt(page) > 0 && successes[page] != attempt(page)
+    fun failed(page: Int): Boolean = statuses[page] == ReaderPageRetryStatus.Failed
+    fun retrying(page: Int): Boolean = statuses[page] == ReaderPageRetryStatus.Retrying
+    fun hasRetryPlaceholder(page: Int): Boolean = statuses.containsKey(page)
+    fun needsFreshRequest(page: Int): Boolean = retrying(page)
 
     fun onFailure(page: Int, attempt: Int, requestNetworkGeneration: Int = networkGeneration) {
         // Curl may retain multiple copies. Ignore callbacks from requests superseded by Retry.
         if (attempt == attempt(page)) {
-            successes.remove(page)
-            failures[page] = attempt
+            statuses[page] = ReaderPageRetryStatus.Failed
             // A request started before reconnection can finish failing just after it.
             if (requestNetworkGeneration < networkGeneration) retry(page)
         }
@@ -43,13 +45,12 @@ internal class ReaderPageRetryState {
 
     fun onSuccess(page: Int, attempt: Int) {
         if (attempt != attempt(page)) return
-        successes[page] = attempt
-        failures.remove(page)
+        statuses.remove(page)
     }
 
     fun retry(page: Int): Boolean {
         if (!failed(page)) return false
-        failures.remove(page)
+        statuses[page] = ReaderPageRetryStatus.Retrying
         attempts[page] = attempt(page) + 1
         return true
     }
@@ -61,11 +62,11 @@ internal class ReaderPageRetryState {
 
     fun onNetworkRestored() {
         networkGeneration++
-        failures.keys.toList().forEach(::retry)
+        statuses.keys.toList().forEach(::retry)
     }
 }
 
-internal data class ReaderPageRetryTarget(val page: Int, val bounds: Rect)
+internal data class ReaderPageRetryTarget(val page: Int, val bounds: Rect, val enabled: Boolean = true)
 
 internal fun readerPageRetryTargets(
     pagesInPhysicalOrder: List<Int>,
@@ -73,7 +74,8 @@ internal fun readerPageRetryTargets(
     viewportWidth: Float,
     viewportHeight: Float,
     buttonWidth: Float,
-    buttonHeight: Float
+    buttonHeight: Float,
+    retrying: (Int) -> Boolean = { false }
 ): List<ReaderPageRetryTarget> {
     if (pagesInPhysicalOrder.isEmpty()) return emptyList()
     val slotWidth = viewportWidth / pagesInPhysicalOrder.size
@@ -86,7 +88,7 @@ internal fun readerPageRetryTargets(
         ReaderPageRetryTarget(page, Rect(
             centerX - width / 2f, centerY - height / 2f,
             centerX + width / 2f, centerY + height / 2f
-        ))
+        ), enabled = !retrying(page))
     }
 }
 
