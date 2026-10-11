@@ -439,7 +439,13 @@ class PdfReaderTest {
 }
 
 /** A local Kavita response fixture; no saved server credentials or library content are used. */
-private class ReaderServer(format: Int, holdChapter: Boolean = false, neighbor: Boolean = false) : AutoCloseable {
+internal class ReaderServer(
+    format: Int,
+    holdChapter: Boolean = false,
+    neighbor: Boolean = false,
+    cacheImages: Boolean = false,
+    failPage: (Int) -> Boolean = { false }
+) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
     val baseUrl = "http://127.0.0.1:${socket.localPort}"
@@ -525,12 +531,15 @@ private class ReaderServer(format: Int, holdChapter: Boolean = false, neighbor: 
                         }
                         val isImage = uri.path == "/api/Reader/image"
                         val isDownload = uri.path == "/api/Download/chapter"
-                        val body = if (isImage) image else if (isDownload) pdf else json.toByteArray()
+                        val invalidImage = isImage && failPage(uri.getQueryParameter("page")?.toInt() ?: 0)
+                        val body = if (invalidImage) "invalid cached image".toByteArray()
+                            else if (isImage) image else if (isDownload) pdf else json.toByteArray()
                         val type = if (isImage) "image/png" else if (isDownload) "application/pdf"
                             else if (uri.path == "/api/Book/1/book-page") "text/html" else "application/json"
+                        val cacheHeader = if (isImage && cacheImages) "Cache-Control: max-age=3600\r\n" else ""
                         runCatching {
                             it.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: $type\r\n" +
-                                "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray() + body)
+                                cacheHeader + "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray() + body)
                         }
                     }
                 }
