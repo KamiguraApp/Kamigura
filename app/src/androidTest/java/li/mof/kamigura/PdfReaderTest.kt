@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import li.mof.kamigura.reader.ReaderScreen
@@ -21,6 +22,10 @@ import li.mof.kamigura.download.OfflineDownloadStatus
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.download.OfflinePage
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.int
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -35,6 +40,187 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 class PdfReaderTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun rotationRestoresUnsyncedPage() = checkRestoration(initialPage = null, incognito = false)
+
+    @Test
+    fun rotationDoesNotReapplyBookmarkPage() = checkRestoration(initialPage = 1, incognito = false)
+
+    @Test
+    fun rotationKeepsIncognitoAndUnsyncedPage() = checkRestoration(initialPage = null, incognito = true)
+
+    private fun checkRestoration(initialPage: Int?, incognito: Boolean) {
+        ReaderServer(format = 1).use { server ->
+            val restoration = StateRestorationTester(compose)
+            val visible = open(server, incognito, initialPage, restoration)
+            awaitPages(server)
+            openMenu()
+            compose.onNodeWithText("LTR").performClick()
+            compose.waitForIdle()
+            compose.mainClock.autoAdvance = false
+            jump(4)
+            compose.mainClock.advanceTimeBy(100)
+            compose.onNodeWithText("5 / 6", substring = true).assertIsDisplayed()
+            assertTrue(server.progressWrites.isEmpty())
+            compose.mainClock.autoAdvance = true
+            restoration.emulateSavedInstanceStateRestore()
+            compose.waitForIdle()
+            awaitRenderedPage()
+            openMenu()
+            compose.onNodeWithText("5 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithContentDescription("Back").performClick()
+            compose.waitUntil(5_000) { !visible.value }
+            if (incognito) assertTrue(server.progressWrites.isEmpty())
+            else compose.waitUntil(5_000) { server.progressWrites.contains(1 to 4) }
+        }
+    }
+
+    @Test
+    fun rotationKeepsChapterReachedInsideReader() {
+        ReaderServer(format = 1, neighbor = true).use { server ->
+            val restoration = StateRestorationTester(compose)
+            open(server, incognito = true, restoration = restoration)
+            awaitPages(server)
+            openMenu()
+            compose.onNodeWithText("LTR").performClick()
+            jump(5)
+            compose.onNodeWithContentDescription("Close menu").performClick()
+            compose.onRoot().performTouchInput { click(Offset(width * 0.9f, height / 2f)) }
+            compose.waitUntil(5_000) { compose.onAllNodesWithText("Next chapter").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Next chapter").performClick()
+            compose.waitUntil(5_000) {
+                server.requests.any { it.path == "/api/Reader/image" && it.getQueryParameter("chapterId") == "2" }
+            }
+            awaitRenderedPage()
+            openMenu()
+            jump(3)
+            restoration.emulateSavedInstanceStateRestore()
+            compose.waitUntil(10_000) {
+                server.requests.count { it.path == "/api/Reader/chapter-info" && it.getQueryParameter("chapterId") == "2" } >= 2
+            }
+            awaitRenderedPage()
+            openMenu()
+            compose.onNodeWithText("Second | 4 / 6", substring = true).assertIsDisplayed()
+            assertTrue(server.progressWrites.isEmpty())
+        }
+    }
+
+    @Test
+    fun quickCloseSavesReachedPageWithoutWaitingForDebounce() {
+        ReaderServer(format = 1).use { server ->
+            val visible = open(server, incognito = false)
+            awaitPages(server)
+            openMenu()
+            compose.onNodeWithText("LTR").performClick()
+            compose.waitForIdle()
+            compose.mainClock.autoAdvance = false
+            jump(2)
+            compose.mainClock.advanceTimeBy(100)
+            compose.onNodeWithText("3 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithContentDescription("Back").performClick()
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 2) }
+            assertEquals(listOf(1 to 2), server.progressWrites.toList())
+            compose.mainClock.autoAdvance = true
+            compose.runOnIdle { visible.value = true }
+            awaitRenderedPage()
+            openMenu()
+            compose.onNodeWithText("3 / 6", substring = true).assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun untouchedOpeningAndCloseDoNotWriteProgress() {
+        ReaderServer(format = 1).use { server ->
+            val visible = open(server, incognito = false)
+            awaitPages(server)
+            compose.mainClock.advanceTimeBy(4_000)
+            openMenu()
+            compose.onNodeWithContentDescription("Back").performClick()
+            compose.waitUntil(5_000) { !visible.value }
+            assertTrue(server.progressWrites.isEmpty())
+        }
+    }
+
+    @Test
+    fun untouchedBookmarkOpeningAndCloseDoNotWriteProgress() {
+        ReaderServer(format = 1).use { server ->
+            val visible = open(server, incognito = false, initialPage = 1)
+            awaitPages(server)
+            compose.mainClock.advanceTimeBy(4_000)
+            openMenu()
+            compose.onNodeWithText("2 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithContentDescription("Back").performClick()
+            compose.waitUntil(5_000) { !visible.value }
+            assertTrue(server.progressWrites.isEmpty())
+            assertFalse(server.requests.any { it.path == "/api/Reader/get-progress" })
+        }
+    }
+
+    private fun jump(page: Int) {
+        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
+            .performSemanticsAction(SemanticsActions.SetProgress) { it(page.toFloat()) }
+    }
+
+    @Test
+    fun readingStillDebouncesAndSkipsTransientPages() {
+        ReaderServer(format = 1).use { server ->
+            open(server, incognito = false)
+            awaitPages(server)
+            openMenu()
+            compose.onNodeWithText("LTR").performClick()
+            compose.waitForIdle()
+            compose.mainClock.autoAdvance = false
+            jump(2)
+            compose.mainClock.advanceTimeBy(2_000)
+            assertTrue(server.progressWrites.isEmpty())
+            jump(3)
+            compose.mainClock.advanceTimeBy(2_000)
+            assertTrue(server.progressWrites.isEmpty())
+            compose.mainClock.advanceTimeBy(1_200)
+            compose.waitUntil(5_000) { server.progressWrites.contains(1 to 3) }
+            assertEquals(listOf(1 to 3), server.progressWrites.toList())
+        }
+    }
+
+    @Test
+    fun systemBackSavesReachedPageImmediately() {
+        ReaderServer(format = 1).use { server ->
+            val visible = open(server, incognito = false)
+            awaitPages(server)
+            openMenu()
+            compose.onNodeWithText("LTR").performClick()
+            compose.waitForIdle()
+            compose.mainClock.autoAdvance = false
+            jump(2)
+            compose.mainClock.advanceTimeBy(100)
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
+            compose.mainClock.advanceTimeBy(100)
+            compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 2) }
+        }
+    }
+
+    @Test
+    fun closeSwipeSavesReachedPageImmediately() {
+        ReaderServer(format = 1).use { server ->
+            val visible = open(server, incognito = false)
+            awaitPages(server)
+            openMenu()
+            compose.onNodeWithText("LTR").performClick()
+            compose.waitForIdle()
+            compose.mainClock.autoAdvance = false
+            jump(2)
+            compose.mainClock.advanceTimeBy(100)
+            compose.onNodeWithContentDescription("Close menu").performClick()
+            compose.mainClock.advanceTimeBy(100)
+            compose.onRoot().performTouchInput {
+                swipe(Offset(width / 2f, height * 0.3f), Offset(width / 2f, height * 0.85f), 500)
+            }
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 2) }
+        }
+    }
 
     @Test
     fun firstPdfOpeningSurvivesTwentySecondsThenReadsAndJumps() {
@@ -203,20 +389,26 @@ class PdfReaderTest {
         }
     }
 
-    private fun open(server: ReaderServer, incognito: Boolean = true): androidx.compose.runtime.MutableState<Boolean> {
+    private fun open(
+        server: ReaderServer,
+        incognito: Boolean = true,
+        initialPage: Int? = null,
+        restoration: StateRestorationTester? = null
+    ): androidx.compose.runtime.MutableState<Boolean> {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val sessionStore = KavitaSessionStore(context).apply {
             useTransient(KavitaSession(baseUrl = server.baseUrl))
         }
         val visible = mutableStateOf(true)
-        compose.setContent {
+        val content: @androidx.compose.runtime.Composable () -> Unit = {
             MaterialTheme {
                 if (visible.value) {
                     ReaderScreen(sessionStore, AppSettingsStore(context), 1, 1, 1, 1,
-                        incognito = incognito, onBack = { visible.value = false })
+                        incognito = incognito, initialPage = initialPage, onBack = { visible.value = false })
                 }
             }
         }
+        if (restoration != null) restoration.setContent(content) else compose.setContent(content)
         return visible
     }
 
@@ -252,6 +444,7 @@ private class ReaderServer(format: Int, holdChapter: Boolean = false, neighbor: 
     private val workers = Executors.newCachedThreadPool()
     val baseUrl = "http://127.0.0.1:${socket.localPort}"
     val requests = CopyOnWriteArrayList<Uri>()
+    val progressWrites = CopyOnWriteArrayList<Pair<Int, Int>>()
     val chapterRequested = CountDownLatch(1)
     val releaseChapter = CountDownLatch(if (holdChapter) 1 else 0)
     private val image = ByteArrayOutputStream().also { output ->
@@ -295,14 +488,30 @@ private class ReaderServer(format: Int, holdChapter: Boolean = false, neighbor: 
                             if (header.isEmpty()) break
                             if (header.startsWith("Content-Length:", true)) length = header.substringAfter(':').trim().toInt()
                         }
-                        repeat(length) { input.read() }
+                        val requestBody = CharArray(length)
+                        var read = 0
+                        while (read < length) {
+                            val count = input.read(requestBody, read, length - read)
+                            if (count < 0) break
+                            read += count
+                        }
+                        if (uri.path == "/api/Reader/progress" && length > 0) {
+                            val progress = Json.parseToJsonElement(String(requestBody)).jsonObject
+                            progressWrites += progress.getValue("chapterId").jsonPrimitive.int to
+                                progress.getValue("pageNum").jsonPrimitive.int
+                        }
                         requests += uri
                         val json = when (uri.path) {
                             "/api/Series/1" -> """{"id":1,"name":"Test book","format":$format}"""
                             "/api/Series/volumes" -> if (neighbor)
                                 """[{"id":1,"chapters":[{"id":1,"title":"First"},{"id":2,"title":"Second"}]}]""" else "[]"
                             "/api/reading-profile/1/1" -> """{"kind":1,"readingDirection":1}"""
-                            "/api/Reader/get-progress" -> """{"libraryId":1,"seriesId":1,"volumeId":1,"chapterId":1,"pageNum":0}"""
+                            "/api/Reader/get-progress" -> {
+                                val chapter = uri.getQueryParameter("chapterId")?.toInt() ?: 1
+                                val page = progressWrites.lastOrNull { it.first == chapter }?.second ?: 0
+                                """{"libraryId":1,"seriesId":1,"volumeId":1,"chapterId":$chapter,"pageNum":$page}"""
+                            }
+                            "/api/Reader/chapter-bookmarks" -> "[]"
                             "/api/Book/1/book-page" -> "<div><p>Novel prose requiring a text reader.</p></div>"
                             "/api/Reader/chapter-info" -> {
                                 chapterRequested.countDown()

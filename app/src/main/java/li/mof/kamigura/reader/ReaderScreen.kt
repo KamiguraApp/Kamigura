@@ -2,6 +2,7 @@ package li.mof.kamigura.reader
 
 import android.os.SystemClock
 import android.view.ViewConfiguration
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -27,6 +28,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -184,14 +186,14 @@ fun ReaderScreen(
 
     var session by remember { mutableStateOf<KavitaSession?>(null) }
     var api by remember { mutableStateOf<KavitaApi?>(null) }
-    var currentChapterId by remember { mutableIntStateOf(chapterId) }
-    var currentVolumeId by remember { mutableIntStateOf(volumeId) }
+    var currentChapterId by rememberSaveable { mutableIntStateOf(chapterId) }
+    var currentVolumeId by rememberSaveable { mutableIntStateOf(volumeId) }
     var chapterSequence by remember { mutableStateOf<List<ReaderChapterEntry>>(emptyList()) }
     var currentChapter by remember {
         mutableStateOf(
             ReaderChapterEntry(
-                chapterId = chapterId,
-                volumeId = volumeId,
+                chapterId = currentChapterId,
+                volumeId = currentVolumeId,
                 volumeName = null,
                 chapterName = "Chapter"
             )
@@ -206,7 +208,11 @@ fun ReaderScreen(
     var boundaryDragProgress by remember { mutableFloatStateOf(0f) }
     var pages by remember { mutableIntStateOf(0) }
     var pageDimensions by remember { mutableStateOf<Map<Int, FileDimensionDto>>(emptyMap()) }
-    var page by remember { mutableIntStateOf(0) }
+    // -1 means a fresh opening: only then may route/server progress choose the page.
+    var page by rememberSaveable { mutableIntStateOf(-1) }
+    var openedPage by rememberSaveable { mutableIntStateOf(-1) }
+    var hasMoved by rememberSaveable { mutableStateOf(false) }
+    var lastSyncedPage by rememberSaveable { mutableIntStateOf(-1) }
     var readerReady by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var showReaderMenu by remember { mutableStateOf(false) }
@@ -295,6 +301,7 @@ fun ReaderScreen(
                     )
                 )
                 lastRemoteProgressPages[target.chapterId] = target.page
+                if (currentChapterId == target.chapterId) lastSyncedPage = target.page
                 if (clearPending && pendingRemoteProgress?.target == target) {
                     pendingRemoteProgress = null
                 }
@@ -317,6 +324,30 @@ fun ReaderScreen(
             }
         }
     }
+    fun closeReader() {
+        if (!incognito && !completingRead && readerReady && pages > 0 &&
+            (hasMoved || page != openedPage)
+        ) {
+            val target = newRemoteProgressTarget(
+                currentChapterId, currentVolumeId, page, pages, offlineChapter != null
+            )
+            val loadedApi = api
+            val loadedSession = session
+            pendingRemoteProgress = null
+            ReaderExitWriteScope.launch {
+                if (target.offline && loadedSession != null) {
+                    runCatching {
+                        offlineRepository.saveLocalProgress(loadedSession, target.chapterId, target.page)
+                    }.onFailure {
+                        KamiguraLog.w("Could not save final offline progress for chapter ${target.chapterId}.", it)
+                    }
+                }
+                saveRemoteProgress(target, false, loadedApi, loadedSession)
+            }
+        }
+        onBack()
+    }
+    BackHandler(onBack = ::closeReader)
     fun completeChapter(exitAfter: Boolean = true) {
         if (completingRead || pages <= 0) return
         completingRead = true
@@ -480,6 +511,9 @@ fun ReaderScreen(
                 pages = loadedPageCount
                 pageDimensions = loadedDimensions
                 page = landingPage
+                openedPage = landingPage
+                hasMoved = true
+                lastSyncedPage = -1
                 verticalRestoreNonce++
                 completingRead = false
                 chapterBoundary = null
@@ -499,6 +533,8 @@ fun ReaderScreen(
     }
 
     LaunchedEffect(Unit) {
+        val restoredPage = page.takeIf { it >= 0 }
+        if (lastSyncedPage >= 0) lastRemoteProgressPages[currentChapterId] = lastSyncedPage
         // Seed the session invert override from the persisted global value. `.first()` on the
         // store flow yields the real DataStore value (not the collectAsState default), so this
         // is correct even before `settings` has emitted.
@@ -540,9 +576,12 @@ fun ReaderScreen(
             )
             pages = local.pages.size
             pageDimensions = local.dimensions
-            page = (initialPage ?: local.record.localPage).coerceIn(0, (pages - 1).coerceAtLeast(0))
-            if (!local.record.progressPending) {
+            page = (restoredPage ?: initialPage ?: local.record.localPage)
+                .coerceIn(0, (pages - 1).coerceAtLeast(0))
+            if (openedPage < 0) openedPage = page
+            if (restoredPage == null && !local.record.progressPending) {
                 lastRemoteProgressPages[currentChapterId] = page
+                lastSyncedPage = page
             }
             readerReady = pages > 0
             verticalRestoreNonce++
@@ -602,10 +641,14 @@ fun ReaderScreen(
                 val pageCount = info.pages ?: 0
                 pages = pageCount
                 pageDimensions = info.pageDimensions.toPageDimensionMap()
-                val savedPage = initialPage ?: loadedApi.getProgress(currentChapterId).pageNum
+                val savedPage = restoredPage ?: initialPage ?: loadedApi.getProgress(currentChapterId).pageNum
                 page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
-                lastRemoteProgressPages[currentChapterId] = page
-            } else if (!local.record.progressPending) {
+                if (openedPage < 0) openedPage = page
+                if (restoredPage == null) {
+                    lastRemoteProgressPages[currentChapterId] = page
+                    lastSyncedPage = page
+                }
+            } else if (restoredPage == null && !local.record.progressPending) {
                 val savedPage = runCatching { loadedApi.getProgress(currentChapterId).pageNum }
                     .onFailure {
                         KamiguraLog.w(
@@ -618,6 +661,8 @@ fun ReaderScreen(
                 if (landingPage != null) {
                     page = landingPage.coerceIn(0, pages - 1)
                     lastRemoteProgressPages[currentChapterId] = page
+                    lastSyncedPage = page
+                    openedPage = page
                 }
             }
             chapterMetadataJob.join()
@@ -631,6 +676,10 @@ fun ReaderScreen(
                 error = readerLoadErrorMessage(t)
             }
         }
+    }
+
+    LaunchedEffect(readerReady, page) {
+        if (readerReady && page != openedPage) hasMoved = true
     }
 
     LaunchedEffect(
@@ -715,7 +764,7 @@ fun ReaderScreen(
         ReaderLoadingScreen(
             preparingPdf = readerSeries?.format == MangaFormat.Pdf,
             error = error,
-            onBack = onBack
+            onBack = ::closeReader
         )
         return
     }
@@ -1561,7 +1610,7 @@ fun ReaderScreen(
                             )
                         }
                     },
-                    onBackToSeries = onBack,
+                    onBackToSeries = ::closeReader,
                     onMenuToggle = { showReaderMenu = !showReaderMenu }
                 )
             } else {
@@ -1937,7 +1986,7 @@ fun ReaderScreen(
                             closeDragOffsetY = value
                         }
                         if (commit) {
-                            onBack()
+                            closeReader()
                         } else {
                             closeDragOffsetY = 0f
                         }
@@ -2039,7 +2088,7 @@ fun ReaderScreen(
                 switching = chapterSwitching,
                 hasError = error != null,
                 onContinue = ::continueFromChapterBoundary,
-                onBackToSeries = onBack
+                onBackToSeries = ::closeReader
             )
         }
 
@@ -2061,7 +2110,7 @@ fun ReaderScreen(
                 },
                 readingDirection = readingDirection,
                 showSpreadShift = !vertical && !portrait && settings.reader.showSpreadShiftButtons,
-                onBack = onBack,
+                onBack = ::closeReader,
                 onDismiss = { showReaderMenu = false },
                 onSetReadingDirection = { direction ->
                     // Per-book session override only. The global fallback lives in Reader
