@@ -39,7 +39,7 @@ import li.mof.kamigura.normalizeKavitaBaseUrl
 
 private val Context.offlineIssueDataStore by preferencesDataStore("offline_issues")
 
-private class UnsupportedOfflineFormatException(message: String) : Exception(message)
+internal class UnsupportedOfflineFormatException(message: String) : Exception(message)
 
 class InsufficientOfflineStorageException(message: String) : Exception(message)
 
@@ -587,7 +587,7 @@ class OfflineIssueRepository(context: Context) {
             zip.getEntry("mimetype")?.let { mimetype ->
                 val value = zip.getInputStream(mimetype).bufferedReader().use { it.readText().trim() }
                 if (value == "application/epub+zip") {
-                    throw UnsupportedOfflineFormatException("EPUB offline reading is not supported yet")
+                    return inspectImageEpub(zip, file, record)
                 }
             }
             val candidates = zip.entries().asSequence()
@@ -621,6 +621,30 @@ class OfflineIssueRepository(context: Context) {
             // ComicInfo front-cover metadata wins over filename order because fan-made archives often mix naming schemes.
             return OfflineChapter(record, pages, dimensions, coverPageIndex)
         }
+    }
+
+    private fun inspectImageEpub(zip: ZipFile, file: File, record: OfflineIssueRecord): OfflineChapter {
+        val entries = offlineEpubImageEntries(zip)
+        val dimensions = entries.mapIndexed { index, name ->
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            zip.getInputStream(zip.getEntry(name)).use { BitmapFactory.decodeStream(it, null, options) }
+            if (options.outWidth <= 0 || options.outHeight <= 0) {
+                throw UnsupportedOfflineFormatException(UnsupportedOfflineEpubMessage)
+            }
+            index to FileDimensionDto(
+                width = options.outWidth,
+                height = options.outHeight,
+                pageNumber = index,
+                fileName = name,
+                isWide = options.outWidth > options.outHeight
+            )
+        }.toMap()
+        return OfflineChapter(
+            record = record,
+            pages = entries.mapIndexed { index, name -> OfflinePage.ArchiveEntry(file.absolutePath, name, index) },
+            dimensions = dimensions,
+            coverPageIndex = 0
+        )
     }
 
     private fun comicInfoFrontCoverIndex(zip: ZipFile): Int? {
