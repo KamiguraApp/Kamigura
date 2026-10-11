@@ -5,10 +5,10 @@ import kotlinx.serialization.json.contentOrNull
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.VolumeDto
 /** Internal to series, not for external use. */
-internal fun ChapterDto.displayTitle(): String {
+internal fun ChapterDto.displayTitle(): String? {
     title?.takeIf { it.isDisplayableChapterLabel() }?.let { return it }
     number.displayText()?.takeIf { it.isDisplayableChapterLabel() }?.let { return it }
-    return id.toString()
+    return null
 }
 
 /**
@@ -50,7 +50,7 @@ internal fun ChapterDto.releaseDateText(): String? {
 }
 
 private fun String?.isDisplayableChapterLabel(): Boolean {
-    return !isNullOrBlank() && this != "-100000"
+    return !isNullOrBlank() && this != "-100000" && this != "100000"
 }
 
 private fun String?.isDisplayableVolumeLabel(): Boolean {

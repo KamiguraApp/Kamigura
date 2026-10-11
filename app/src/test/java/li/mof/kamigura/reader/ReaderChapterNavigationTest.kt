@@ -8,8 +8,24 @@ import li.mof.kamigura.reader.internal.readerChapterSequence
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import kotlinx.serialization.json.JsonPrimitive
+import li.mof.kamigura.series.internal.displayTitle
 
 class ReaderChapterNavigationTest {
+
+    @Test
+    fun unnamedChapterUsesOnlyVolumeAndNeverItsDatabaseId() {
+        val chapter = ChapterDto(id = 1351, number = JsonPrimitive(-100000))
+        assertNull(chapter.displayTitle())
+        assertEquals("Volume 3", readerChapterEntry(
+            listOf(VolumeDto(id = 7, name = "3", chapters = listOf(chapter))), 1351
+        )?.displayName)
+        assertEquals("Chapter", readerChapterEntry(
+            listOf(VolumeDto(id = 7, chapters = listOf(chapter))), 1351
+        )?.displayName)
+        assertNull(ChapterDto(id = 1351, number = JsonPrimitive(100000)).displayTitle())
+        assertEquals("Bonus", ChapterDto(id = 1351, title = "Bonus").displayTitle())
+    }
 
     @Test
     fun sequenceMatchesVolumeThenChapterOrderAndExcludesSpecials() {

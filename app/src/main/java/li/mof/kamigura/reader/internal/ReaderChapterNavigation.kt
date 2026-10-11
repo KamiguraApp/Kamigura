@@ -10,10 +10,10 @@ internal data class ReaderChapterEntry(
     val chapterId: Int,
     val volumeId: Int,
     val volumeName: String?,
-    val chapterName: String
+    val chapterName: String?
 ) {
     val displayName: String
-        get() = listOfNotNull(volumeName, chapterName).joinToString(" / ")
+        get() = listOfNotNull(volumeName, chapterName).joinToString(" / ").ifBlank { "Chapter" }
 }
 
 internal data class ReaderChapterNeighbors(

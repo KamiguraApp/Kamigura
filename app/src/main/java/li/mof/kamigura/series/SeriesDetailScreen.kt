@@ -463,7 +463,7 @@ fun ChapterPickScreen(
                                 volumeId = item.volume.id,
                                 chapterId = item.chapter.id,
                                 seriesName = displaySeries.name,
-                                issueName = item.volume.displayName() ?: item.chapter.displayTitle(),
+                                issueName = item.volume.displayName() ?: item.chapter.displayTitle() ?: "Issue",
                                 expectedBytes = selectedIssueSize,
                                 expectedPageCount = selectedIssueDetail?.pages ?: item.chapter.pages
                             )
@@ -623,4 +623,3 @@ private fun SeriesDetailContent(
         }
     }
 }
-
