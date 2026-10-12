@@ -588,6 +588,19 @@ fun ReaderSettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            SettingRow(
+                title = "Keep screen on",
+                desc = "Keeps the screen awake while the reader is open.",
+                checked = settings.reader.keepScreenOn,
+                onToggle = { enabled -> scope.launch { settingsStore.setKeepScreenOn(enabled) } }
+            )
+            SettingRow(
+                title = "Turn pages with volume keys",
+                desc = "Volume down moves forward; volume up moves back.",
+                checked = settings.reader.turnPagesWithVolumeKeys,
+                onToggle = { enabled -> scope.launch { settingsStore.setTurnPagesWithVolumeKeys(enabled) } }
+            )
+
             Text("Reading direction", style = MaterialTheme.typography.titleMedium)
             Text(
                 "Fallback used when a series has no reading direction of its own on the Kavita server.",

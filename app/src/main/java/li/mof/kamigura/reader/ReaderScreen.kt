@@ -7,6 +7,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -76,6 +77,8 @@ import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.internal.ReaderInvertCacheKey
 import li.mof.kamigura.reader.internal.ReaderPrefetchTarget
 import li.mof.kamigura.reader.internal.ReaderFullscreenEffect
+import li.mof.kamigura.reader.internal.ReaderKeepScreenOnEffect
+import li.mof.kamigura.reader.internal.ReaderKeyEffect
 import li.mof.kamigura.reader.internal.ReaderChapterBoundary
 import li.mof.kamigura.reader.internal.ReaderChapterBoundaryScreen
 import li.mof.kamigura.reader.internal.ReaderChapterEntry
@@ -91,6 +94,9 @@ import li.mof.kamigura.reader.internal.ReaderRetryHeight
 import li.mof.kamigura.reader.internal.readerPageRetryTargets
 import li.mof.kamigura.reader.internal.ReaderTapLayer
 import li.mof.kamigura.reader.internal.ReaderVerticalScroll
+import li.mof.kamigura.reader.internal.ReaderVerticalPosition
+import li.mof.kamigura.reader.internal.ReaderVerticalVisibleItem
+import li.mof.kamigura.reader.internal.readerVerticalPosition
 import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
@@ -222,6 +228,7 @@ fun ReaderScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var showReaderMenu by remember { mutableStateOf(false) }
     ReaderFullscreenEffect(showStatusBar = showReaderMenu)
+    ReaderKeepScreenOnEffect(settings.reader.keepScreenOn)
     var readingDirection by remember { mutableStateOf(settings.reader.readingDirection) }
     // Per-book overrides survive a short close/reopen cycle in process memory. The server
     // direction and global Reader setting remain authoritative after the cache expires.
@@ -1319,6 +1326,50 @@ fun ReaderScreen(
         fun requestSingleStep(direction: ReaderTurnDirection, completeWhenPastEnd: Boolean) {
             requestSlideTurn(direction, 1, completeWhenPastEnd)
         }
+
+        ReaderKeyEffect(
+            readingDirection = readingDirection,
+            volumeKeys = settings.reader.turnPagesWithVolumeKeys,
+            isBlocked = {
+                showReaderMenu || zoomPan.userScale > 1f + ReaderZoomEpsilon || chapterSwitching ||
+                    closeDragOffsetY != 0f || curlDragStartPointer != null ||
+                    dragBoundaryDirection != null || boundaryDragDirection != null ||
+                    (activeTransition != null && !transitionSettling) ||
+                    (vertical && (!verticalBoundariesEnabled || verticalListState.isScrollInProgress))
+            },
+            onTurn = { direction ->
+                if (vertical) {
+                    val info = verticalListState.layoutInfo
+                    val position = readerVerticalPosition(
+                        info.visibleItemsInfo.map { ReaderVerticalVisibleItem(it.index, it.offset, it.size) },
+                        info.viewportStartOffset, info.viewportEndOffset, pages
+                    )
+                    val continueBoundary =
+                        (position == ReaderVerticalPosition.NextBoundary && direction == ReaderTurnDirection.Next) ||
+                        (position == ReaderVerticalPosition.PreviousBoundary && direction == ReaderTurnDirection.Previous)
+                    if (continueBoundary) {
+                        val neighbors = readerChapterNeighbors(chapterSequence, currentChapterId)
+                        val target = if (direction == ReaderTurnDirection.Next) neighbors.next else neighbors.previous
+                        target?.let { switchChapter(it, openAtLastPage = direction == ReaderTurnDirection.Previous) }
+                    } else {
+                        val distance = (info.viewportEndOffset - info.viewportStartOffset).toFloat()
+                        scope.launch {
+                            verticalListState.animateScrollBy(
+                                if (direction == ReaderTurnDirection.Next) distance else -distance
+                            )
+                        }
+                    }
+                } else if (chapterBoundary != null) {
+                    turnChapterBoundary(direction)
+                } else {
+                    requestTurn(
+                        direction,
+                        if (direction == ReaderTurnDirection.Next) nextPageTurnStep else previousPageTurnStep,
+                        direction == ReaderTurnDirection.Next && showingFinalPage
+                    )
+                }
+            }
+        )
 
         LaunchedEffect(activeTransition, transitionSettling, queuedTurn, page) {
             val pending = queuedTurn

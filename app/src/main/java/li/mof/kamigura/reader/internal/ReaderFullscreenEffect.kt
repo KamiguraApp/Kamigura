@@ -44,7 +44,7 @@ internal fun ReaderFullscreenEffect(showStatusBar: Boolean) {
     }
 }
 
-private tailrec fun Context.findActivity(): Activity? {
+internal tailrec fun Context.findActivity(): Activity? {
     return when (this) {
         is Activity -> this
         is ContextWrapper -> baseContext.findActivity()

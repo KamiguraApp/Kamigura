@@ -48,7 +48,9 @@ data class ReaderSettings(
     val pageBackground: PageBackground = PageBackground.Paper,
     val showPortraitPageBackContent: Boolean = true,
     val usePurePageBackgroundColors: Boolean = false,
-    val showSpreadShiftButtons: Boolean = true
+    val showSpreadShiftButtons: Boolean = true,
+    val keepScreenOn: Boolean = true,
+    val turnPagesWithVolumeKeys: Boolean = false
 ) {
     val rightToLeft: Boolean
         get() = readingDirection == ReaderReadingDirection.RightToLeft
@@ -73,6 +75,8 @@ class AppSettingsStore(private val context: Context) {
     private val KEY_USE_PURE_PAGE_BACKGROUND_COLORS =
         booleanPreferencesKey("reader_use_pure_page_background_colors")
     private val KEY_SHOW_SPREAD_SHIFT_BUTTONS = booleanPreferencesKey("reader_show_spread_shift_buttons")
+    private val KEY_KEEP_SCREEN_ON = booleanPreferencesKey("reader_keep_screen_on")
+    private val KEY_VOLUME_KEYS = booleanPreferencesKey("reader_turn_pages_with_volume_keys")
 
     val flow: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
         AppSettings(
@@ -98,7 +102,9 @@ class AppSettingsStore(private val context: Context) {
                     ?: PageBackground.Paper,
                 showPortraitPageBackContent = prefs[KEY_SHOW_PORTRAIT_PAGE_BACK_CONTENT] ?: true,
                 usePurePageBackgroundColors = prefs[KEY_USE_PURE_PAGE_BACKGROUND_COLORS] ?: false,
-                showSpreadShiftButtons = prefs[KEY_SHOW_SPREAD_SHIFT_BUTTONS] ?: true
+                showSpreadShiftButtons = prefs[KEY_SHOW_SPREAD_SHIFT_BUTTONS] ?: true,
+                keepScreenOn = prefs[KEY_KEEP_SCREEN_ON] ?: true,
+                turnPagesWithVolumeKeys = prefs[KEY_VOLUME_KEYS] ?: false
             )
         )
     }
@@ -147,6 +153,14 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setShowSpreadShiftButtons(value: Boolean) {
         context.settingsDataStore.edit { it[KEY_SHOW_SPREAD_SHIFT_BUTTONS] = value }
+    }
+
+    suspend fun setKeepScreenOn(value: Boolean) {
+        context.settingsDataStore.edit { it[KEY_KEEP_SCREEN_ON] = value }
+    }
+
+    suspend fun setTurnPagesWithVolumeKeys(value: Boolean) {
+        context.settingsDataStore.edit { it[KEY_VOLUME_KEYS] = value }
     }
 }
 
