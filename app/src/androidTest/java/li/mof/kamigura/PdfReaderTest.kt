@@ -17,7 +17,6 @@ import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import li.mof.kamigura.reader.ReaderScreen
-import li.mof.kamigura.reader.internal.UnsupportedImageEpubMessage
 import li.mof.kamigura.download.OfflineDownloadStatus
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.download.OfflinePage
@@ -255,18 +254,19 @@ class PdfReaderTest {
     }
 
     @Test
-    fun textEpubShowsUnsupportedMessageWithoutRequestingReaderImages() {
+    fun textEpubOpensNovelPocWithoutRequestingReaderImages() {
         ReaderServer(format = 3).use { server ->
             val visible = open(server)
             compose.waitUntil(10_000) {
-                compose.onAllNodesWithText(UnsupportedImageEpubMessage).fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodesWithContentDescription("EPUB page").fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithText(UnsupportedImageEpubMessage).assertIsDisplayed()
+            openMenu()
+            compose.onNodeWithText("Section 1 / 6", substring = true).assertIsDisplayed()
             assertFalse(server.requests.any { it.path == "/api/Reader/image" })
             assertTrue(server.requests.any { it.path == "/api/Book/1/book-page" })
             assertTrue(server.requests.filter { it.path == "/api/Reader/chapter-info" }
                 .all { it.getQueryParameter("extractPdf") == "false" })
-            compose.onNodeWithText("Back to series").performClick()
+            compose.onNodeWithContentDescription("Back to series").performClick()
             compose.runOnIdle { assertFalse(visible.value) }
         }
     }
@@ -445,13 +445,16 @@ internal class ReaderServer(
     neighbor: Boolean = false,
     cacheImages: Boolean = false,
     failPage: (Int) -> Boolean = { false },
-    imageResponseGate: (Int) -> CountDownLatch? = { null }
+    imageResponseGate: (Int) -> CountDownLatch? = { null },
+    bookFragment: (Int) -> String = { "<div><p>Novel prose requiring a text reader.</p></div>" },
+    bookProgress: ProgressDto? = null
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
     val baseUrl = "http://127.0.0.1:${socket.localPort}"
     val requests = CopyOnWriteArrayList<Uri>()
     val progressWrites = CopyOnWriteArrayList<Pair<Int, Int>>()
+    val bookProgressWrites = CopyOnWriteArrayList<ProgressDto>()
     val chapterRequested = CountDownLatch(1)
     val releaseChapter = CountDownLatch(if (holdChapter) 1 else 0)
     private val image = ByteArrayOutputStream().also { output ->
@@ -506,6 +509,7 @@ internal class ReaderServer(
                             val progress = Json.parseToJsonElement(String(requestBody)).jsonObject
                             progressWrites += progress.getValue("chapterId").jsonPrimitive.int to
                                 progress.getValue("pageNum").jsonPrimitive.int
+                            bookProgressWrites += Json.decodeFromString<ProgressDto>(String(requestBody))
                         }
                         requests += uri
                         val json = when (uri.path) {
@@ -514,12 +518,14 @@ internal class ReaderServer(
                                 """[{"id":1,"chapters":[{"id":1,"title":"First"},{"id":2,"title":"Second"}]}]""" else "[]"
                             "/api/reading-profile/1/1" -> """{"kind":1,"readingDirection":1}"""
                             "/api/Reader/get-progress" -> {
+                                val bookSaved = bookProgressWrites.lastOrNull() ?: bookProgress
                                 val chapter = uri.getQueryParameter("chapterId")?.toInt() ?: 1
                                 val page = progressWrites.lastOrNull { it.first == chapter }?.second ?: 0
-                                """{"libraryId":1,"seriesId":1,"volumeId":1,"chapterId":$chapter,"pageNum":$page}"""
+                                if (bookSaved != null) Json.encodeToString(bookSaved) else
+                                    """{"libraryId":1,"seriesId":1,"volumeId":1,"chapterId":$chapter,"pageNum":$page}"""
                             }
                             "/api/Reader/chapter-bookmarks" -> "[]"
-                            "/api/Book/1/book-page" -> "<div><p>Novel prose requiring a text reader.</p></div>"
+                            "/api/Book/1/book-page" -> bookFragment(uri.getQueryParameter("page")?.toInt() ?: 0)
                             "/api/Reader/chapter-info" -> {
                                 chapterRequested.countDown()
                                 releaseChapter.await(45, TimeUnit.SECONDS)
