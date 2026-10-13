@@ -18,7 +18,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,6 +59,7 @@ import li.mof.kamigura.reader.ReaderTurnDirection
 import li.mof.kamigura.reader.internal.ReaderKeyEffect
 
 /** Branch-only experiment. Image EPUB, CBZ, PDF and offline reading stay on ReaderScreen. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NovelReaderScreen(
     api: KavitaApi,
@@ -216,10 +220,11 @@ internal fun NovelReaderScreen(
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(MaterialTheme.colorScheme.surface)
                 .padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Section ${spine + 1} / $spineCount · Screen ${(position?.screen ?: 0) + 1} / ${position?.count ?: 1}")
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Horizontal" to false, "Vertical" to true).forEach { (label, vertical) ->
-                        FilterChip(selected = position?.vertical == vertical, enabled = !loading && failure == null,
-                            onClick = { writingOverride = vertical; view.setVertical(vertical) }, label = { Text(label) })
+                SingleChoiceSegmentedButtonRow {
+                    listOf("Horizontal" to false, "Vertical" to true).forEachIndexed { index, (label, vertical) ->
+                        SegmentedButton(selected = position?.vertical == vertical, enabled = !loading && failure == null,
+                            shape = SegmentedButtonDefaults.itemShape(index, 2),
+                            onClick = { writingOverride = vertical; view.setVertical(vertical) }) { Text(label) }
                     }
                 }
                 if (spineCount > 1) Slider(value = spine.toFloat(), onValueChange = {

@@ -103,6 +103,31 @@ class NovelReaderUiTest {
     @Test fun readerTapsMenuCloseAndImmediateProgress() = reader(false, false)
     @Test fun readerVerticalTapsUseRightToLeftAndIncognitoDoesNotWrite() = reader(true, true)
 
+    @Test fun writingModeSelectorChangesTapDirection() {
+        ReaderServer(3, bookFragment = { novelFixture(false) }).use { server ->
+            val store = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
+            val visible = mutableStateOf(true)
+            compose.setContent { MaterialTheme { if (visible.value) ReaderScreen(store, AppSettingsStore(context),
+                1, 1, 1, 1, incognito = true, onBack = { visible.value = false }) } }
+            awaitSection(1)
+            compose.onRoot().performTouchInput { click(center) }
+            compose.onNodeWithText("Vertical").performClick()
+            compose.waitUntil(5_000) {
+                compose.onAllNodes(hasText("Vertical") and isSelected()).fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithContentDescription("Close menu").performClick()
+            compose.onRoot().performTouchInput { click(Offset(width * .1f, height * .5f)) }
+            compose.waitUntil(5_000) {
+                compose.onNodeWithContentDescription("EPUB page").fetchSemanticsNode().config[
+                    androidx.compose.ui.semantics.SemanticsProperties.StateDescription].contains("Screen 2 /")
+            }
+            compose.onRoot().performTouchInput { click(center) }
+            compose.onNodeWithContentDescription("Back to series").performClick()
+            compose.waitUntil(5_000) { !visible.value }
+            assertTrue(server.bookProgressWrites.isEmpty())
+        }
+    }
+
     @Test fun spineTransitionsSaveTheReachedSpineInsteadOfTheScreenNumber() {
         ReaderServer(3, bookFragment = { novelFixture(false, 1) }).use { server ->
             val store = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
