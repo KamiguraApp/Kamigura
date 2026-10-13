@@ -101,6 +101,9 @@ import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
 import li.mof.kamigura.reader.internal.loadReaderChapterPages
+import li.mof.kamigura.reader.internal.loadReaderChapterInfo
+import li.mof.kamigura.reader.internal.UnsupportedImageEpubException
+import li.mof.kamigura.reader.novel.NovelReaderScreen
 import li.mof.kamigura.reader.internal.readerLoadErrorMessage
 import li.mof.kamigura.reader.internal.pageIsWide
 import li.mof.kamigura.reader.internal.preAnalyzeReaderPages
@@ -213,6 +216,7 @@ fun ReaderScreen(
     var seriesName by remember { mutableStateOf("") }
     var readerSeries by remember { mutableStateOf<SeriesDto?>(null) }
     var epubPageImages by remember { mutableStateOf<List<String>?>(null) }
+    var novelProgress by remember { mutableStateOf<ProgressDto?>(null) }
     var chapterSwitching by remember { mutableStateOf(false) }
     var chapterBoundary by remember { mutableStateOf<ReaderChapterBoundary?>(null) }
     var boundaryDragDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
@@ -686,7 +690,14 @@ fun ReaderScreen(
         } catch (t: Throwable) {
             KamiguraLog.w("Could not initialize Reader for chapter $currentChapterId.", t)
             if (local == null) {
-                error = readerLoadErrorMessage(t)
+                if (t is UnsupportedImageEpubException && readerSeries?.format == MangaFormat.Epub) {
+                    try {
+                        pages = requireNotNull(loadReaderChapterInfo(requireNotNull(api), currentChapterId, MangaFormat.Epub).pages)
+                        val progress = requireNotNull(api).getProgress(currentChapterId)
+                        novelProgress = if (initialPage != null) progress.copy(pageNum = initialPage, bookScrollId = null) else progress
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (loadError: Throwable) { error = readerLoadErrorMessage(loadError) }
+                } else error = readerLoadErrorMessage(t)
             }
         }
     }
@@ -770,6 +781,18 @@ fun ReaderScreen(
     val s = session
     if (s == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Loading session...") }
+        return
+    }
+
+    novelProgress?.let { progress ->
+        NovelReaderScreen(
+            api = requireNotNull(api), baseUrl = s.baseUrl,
+            libraryId = libraryId, seriesId = seriesId, volumeId = currentVolumeId,
+            chapterId = currentChapterId, spineCount = pages, seriesName = seriesName,
+            chapterName = currentChapter.chapterName.orEmpty(), initialProgress = progress,
+            incognito = incognito, volumeKeys = settings.reader.turnPagesWithVolumeKeys,
+            onMenuChanged = { showReaderMenu = it }, onBack = onBack
+        )
         return
     }
 
