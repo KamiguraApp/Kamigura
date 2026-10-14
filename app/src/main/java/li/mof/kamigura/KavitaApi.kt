@@ -3,6 +3,7 @@ package li.mof.kamigura
 import retrofit2.Response
 import okhttp3.ResponseBody
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -129,6 +130,19 @@ interface KavitaApi {
 
     @POST("api/Reader/unbookmark")
     suspend fun unbookmarkPage(@Body body: BookmarkPageDto)
+
+    @GET("api/reader/ptoc")
+    suspend fun personalTableOfContents(@Query("chapterId") chapterId: Int): List<PersonalToCDto>
+
+    @POST("api/reader/create-ptoc")
+    suspend fun createPersonalToC(@Body body: CreatePersonalToCDto)
+
+    @DELETE("api/reader/ptoc")
+    suspend fun deletePersonalToC(
+        @Query("chapterId") chapterId: Int,
+        @Query("pageNum") pageNum: Int,
+        @Query("title") title: String
+    )
 
     @POST("api/Reader/progress")
     suspend fun saveProgress(@Body dto: ProgressDto)

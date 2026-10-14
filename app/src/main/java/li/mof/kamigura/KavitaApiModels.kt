@@ -313,3 +313,26 @@ data class BookmarkPageDto(
     val chapterId: Int,
     val page: Int
 )
+
+@Serializable
+data class PersonalToCDto(
+    val id: Int,
+    val chapterId: Int,
+    val pageNumber: Int,
+    val title: String,
+    val bookScrollId: String? = null,
+    val selectedText: String? = null,
+    val chapterTitle: String? = null
+)
+
+@Serializable
+data class CreatePersonalToCDto(
+    val chapterId: Int,
+    val volumeId: Int,
+    val seriesId: Int,
+    val libraryId: Int,
+    val pageNumber: Int,
+    val title: String,
+    val bookScrollId: String,
+    val selectedText: String? = null
+)
