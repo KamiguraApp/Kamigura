@@ -100,7 +100,8 @@
         return Math.floor((vertical ? rect.top / height : rect.left / width) + 0.001);
     }
     function state() {
-        lastLocation = location();
+        // Reflow may reveal an earlier page start; don't walk backward on each reflow.
+        if (lastLocation == null) lastLocation = location();
         return { screen, count, vertical, anchor: anchor(), location: lastLocation };
     }
     let spacingOverrides = [];
@@ -114,6 +115,7 @@
         if (factor === 1) return;
         const elements = [root, ...root.querySelectorAll('*')].filter(element =>
             !element.matches('style,script,img,svg,ruby,rb,rt,rp') && !element.closest('svg,rt,rp'));
+        const prose = textNodes();
         // Measure all authored values first so inherited spacing is never multiplied twice.
         const heights = elements.map(element => {
             const style = getComputedStyle(element);
@@ -121,10 +123,13 @@
             if (!Number.isFinite(pixels)) {
                 const probe = document.createElement('span');
                 Object.assign(probe.style, { position: 'fixed', top: '-10000px', display: 'block',
-                    visibility: 'hidden', whiteSpace: 'nowrap', font: style.font, lineHeight: 'normal' });
-                probe.textContent = 'M\u6e2c';
+                    visibility: 'hidden', whiteSpace: 'nowrap', font: style.font, lineHeight: 'normal',
+                    writingMode: style.writingMode });
+                // Use this element's actual prose so fallback-font metrics are preserved.
+                probe.textContent = prose.find(node => element.contains(node))?.textContent || 'M';
                 document.body.appendChild(probe);
-                pixels = probe.getBoundingClientRect().height;
+                const bounds = probe.getBoundingClientRect();
+                pixels = style.writingMode.startsWith('vertical') ? bounds.width : bounds.height;
                 probe.remove();
             }
             return pixels / parseFloat(style.fontSize);
@@ -167,7 +172,9 @@
             maximum = Math.max(maximum, vertical ? r.bottom : r.right);
         }
         count = Math.max(1, Math.ceil(maximum / (vertical ? height : width) - 0.01));
-        show(last ? count - 1 : (locateLocation(precise) ?? locate(resolve(xpath))));
+        const preciseScreen = locateLocation(precise);
+        show(last ? count - 1 : (preciseScreen ?? locate(resolve(xpath))));
+        lastLocation = !last && preciseScreen != null ? precise : null;
         window.novelReader.ready = true;
         return state();
     }
@@ -176,12 +183,12 @@
         turn(delta) {
             const target = screen + delta;
             if (target < 0 || target >= count) return { boundary: delta };
-            show(target); return state();
+            show(target); lastLocation = null; return state();
         },
-        jump(xpath) { book.style.transform = ''; show(locate(resolve(xpath))); return state(); },
-        setVertical(value) { const xpath = anchor(), precise = location(); window.novelWritingMode = value; return layout(xpath, false, precise); },
+        jump(xpath) { book.style.transform = ''; show(locate(resolve(xpath))); lastLocation = null; return state(); },
+        setVertical(value) { const xpath = anchor(), precise = lastLocation ?? location(); window.novelWritingMode = value; return layout(xpath, false, precise); },
         setFontSize(value) {
-            const xpath = anchor(), precise = location();
+            const xpath = anchor(), precise = lastLocation ?? location();
             book.style.fontSize = (value * 0.16) + 'px';
             return layout(xpath, false, precise);
         },
