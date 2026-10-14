@@ -254,7 +254,12 @@ data class FileDimensionDto(
 data class UserReadingProfileDto(
     val readingDirection: Int? = null,
     // ReadingProfileKind: 0 = Default (no per-series direction), 1 = User, 2 = Implicit.
-    val kind: Int? = null
+    val kind: Int? = null,
+    val bookReaderWritingStyle: Int? = null,
+    val bookReaderFontSize: Int? = null,
+    val bookReaderLineSpacing: Int? = null,
+    val bookReaderMargin: Int? = null,
+    val bookReaderReadingDirection: Int? = null
 )
 
 @Serializable

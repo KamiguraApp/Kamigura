@@ -13,6 +13,7 @@ import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.cache.imageCacheScope
+import li.mof.kamigura.reader.novel.NovelReaderOverrides
 
 internal const val ReaderSessionPreferenceTtlMillis = 30L * 24L * 60L * 60L * 1_000L
 private const val ReaderSessionPreferenceCacheFileName = "reader_session_preferences.json"
@@ -44,8 +45,9 @@ internal object ReaderSessionPreferenceCache {
     private const val MaxEntries = 256
 
     private data class Entry(
-        val preferences: ReaderSessionPreferences,
-        val touchedAtMillis: Long
+        val preferences: ReaderSessionPreferences?,
+        val touchedAtMillis: Long,
+        val novelOverrides: NovelReaderOverrides? = null
     )
 
     @Serializable
@@ -53,8 +55,10 @@ internal object ReaderSessionPreferenceCache {
         val key: String,
         val readingDirection: String? = null,
         val rightToLeft: Boolean? = null,
-        val invertMode: String,
-        val touchedAtMillis: Long
+        val invertMode: String? = null,
+        val touchedAtMillis: Long,
+        val novelWritingStyle: Int? = null,
+        val novelFontSize: Int? = null
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -85,8 +89,12 @@ internal object ReaderSessionPreferenceCache {
             if (loadedDirectoryPath != directoryPath) {
                 entries.clear()
                 stored.forEach { storedEntry ->
-                    val mode = runCatching { InvertMode.valueOf(storedEntry.invertMode) }.getOrNull()
-                        ?: return@forEach
+                    val mode = storedEntry.invertMode?.let { runCatching { InvertMode.valueOf(it) }.getOrNull() }
+                    val novel = NovelReaderOverrides(
+                        storedEntry.novelWritingStyle?.takeIf { it in 0..1 },
+                        storedEntry.novelFontSize?.takeIf { it in 1..1000 }
+                    ).takeIf { it.writingStyle != null || it.fontSize != null }
+                    if (mode == null && novel == null) return@forEach
                     val direction = storedEntry.readingDirection
                         ?.let { runCatching { ReaderReadingDirection.valueOf(it) }.getOrNull() }
                         ?: if (storedEntry.rightToLeft != false) {
@@ -95,8 +103,9 @@ internal object ReaderSessionPreferenceCache {
                             ReaderReadingDirection.LeftToRight
                         }
                     entries[storedEntry.key] = Entry(
-                        preferences = ReaderSessionPreferences(direction, mode),
-                        touchedAtMillis = storedEntry.touchedAtMillis
+                        preferences = mode?.let { ReaderSessionPreferences(direction, it) },
+                        touchedAtMillis = storedEntry.touchedAtMillis,
+                        novelOverrides = novel
                     )
                 }
                 loadedDirectoryPath = directoryPath
@@ -116,7 +125,22 @@ internal object ReaderSessionPreferenceCache {
     @Synchronized
     fun put(key: String, preferences: ReaderSessionPreferences, nowMillis: Long) {
         removeExpired(nowMillis)
-        entries[key] = Entry(preferences, nowMillis)
+        entries[key] = Entry(preferences, nowMillis, entries[key]?.novelOverrides)
+        trimToMaximumSize()
+    }
+
+    @Synchronized
+    fun getNovel(key: String, nowMillis: Long): NovelReaderOverrides? {
+        removeExpired(nowMillis)
+        val entry = entries[key] ?: return null
+        entries[key] = entry.copy(touchedAtMillis = nowMillis)
+        return entry.novelOverrides
+    }
+
+    @Synchronized
+    fun putNovel(key: String, overrides: NovelReaderOverrides, nowMillis: Long) {
+        removeExpired(nowMillis)
+        entries[key] = Entry(entries[key]?.preferences, nowMillis, overrides)
         trimToMaximumSize()
     }
 
@@ -125,9 +149,11 @@ internal object ReaderSessionPreferenceCache {
             entries.map { (key, entry) ->
                 StoredEntry(
                     key = key,
-                    readingDirection = entry.preferences.readingDirection.name,
-                    invertMode = entry.preferences.invertMode.name,
-                    touchedAtMillis = entry.touchedAtMillis
+                    readingDirection = entry.preferences?.readingDirection?.name,
+                    invertMode = entry.preferences?.invertMode?.name,
+                    touchedAtMillis = entry.touchedAtMillis,
+                    novelWritingStyle = entry.novelOverrides?.writingStyle,
+                    novelFontSize = entry.novelOverrides?.fontSize
                 )
             }
         }
