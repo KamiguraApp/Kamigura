@@ -68,8 +68,13 @@
         if (!xpath.startsWith('//body')) return null;
         let element = root;
         for (const part of xpath.slice(6).split('/').filter(Boolean)) {
+            const text = /^text\(\)\[(\d+)\]$/.exec(part);
+            if (text && element) {
+                element = Array.from(element.childNodes).filter(n => n.nodeType === Node.TEXT_NODE)[Number(text[1]) - 1];
+                continue;
+            }
             const match = /^([a-z][a-z0-9-]*)\[(\d+)\]$/.exec(part);
-            if (!match || !element) return null;
+            if (!match || !element || !element.children) return null;
             element = Array.from(element.children).filter(e => e.tagName.toLowerCase() === match[1])[Number(match[2]) - 1];
         }
         return element || null;
@@ -90,6 +95,18 @@
     function bodyElement(element) {
         while (element && element !== root && element.parentElement !== root) element = element.parentElement;
         return element;
+    }
+    function bookmarkContext(paths) {
+        const xpath = anchor(), element = resolve(xpath) || root;
+        const text = textNodes().filter(node => element.contains(node))
+            .map(node => node.textContent).join('').replace(/\s+/g, ' ').trim();
+        const visible = [];
+        paths.forEach((path, index) => {
+            const target = path ? resolve(path) : root;
+            if (target === root ? screen === 0 : target && rects(target).some(r =>
+                r.right > 0 && r.left < width && r.bottom > 0 && r.top < height)) visible.push(index);
+        });
+        return { anchor: xpath, title: Array.from(text).slice(0, 20).join(''), visible };
     }
     let lastLocation = null;
     function location() {
@@ -126,7 +143,7 @@
     }
     function locate(element) {
         if (!element || element === root) return 0;
-        const rect = element.getClientRects()[0];
+        const rect = element.nodeType === Node.TEXT_NODE ? rects(element)[0] : element.getClientRects()[0];
         if (!rect) return 0;
         return Math.floor((vertical ? rect.top / height : rect.left / width) + 0.001);
     }
@@ -210,14 +227,19 @@
         return state();
     }
     window.novelReader = {
-        ready: false, state, layout, setColors,
+        ready: false, state, layout, setColors, bookmarkContext,
         reflow() { return layout(anchor(), false, lastLocation); },
         turn(delta) {
             const target = screen + delta;
             if (target < 0 || target >= count) return { boundary: delta };
             show(target); lastLocation = null; return state();
         },
-        jump(xpath) { book.style.transform = ''; show(locate(resolve(xpath))); lastLocation = null; return state(); },
+        jump(xpath) {
+            const target = xpath ? resolve(xpath) : root;
+            if (!target) return { error: 'Bookmark position is no longer available.' };
+            book.style.transform = '';
+            show(locate(target)); lastLocation = null; return state();
+        },
         setVertical(value) { const xpath = anchor(), precise = lastLocation ?? location(); window.novelWritingMode = value; return layout(xpath, false, precise); },
         setFontSize(value) {
             const xpath = anchor(), precise = lastLocation ?? location();

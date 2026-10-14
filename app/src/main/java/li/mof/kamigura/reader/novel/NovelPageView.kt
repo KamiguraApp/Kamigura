@@ -11,6 +11,8 @@ import android.webkit.WebViewClient
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
+import org.json.JSONArray
+import li.mof.kamigura.PersonalToCDto
 import java.io.ByteArrayInputStream
 import java.util.UUID
 
@@ -167,6 +169,33 @@ internal class NovelPageView(context: Context) : WebView(context) {
     }
 
     fun beginSectionLoad() { generation++; stopLoading() }
+
+    fun bookmarkContext(items: List<PersonalToCDto>, callback: (NovelBookmarkContext?) -> Unit) {
+        val token = generation
+        val paths = JSONArray(items.map { it.bookScrollId })
+        evaluateJavascript("window.novelReader && window.novelReader.ready ? window.novelReader.bookmarkContext($paths) : null") { value ->
+            if (disposed || token != generation) { callback(null); return@evaluateJavascript }
+            callback(runCatching {
+                val json = JSONObject(value)
+                val visible = json.getJSONArray("visible")
+                NovelBookmarkContext(json.getString("anchor"), json.getString("title"),
+                    (0 until visible.length()).mapNotNull { items.getOrNull(visible.getInt(it))?.id }.toSet())
+            }.getOrNull())
+        }
+    }
+
+    fun jumpToBookmark(anchor: String?, callback: (String?) -> Unit) {
+        val token = generation
+        evaluateJavascript("window.novelReader.jump(${JSONObject.quote(anchor.orEmpty())})") { value ->
+            if (disposed || token != generation) { callback("The EPUB section changed."); return@evaluateJavascript }
+            val result = runCatching { JSONObject(value) }.getOrNull()
+            when {
+                result == null -> callback("Could not open this bookmark.")
+                result.has("error") -> callback(result.getString("error"))
+                else -> { report(value); callback(null) }
+            }
+        }
+    }
 
     fun position(callback: (NovelPosition?) -> Unit) {
         val token = generation
