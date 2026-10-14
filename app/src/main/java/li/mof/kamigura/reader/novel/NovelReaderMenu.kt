@@ -1,0 +1,128 @@
+package li.mof.kamigura.reader.novel
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Text
+import androidx.compose.material3.ToggleButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import li.mof.kamigura.reader.internal.ReaderMenuHeader
+import li.mof.kamigura.ui.ValueBubbleSlider
+import kotlin.math.roundToInt
+
+internal fun novelCompletionPercent(page: Int, pages: Int, part: Int, parts: Int): Int {
+    val count = pages.coerceAtLeast(1)
+    val partCount = parts.coerceAtLeast(1)
+    // EPUB pages are spines; the current rendered part refines progress within that spine.
+    val reached = page.coerceIn(0, count - 1) + part.coerceIn(0, partCount - 1).toDouble() / partCount
+    return (reached / count * 100).toInt().coerceIn(0, 99)
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun NovelReaderMenu(
+    seriesName: String,
+    chapterName: String,
+    page: Int,
+    pages: Int,
+    position: NovelPosition?,
+    preferences: NovelReaderPreferences,
+    enabled: Boolean,
+    onBack: () -> Unit,
+    onDismiss: () -> Unit,
+    onWritingStyle: (Int) -> Unit,
+    onFontSize: (Int) -> Unit,
+    onJumpToPage: (Int) -> Unit
+) {
+    val count = pages.coerceAtLeast(1)
+    val currentPage = page.coerceIn(0, count - 1)
+    val rightToLeft = preferences.rightToLeft
+    var selectedFont by remember(preferences.fontSize) { mutableIntStateOf(preferences.fontSize) }
+    var jumpPage by remember(currentPage, count) { mutableIntStateOf(currentPage) }
+    fun pageFromSlider(value: Float): Int {
+        val index = value.roundToInt().coerceIn(0, count - 1)
+        return if (rightToLeft) count - 1 - index else index
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        ReaderMenuHeader(seriesName, "$chapterName | Page ${currentPage + 1} / $count",
+            onBack, onDismiss, backLabel = "Back to series")
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000))
+                .verticalScroll(rememberScrollState()).navigationBarsPadding().padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Writing", color = Color.White)
+                    Row(Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+                        listOf("Horizontal", "Vertical").forEachIndexed { index, label ->
+                            ToggleButton(checked = preferences.writingStyle == index, enabled = enabled,
+                                onCheckedChange = { onWritingStyle(index) },
+                                modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
+                                shapes = if (index == 0) ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                    else ButtonGroupDefaults.connectedTrailingButtonShapes()) { Text(label) }
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Font size", color = Color.White)
+                    Text("$selectedFont%", color = Color.White)
+                }
+                ValueBubbleSlider(value = selectedFont.toFloat(),
+                    onValueChange = { selectedFont = it.roundToInt() },
+                    onValueChangeFinished = { onFontSize(selectedFont) },
+                    valueRange = minOf(50, preferences.fontSize).toFloat()..maxOf(250, preferences.fontSize).toFloat(),
+                    valueLabel = { "${it.roundToInt()}%" }, enabled = enabled,
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Font size" })
+
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Page", color = Color.White)
+                    Text("${currentPage + 1} / $count", color = Color.White)
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (rightToLeft) "$count" else "1", color = Color.White)
+                    ValueBubbleSlider(value = (if (rightToLeft) count - 1 - jumpPage else jumpPage).toFloat(),
+                        onValueChange = { jumpPage = pageFromSlider(it) },
+                        onValueChangeFinished = { if (jumpPage != currentPage) onJumpToPage(jumpPage) },
+                        valueRange = 0f..(count - 1).toFloat(),
+                        valueLabel = { "${pageFromSlider(it) + 1}" }, enabled = enabled && count > 1,
+                        reverseTrackColors = rightToLeft, showStopIndicator = false,
+                        modifier = Modifier.weight(1f).semantics { contentDescription = "EPUB page navigation" })
+                    Text(if (rightToLeft) "1" else "$count", color = Color.White)
+                }
+                val part = position?.screen ?: 0
+                val parts = (position?.count ?: 1).coerceAtLeast(1)
+                Text("${novelCompletionPercent(currentPage, count, part, parts)}% complete", color = Color.White)
+                if (parts > 1) {
+                    Text("${part + 1} / $parts within this page", color = Color.White.copy(alpha = 0.72f))
+                }
+            }
+        }
+    }
+}

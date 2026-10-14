@@ -3,21 +3,11 @@ package li.mof.kamigura.reader.novel
 import android.view.ViewConfiguration
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -60,14 +50,10 @@ import li.mof.kamigura.reader.internal.ReaderChapterBoundaryScreen
 import li.mof.kamigura.reader.internal.ReaderChapterEntry
 import li.mof.kamigura.reader.internal.ReaderChapterNeighbors
 import li.mof.kamigura.reader.internal.ReaderKeyEffect
-import li.mof.kamigura.reader.internal.ReaderMenuHeader
 import li.mof.kamigura.reader.internal.ReaderTapLayer
-import li.mof.kamigura.ui.ValueBubbleSlider
-import kotlin.math.roundToInt
 
 private val NovelPreferenceWriteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun NovelReaderScreen(
     api: KavitaApi, baseUrl: String, libraryId: Int, seriesId: Int, volumeId: Int,
@@ -271,39 +257,12 @@ internal fun NovelReaderScreen(
                 onContinue = ::continueChapter, onBackToSeries = ::close)
         }
         if (menu) {
-            Column(Modifier.fillMaxSize()) {
-                ReaderMenuHeader(seriesName, "$chapterName | Section ${spine + 1} / $spineCount", ::close,
-                    { menu = false }, backLabel = "Back to series")
-                Spacer(Modifier.weight(1f))
-                Column(Modifier.fillMaxWidth().background(Color(0xCC000000)).verticalScroll(rememberScrollState())
-                    .navigationBarsPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Section ${spine + 1} / $spineCount · Screen ${(position?.screen ?: 0) + 1} / ${position?.count ?: 1}", color = Color.White)
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        listOf("Horizontal", "Vertical").forEachIndexed { index, label ->
-                            SegmentedButton(selected = writingStyle == index, enabled = !loading && failure == null && !turning,
-                                shape = SegmentedButtonDefaults.itemShape(index, 2),
-                                onClick = { writingStyle = index; persistOverrides(style = index); view.setVertical(index == 1) }) { Text(label) }
-                        }
-                    }
-                    Text("Font size", color = Color.White)
-                    var selectedFont by remember(fontSize) { mutableIntStateOf(fontSize) }
-                    ValueBubbleSlider(value = selectedFont.toFloat(), onValueChange = { selectedFont = it.roundToInt() },
-                        onValueChangeFinished = { fontSize = selectedFont; persistOverrides(font = fontSize); view.setFontSize(fontSize) },
-                        valueRange = minOf(50, fontSize).toFloat()..maxOf(250, fontSize).toFloat(), valueLabel = { "${it.roundToInt()}%" },
-                        enabled = !loading && failure == null && !turning,
-                        modifier = Modifier.semantics { contentDescription = "Font size" })
-                    if (spineCount > 1) {
-                        var jumpSpine by remember(spine) { mutableIntStateOf(spine) }
-                        ValueBubbleSlider(value = (if (preferences.rightToLeft) spineCount - 1 - jumpSpine else jumpSpine).toFloat(),
-                            onValueChange = { jumpSpine = if (preferences.rightToLeft) spineCount - 1 - it.roundToInt() else it.roundToInt() },
-                            onValueChangeFinished = { if (jumpSpine != spine) loadSpine(jumpSpine) },
-                            valueRange = 0f..(spineCount - 1).toFloat(),
-                            valueLabel = { "${(if (preferences.rightToLeft) spineCount - 1 - it.roundToInt() else it.roundToInt()) + 1}" },
-                            enabled = !loading, reverseTrackColors = preferences.rightToLeft,
-                            modifier = Modifier.semantics { contentDescription = "EPUB section" })
-                    }
-                }
-            }
+            NovelReaderMenu(seriesName, chapterName, spine, spineCount, position, preferences,
+                enabled = !loading && failure == null && !turning,
+                onBack = ::close, onDismiss = { menu = false },
+                onWritingStyle = { writingStyle = it; persistOverrides(style = it); view.setVertical(it == 1) },
+                onFontSize = { fontSize = it; persistOverrides(font = it); view.setFontSize(it) },
+                onJumpToPage = { loadSpine(it) })
         }
     }
 }
