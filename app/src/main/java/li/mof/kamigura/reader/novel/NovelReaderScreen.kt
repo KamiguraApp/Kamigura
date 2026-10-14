@@ -242,7 +242,7 @@ internal fun NovelReaderScreen(
                 boundary != null -> "EPUB chapter boundary"
                 else -> "EPUB page"
             }
-            stateDescription = "Section ${spine + 1} / $spineCount · Screen ${(position?.screen ?: 0) + 1} / ${position?.count ?: 1}"
+            stateDescription = "Page ${spine + 1} / $spineCount • Screen ${(position?.screen ?: 0) + 1} / ${position?.count ?: 1}"
         })
         if (loading || failure != null) {
             Column(Modifier.align(Alignment.Center).background(Color(0xFFFAF7F2)).padding(24.dp),

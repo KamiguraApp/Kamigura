@@ -40,7 +40,7 @@ class NovelReaderMenuUiTest {
         show(width, height)
         compose.onNodeWithText("Writing").assertIsDisplayed()
         compose.onNodeWithText("Vertical").assertIsOn()
-        compose.onNodeWithText("Volume 33 | Page 16 / 21 \u00b7 Screen 11 / 23").assertIsDisplayed()
+        compose.onNodeWithText("Volume 33 | Page 16 / 21 \u2022 Screen 11 / 23").assertIsDisplayed()
         val header = compose.onNodeWithContentDescription("Close menu").fetchSemanticsNode().boundsInRoot
         val panel = compose.onNodeWithText("Writing").fetchSemanticsNode().boundsInRoot
         assertTrue("Header must not overlap the scrollable panel", header.bottom <= panel.top)

@@ -159,7 +159,7 @@ class NovelReaderProductionTest {
             key(KeyEvent.KEYCODE_PAGE_DOWN)
             compose.onNodeWithText("Next chapter").performClick()
             awaitLoaded()
-            assertTrue(state().startsWith("Section 1 /"))
+            assertTrue(state().startsWith("Page 1 /"))
             assertFalse(server.requests.any { it.path == "/api/Reader/image" })
             close()
             assertTrue(server.bookProgressWrites.isEmpty())

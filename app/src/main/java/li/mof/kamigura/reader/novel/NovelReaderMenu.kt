@@ -61,7 +61,7 @@ internal fun NovelReaderMenu(
     }
 
     Column(Modifier.fillMaxSize()) {
-        ReaderMenuHeader(seriesName, "$chapterName | Page ${currentPage + 1} / $count \u00b7 Screen ${screen + 1} / $screens",
+        ReaderMenuHeader(seriesName, "$chapterName | Page ${currentPage + 1} / $count \u2022 Screen ${screen + 1} / $screens",
             onBack, onDismiss, backLabel = "Back to series")
         Box(Modifier.weight(1f).fillMaxWidth()) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000))

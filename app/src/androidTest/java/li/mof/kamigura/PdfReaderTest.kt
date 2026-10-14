@@ -261,7 +261,7 @@ class PdfReaderTest {
                 compose.onAllNodesWithContentDescription("EPUB page").fetchSemanticsNodes().isNotEmpty()
             }
             openMenu()
-            compose.onNodeWithText("Section 1 / 6 · Screen", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("Page 1 / 6 • Screen", substring = true).assertIsDisplayed()
             assertFalse(server.requests.any { it.path == "/api/Reader/image" })
             assertTrue(server.requests.any { it.path == "/api/Book/1/book-page" })
             assertTrue(server.requests.filter { it.path == "/api/Reader/chapter-info" }

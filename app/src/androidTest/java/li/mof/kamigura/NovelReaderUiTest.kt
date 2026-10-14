@@ -237,7 +237,7 @@ class NovelReaderUiTest {
     private fun awaitSection(section: Int) {
         compose.waitUntil(20_000) {
             compose.onAllNodesWithContentDescription("EPUB page").fetchSemanticsNodes().firstOrNull()?.config?.get(
-                androidx.compose.ui.semantics.SemanticsProperties.StateDescription)?.startsWith("Section $section /") == true
+                androidx.compose.ui.semantics.SemanticsProperties.StateDescription)?.startsWith("Page $section /") == true
         }
     }
 
