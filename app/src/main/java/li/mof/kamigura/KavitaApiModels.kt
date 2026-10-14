@@ -336,3 +336,11 @@ data class CreatePersonalToCDto(
     val bookScrollId: String,
     val selectedText: String? = null
 )
+
+@Serializable
+data class BookChapterItemDto(
+    val title: String = "",
+    val part: String = "",
+    val page: Int = 0,
+    val children: List<BookChapterItemDto> = emptyList()
+)

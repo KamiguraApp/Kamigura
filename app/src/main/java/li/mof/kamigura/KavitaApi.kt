@@ -113,6 +113,9 @@ interface KavitaApi {
         @Query("page") page: Int
     ): ResponseBody
 
+    @GET("api/Book/{chapterId}/chapters")
+    suspend fun bookContents(@Path("chapterId") chapterId: Int): List<BookChapterItemDto>
+
     @GET("api/Reader/get-progress")
     suspend fun getProgress(@Query("chapterId") chapterId: Int): ProgressDto
 
