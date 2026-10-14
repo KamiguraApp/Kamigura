@@ -77,7 +77,8 @@ internal fun NovelReaderMenu(
                 ReaderBookmarkButton(currentPage, it, onBookmark)
             } },
             feedback = bookmarkState?.error ?: bookmarkState?.message,
-            feedbackIsError = bookmarkState?.error != null)
+            feedbackIsError = bookmarkState?.error != null,
+            compactSubtitle = "Page ${currentPage + 1} / $count \u2022 Screen ${screen + 1} / $screens")
         Box(Modifier.weight(1f).fillMaxWidth()) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000))
                 .verticalScroll(rememberScrollState()).navigationBarsPadding().padding(12.dp),

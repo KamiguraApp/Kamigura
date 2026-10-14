@@ -4,6 +4,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +37,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import li.mof.kamigura.InvertMode
 import li.mof.kamigura.ReaderReadingDirection
@@ -245,7 +247,8 @@ internal fun ReaderMenuHeader(
     backLabel: String = "Back",
     bookmark: @Composable () -> Unit = {},
     feedback: String? = null,
-    feedbackIsError: Boolean = false
+    feedbackIsError: Boolean = false,
+    compactSubtitle: String? = null
 ) {
     Column(
         modifier = Modifier
@@ -275,13 +278,24 @@ internal fun ReaderMenuHeader(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = subtitle,
-                    color = Color.White.copy(alpha = 0.72f),
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (compactSubtitle == null) {
+                    Text(
+                        text = subtitle,
+                        color = Color.White.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    val measurer = rememberTextMeasurer()
+                    val style = MaterialTheme.typography.bodySmall
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val fullWidth = measurer.measure(subtitle, style, softWrap = false, maxLines = 1).multiParagraph.width
+                        Text(if (fullWidth <= constraints.maxWidth) subtitle else compactSubtitle,
+                            color = Color.White.copy(alpha = 0.72f), style = style,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+                    }
+                }
             }
             bookmark()
             IconButton(onClick = onDismiss) {

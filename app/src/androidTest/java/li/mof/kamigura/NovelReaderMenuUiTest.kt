@@ -12,6 +12,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -21,6 +23,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import li.mof.kamigura.reader.novel.NovelPosition
 import li.mof.kamigura.reader.novel.NovelReaderMenu
 import li.mof.kamigura.reader.novel.NovelReaderPreferences
+import li.mof.kamigura.reader.internal.ReaderBookmarkState
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -35,6 +38,26 @@ class NovelReaderMenuUiTest {
     @Test fun phoneLandscapeMenu() = layout(880, 420, "phone-landscape")
     @Test fun tabletPortraitMenu() = layout(800, 1100, "tablet-portrait")
     @Test fun tabletLandscapeMenu() = layout(1100, 800, "tablet-landscape")
+
+    @Test fun phoneSubtitleOmitsChapterOnlyWhenFullTextDoesNotFit() {
+        show(420, 880, withBookmarks = true)
+        val subtitle = compose.onNodeWithText("Page 16 / 21 \u2022 Screen 11 / 23").assertIsDisplayed()
+        compose.onNodeWithText("Volume 33 | Page 16 / 21 \u2022 Screen 11 / 23").assertDoesNotExist()
+        assertSubtitleFits(subtitle)
+    }
+
+    @Test fun tabletSubtitleKeepsChapterWhenFullTextFits() {
+        show(1100, 800, withBookmarks = true)
+        val subtitle = compose.onNodeWithText("Volume 33 | Page 16 / 21 \u2022 Screen 11 / 23").assertIsDisplayed()
+        assertSubtitleFits(subtitle)
+    }
+
+    private fun assertSubtitleFits(node: SemanticsNodeInteraction) {
+        val layouts = mutableListOf<TextLayoutResult>()
+        node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val result = layouts.single()
+        assertFalse("Subtitle ${result.size}: width=${result.didOverflowWidth}, height=${result.didOverflowHeight}, ellipsis=${result.isLineEllipsized(0)}", result.hasVisualOverflow)
+    }
 
     private fun layout(width: Int, height: Int, name: String) {
         show(width, height)
@@ -126,14 +149,15 @@ class NovelReaderMenuUiTest {
     private fun show(width: Int, height: Int, page: () -> Int = { 15 }, pages: Int = 21, enabled: Boolean = true,
         preferences: () -> NovelReaderPreferences = { NovelReaderPreferences(writingStyle = 1) },
         onStyle: (Int) -> Unit = {}, onFont: (Int) -> Unit = {}, onJump: (Int) -> Unit = {},
-        onBackground: (PageBackground) -> Unit = {}) {
+        onBackground: (PageBackground) -> Unit = {}, withBookmarks: Boolean = false) {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 MaterialTheme {
                     Box(Modifier.size(width.dp, height.dp).background(Color(0xFFFAF7F2))) {
                         NovelReaderMenu("A long novel series title that must not crowd either icon",
                             "Volume 33", page(), pages, NovelPosition(10, 23, true, "//body/p[57]"),
-                            preferences(), enabled, {}, {}, onStyle, onFont, onJump, onBackground)
+                            preferences(), enabled, {}, {}, onStyle, onFont, onJump, onBackground,
+                            bookmarkState = if (withBookmarks) ReaderBookmarkState(loaded = true) else null)
                     }
                 }
             }
