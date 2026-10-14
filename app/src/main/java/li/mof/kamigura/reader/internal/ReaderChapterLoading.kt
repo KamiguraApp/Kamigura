@@ -21,7 +21,8 @@ internal suspend fun loadReaderChapterInfo(
 
 internal data class ReaderChapterPages(
     val info: ChapterInfoDto,
-    val epubImageUrls: List<String>? = null
+    val epubImageUrls: List<String>? = null,
+    val novelEpub: Boolean = false
 )
 
 internal suspend fun loadReaderChapterPages(
@@ -33,7 +34,11 @@ internal suspend fun loadReaderChapterPages(
 ): ReaderChapterPages {
     val info = loadReaderChapterInfo(api, chapterId, seriesFormat)
     val epubImages = if (seriesFormat == MangaFormat.Epub) {
-        loadImageEpubPages(api, chapterId, requireNotNull(info.pages), baseUrl, parseEpubPage)
+        try {
+            loadImageEpubPages(api, chapterId, requireNotNull(info.pages), baseUrl, parseEpubPage)
+        } catch (_: UnsupportedImageEpubException) {
+            return ReaderChapterPages(info, novelEpub = true)
+        }
     } else null
     return ReaderChapterPages(info, epubImages)
 }

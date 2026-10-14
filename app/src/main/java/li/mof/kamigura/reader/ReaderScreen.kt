@@ -72,6 +72,7 @@ import li.mof.kamigura.PageTurnMode
 import li.mof.kamigura.ProgressDto
 import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.SeriesDto
+import li.mof.kamigura.UserReadingProfileDto
 import li.mof.kamigura.download.OfflineChapter
 import li.mof.kamigura.download.OfflineIssueRepository
 import li.mof.kamigura.reader.internal.ReaderInvertCacheKey
@@ -101,8 +102,6 @@ import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
 import li.mof.kamigura.reader.internal.loadReaderChapterPages
-import li.mof.kamigura.reader.internal.loadReaderChapterInfo
-import li.mof.kamigura.reader.internal.UnsupportedImageEpubException
 import li.mof.kamigura.reader.novel.NovelReaderScreen
 import li.mof.kamigura.reader.internal.readerLoadErrorMessage
 import li.mof.kamigura.reader.internal.pageIsWide
@@ -217,6 +216,9 @@ fun ReaderScreen(
     var readerSeries by remember { mutableStateOf<SeriesDto?>(null) }
     var epubPageImages by remember { mutableStateOf<List<String>?>(null) }
     var novelProgress by remember { mutableStateOf<ProgressDto?>(null) }
+    var novelOpenLastScreen by rememberSaveable { mutableStateOf(false) }
+    var novelChapterEntered by rememberSaveable { mutableStateOf(false) }
+    var readingProfile by remember { mutableStateOf<UserReadingProfileDto?>(null) }
     var chapterSwitching by remember { mutableStateOf(false) }
     var chapterBoundary by remember { mutableStateOf<ReaderChapterBoundary?>(null) }
     var boundaryDragDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
@@ -342,7 +344,7 @@ fun ReaderScreen(
         }
     }
     fun closeReader() {
-        if (!incognito && !completingRead && readerReady && pages > 0 &&
+        if (novelProgress == null && !incognito && !completingRead && readerReady && pages > 0 &&
             (hasMoved || page != openedPage)
         ) {
             val target = newRemoteProgressTarget(
@@ -489,10 +491,12 @@ fun ReaderScreen(
                 val loadedPageCount: Int
                 val loadedDimensions: Map<Int, FileDimensionDto>
                 val loadedEpubImages: List<String>?
+                val loadedNovel: Boolean
                 if (local != null) {
                     loadedPageCount = local.pages.size
                     loadedDimensions = local.dimensions
                     loadedEpubImages = null
+                    loadedNovel = false
                 } else {
                     val series = readerSeries ?: loadedApi.series(seriesId).also { readerSeries = it }
                     val loaded = loadReaderChapterPages(
@@ -502,6 +506,7 @@ fun ReaderScreen(
                     loadedPageCount = info.pages ?: 0
                     loadedDimensions = info.pageDimensions.toPageDimensionMap()
                     loadedEpubImages = loaded.epubImageUrls
+                    loadedNovel = loaded.novelEpub
                 }
                 if (loadedPageCount <= 0) {
                     error = "Chapter has no readable pages"
@@ -525,6 +530,9 @@ fun ReaderScreen(
                 currentChapter = target
                 offlineChapter = local
                 epubPageImages = loadedEpubImages
+                novelProgress = if (loadedNovel) ProgressDto(libraryId, seriesId, target.volumeId, target.chapterId, landingPage) else null
+                novelOpenLastScreen = loadedNovel && openAtLastPage
+                novelChapterEntered = loadedNovel
                 pages = loadedPageCount
                 pageDimensions = loadedDimensions
                 page = landingPage
@@ -637,6 +645,7 @@ fun ReaderScreen(
                 // wins. When only the global Default profile applies, the series has
                 // no direction of its own, so fall back to the app setting.
                 val profile = loadedApi.readingProfile(libraryId, seriesId)
+                readingProfile = profile
                 resolveReaderReadingDirection(
                     globalDirection = persistedReaderSettings.readingDirection,
                     cachedDirection = cachedPreferences?.readingDirection,
@@ -658,7 +667,15 @@ fun ReaderScreen(
                 val pageCount = info.pages ?: 0
                 pages = pageCount
                 pageDimensions = info.pageDimensions.toPageDimensionMap()
-                val savedPage = restoredPage ?: initialPage ?: loadedApi.getProgress(currentChapterId).pageNum
+                val progress = if (loaded.novelEpub || (restoredPage == null && initialPage == null)) {
+                    loadedApi.getProgress(currentChapterId)
+                } else ProgressDto(libraryId, seriesId, currentVolumeId, currentChapterId, restoredPage ?: initialPage ?: 0)
+                val savedPage = restoredPage ?: initialPage ?: progress.pageNum
+                if (loaded.novelEpub) {
+                    novelProgress = if (restoredPage == null && initialPage != null) {
+                        progress.copy(pageNum = initialPage, bookScrollId = null)
+                    } else progress
+                }
                 page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
                 if (openedPage < 0) openedPage = page
                 if (restoredPage == null) {
@@ -690,20 +707,13 @@ fun ReaderScreen(
         } catch (t: Throwable) {
             KamiguraLog.w("Could not initialize Reader for chapter $currentChapterId.", t)
             if (local == null) {
-                if (t is UnsupportedImageEpubException && readerSeries?.format == MangaFormat.Epub) {
-                    try {
-                        pages = requireNotNull(loadReaderChapterInfo(requireNotNull(api), currentChapterId, MangaFormat.Epub).pages)
-                        val progress = requireNotNull(api).getProgress(currentChapterId)
-                        novelProgress = if (initialPage != null) progress.copy(pageNum = initialPage, bookScrollId = null) else progress
-                    } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (loadError: Throwable) { error = readerLoadErrorMessage(loadError) }
-                } else error = readerLoadErrorMessage(t)
+                error = readerLoadErrorMessage(t)
             }
         }
     }
 
-    LaunchedEffect(readerReady, page) {
-        if (readerReady && page != openedPage) hasMoved = true
+    LaunchedEffect(readerReady, page, novelProgress != null) {
+        if (novelProgress == null && readerReady && page != openedPage) hasMoved = true
     }
 
     LaunchedEffect(
@@ -713,9 +723,10 @@ fun ReaderScreen(
         page,
         incognito,
         session,
-        offlineChapter
+        offlineChapter,
+        novelProgress != null
     ) {
-        if (!readerReady) return@LaunchedEffect
+        if (!readerReady || novelProgress != null) return@LaunchedEffect
         if (incognito) return@LaunchedEffect
         if (pages <= 0 || page !in 0 until pages) return@LaunchedEffect
         val loadedSession = session ?: return@LaunchedEffect
@@ -732,9 +743,10 @@ fun ReaderScreen(
         pages,
         page,
         incognito,
-        chapterSwitching
+        chapterSwitching,
+        novelProgress != null
     ) {
-        if (!readerReady) return@LaunchedEffect
+        if (!readerReady || novelProgress != null) return@LaunchedEffect
         if (incognito) return@LaunchedEffect
         if (chapterSwitching) return@LaunchedEffect
         if (pages <= 0 || page !in 0 until pages) return@LaunchedEffect
@@ -785,14 +797,19 @@ fun ReaderScreen(
     }
 
     novelProgress?.let { progress ->
-        NovelReaderScreen(
+        key(currentChapterId) { NovelReaderScreen(
             api = requireNotNull(api), baseUrl = s.baseUrl,
             libraryId = libraryId, seriesId = seriesId, volumeId = currentVolumeId,
             chapterId = currentChapterId, spineCount = pages, seriesName = seriesName,
-            chapterName = currentChapter.chapterName.orEmpty(), initialProgress = progress,
+            chapterName = currentChapter.displayName, initialProgress = progress,
             incognito = incognito, volumeKeys = settings.reader.turnPagesWithVolumeKeys,
+            profile = readingProfile, preferenceKey = requireNotNull(sessionPreferenceKey),
+            currentChapter = currentChapter, neighbors = readerChapterNeighbors(chapterSequence, currentChapterId),
+            initialLastScreen = novelOpenLastScreen, chapterEntered = novelChapterEntered,
+            chapterSwitching = chapterSwitching, switchError = error,
+            onSwitchChapter = ::switchChapter,
             onMenuChanged = { showReaderMenu = it }, onBack = onBack
-        )
+        ) }
         return
     }
 

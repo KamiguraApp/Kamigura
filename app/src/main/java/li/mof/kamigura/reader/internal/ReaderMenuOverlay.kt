@@ -1,5 +1,4 @@
 package li.mof.kamigura.reader.internal
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -87,64 +86,12 @@ internal fun ReaderMenuOverlay(
                 detectTapGestures(onTap = { onDismiss() })
             }
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xCC000000))
-                .statusBarsPadding()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White
-                    )
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = seriesName,
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "$chapterName | ${page + 1} / $pages",
-                        color = Color.White.copy(alpha = 0.72f),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                bookmarkState?.let { state ->
-                    ReaderBookmarkButton(currentPage, state, onBookmark)
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "Close menu",
-                        tint = Color.White
-                    )
-                }
-            }
-            val feedback = bookmarkState?.error ?: bookmarkState?.message
-            if (feedback != null) {
-                Text(
-                    text = feedback,
-                    color = if (bookmarkState?.error != null) MaterialTheme.colorScheme.error
-                        else Color.White.copy(alpha = 0.9f),
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
+        ReaderMenuHeader(
+            seriesName, "$chapterName | ${page + 1} / $pages", onBack, onDismiss,
+            bookmark = { bookmarkState?.let { ReaderBookmarkButton(currentPage, it, onBookmark) } },
+            feedback = bookmarkState?.error ?: bookmarkState?.message,
+            feedbackIsError = bookmarkState?.error != null
+        )
 
         Spacer(Modifier.weight(1f))
 
@@ -289,3 +236,71 @@ internal fun ReaderMenuOverlay(
     }
 }
 
+@Composable
+internal fun ReaderMenuHeader(
+    seriesName: String,
+    subtitle: String,
+    onBack: () -> Unit,
+    onDismiss: () -> Unit,
+    backLabel: String = "Back",
+    bookmark: @Composable () -> Unit = {},
+    feedback: String? = null,
+    feedbackIsError: Boolean = false
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xCC000000))
+            .statusBarsPadding()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = backLabel,
+                    tint = Color.White
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = seriesName,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    color = Color.White.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            bookmark()
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Close menu",
+                    tint = Color.White
+                )
+            }
+        }
+        if (feedback != null) {
+            Text(
+                text = feedback,
+                color = if (feedbackIsError) MaterialTheme.colorScheme.error
+                    else Color.White.copy(alpha = 0.9f),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+
+}

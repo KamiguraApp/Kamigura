@@ -16,6 +16,34 @@ import org.junit.Test
 import java.lang.reflect.Proxy
 
 class ReaderChapterLoadingTest {
+    @Test fun proseEpubUsesNovelRouteWithoutDuplicatingChapterInfo() = runBlocking {
+        var metadataCalls = 0
+        val fullApi = object : KavitaApi by (api { metadataCalls++; ChapterInfoDto(pages = 3) }) {
+            override suspend fun bookPage(chapterId: Int, page: Int) = "prose".toResponseBody()
+        }
+        val loaded = loadReaderChapterPages(fullApi, 42, 3, "http://server") {
+            EpubImagePageContent(emptyList(), "Original novel prose")
+        }
+        assertTrue(loaded.novelEpub)
+        assertNull(loaded.epubImageUrls)
+        assertEquals(1, metadataCalls)
+        assertEquals(3, loaded.info.pages)
+    }
+
+    @Test fun failedBookRequestsNeverMasqueradeAsNovelClassification() = runBlocking {
+        for (failure in listOf(java.io.IOException("offline"), kotlinx.coroutines.CancellationException("cancelled"))) {
+            val fullApi = object : KavitaApi by (api { ChapterInfoDto(pages = 3) }) {
+                override suspend fun bookPage(chapterId: Int, page: Int): ResponseBody = throw failure
+            }
+            try {
+                loadReaderChapterPages(fullApi, 42, 3, "http://server") { EpubImagePageContent(emptyList(), "prose") }
+                fail("Request failure must propagate")
+            } catch (actual: Throwable) {
+                assertEquals(failure.javaClass, actual.javaClass)
+                assertEquals(failure.message, actual.message)
+            }
+        }
+    }
     @Test
     fun onlyPdfRequestsExtractionAndAlwaysLoadsDimensions() = runBlocking {
         for (format in listOf(null, 0, 1, 2, 3, 4, 99)) {
