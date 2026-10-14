@@ -29,6 +29,8 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import li.mof.kamigura.reader.internal.ReaderMenuHeader
+import li.mof.kamigura.reader.internal.ReaderBookmarkButton
+import li.mof.kamigura.reader.internal.ReaderBookmarkState
 import li.mof.kamigura.ui.ValueBubbleSlider
 import li.mof.kamigura.PageBackground
 import kotlin.math.roundToInt
@@ -48,7 +50,10 @@ internal fun NovelReaderMenu(
     onWritingStyle: (Int) -> Unit,
     onFontSize: (Int) -> Unit,
     onJumpToPage: (Int) -> Unit,
-    onBackground: (PageBackground) -> Unit
+    onBackground: (PageBackground) -> Unit,
+    bookmarkState: ReaderBookmarkState? = null,
+    onBookmark: () -> Unit = {},
+    onOpenBookmarks: () -> Unit = {}
 ) {
     val count = pages.coerceAtLeast(1)
     val currentPage = page.coerceIn(0, count - 1)
@@ -64,7 +69,13 @@ internal fun NovelReaderMenu(
 
     Column(Modifier.fillMaxSize()) {
         ReaderMenuHeader(seriesName, "$chapterName | Page ${currentPage + 1} / $count \u2022 Screen ${screen + 1} / $screens",
-            onBack, onDismiss, backLabel = "Back to series")
+            onBack, onDismiss, backLabel = "Back to series",
+            bookmark = { bookmarkState?.let {
+                NovelBookmarksButton(onOpenBookmarks)
+                ReaderBookmarkButton(currentPage, it, onBookmark)
+            } },
+            feedback = bookmarkState?.error ?: bookmarkState?.message,
+            feedbackIsError = bookmarkState?.error != null)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000))
                 .verticalScroll(rememberScrollState()).navigationBarsPadding().padding(12.dp),

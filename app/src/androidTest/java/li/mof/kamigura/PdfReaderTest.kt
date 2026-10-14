@@ -35,6 +35,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import okio.buffer
+import okio.source
 
 @RunWith(AndroidJUnit4::class)
 class PdfReaderTest {
@@ -450,7 +452,8 @@ internal class ReaderServer(
     bookProgress: ProgressDto? = null,
     readingProfile: String = """{"kind":1,"readingDirection":1}""",
     spineCount: Int = 6,
-    bookChapterFragment: ((Int, Int) -> String)? = null
+    bookChapterFragment: ((Int, Int) -> String)? = null,
+    personalHandler: ((String, Uri, String) -> Pair<Int, String>)? = null
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -492,22 +495,16 @@ internal class ReaderServer(
                 val connection = try { socket.accept() } catch (_: java.io.IOException) { break }
                 workers.execute {
                     connection.use {
-                        val input = it.getInputStream().bufferedReader()
-                        val request = input.readLine() ?: return@use
+                        val input = it.getInputStream().source().buffer()
+                        val request = input.readUtf8Line() ?: return@use
                         val uri = Uri.parse(request.split(' ')[1])
                         var length = 0
                         while (true) {
-                            val header = input.readLine() ?: return@use
+                            val header = input.readUtf8Line() ?: return@use
                             if (header.isEmpty()) break
                             if (header.startsWith("Content-Length:", true)) length = header.substringAfter(':').trim().toInt()
                         }
-                        val requestBody = CharArray(length)
-                        var read = 0
-                        while (read < length) {
-                            val count = input.read(requestBody, read, length - read)
-                            if (count < 0) break
-                            read += count
-                        }
+                        val requestBody = input.readUtf8(length.toLong()).toCharArray()
                         if (uri.path == "/api/Reader/progress" && length > 0) {
                             val progress = Json.parseToJsonElement(String(requestBody)).jsonObject
                             progressWrites += progress.getValue("chapterId").jsonPrimitive.int to
@@ -515,7 +512,9 @@ internal class ReaderServer(
                             bookProgressWrites += Json.decodeFromString<ProgressDto>(String(requestBody))
                         }
                         requests += uri
-                        val json = when (uri.path) {
+                        val personal = if (uri.path in listOf("/api/reader/ptoc", "/api/reader/create-ptoc"))
+                            personalHandler?.invoke(request.substringBefore(' '), uri, String(requestBody)) else null
+                        val json = personal?.second ?: when (uri.path) {
                             "/api/Series/1" -> """{"id":1,"name":"Test book","format":$format}"""
                             "/api/Series/volumes" -> if (neighbor)
                                 """[{"id":1,"chapters":[{"id":1,"title":"First"},{"id":2,"title":"Second"}]}]""" else "[]"
@@ -528,6 +527,7 @@ internal class ReaderServer(
                                     """{"libraryId":1,"seriesId":1,"volumeId":1,"chapterId":$chapter,"pageNum":$page}"""
                             }
                             "/api/Reader/chapter-bookmarks" -> "[]"
+                            "/api/reader/ptoc" -> "[]"
                             "/api/Book/1/book-page", "/api/Book/2/book-page" -> {
                                 val spine = uri.getQueryParameter("page")?.toInt() ?: 0
                                 bookChapterFragment?.invoke(uri.pathSegments[2].toInt(), spine) ?: bookFragment(spine)
@@ -553,7 +553,7 @@ internal class ReaderServer(
                             else if (uri.path == "/api/Book/1/book-page") "text/html" else "application/json"
                         val cacheHeader = if (isImage && cacheImages) "Cache-Control: max-age=3600\r\n" else ""
                         runCatching {
-                            it.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: $type\r\n" +
+                            it.getOutputStream().write(("HTTP/1.1 ${personal?.first ?: 200} Response\r\nContent-Type: $type\r\n" +
                                 cacheHeader + "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray() + body)
                         }
                     }

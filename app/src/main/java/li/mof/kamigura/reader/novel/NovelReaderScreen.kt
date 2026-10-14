@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -35,12 +36,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.MarkChapterReadDto
 import li.mof.kamigura.MarkVolumesReadDto
 import li.mof.kamigura.ProgressDto
 import li.mof.kamigura.PageBackground
+import li.mof.kamigura.PersonalToCDto
 import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.UserReadingProfileDto
 import li.mof.kamigura.reader.ReaderSessionPreferenceCache
@@ -52,6 +55,9 @@ import li.mof.kamigura.reader.internal.ReaderChapterEntry
 import li.mof.kamigura.reader.internal.ReaderChapterNeighbors
 import li.mof.kamigura.reader.internal.ReaderKeyEffect
 import li.mof.kamigura.reader.internal.ReaderTapLayer
+import li.mof.kamigura.reader.internal.ReaderBookmarkState
+import li.mof.kamigura.reader.internal.readerCanManageBookmarks
+import kotlin.coroutines.resume
 
 private val NovelPreferenceWriteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -66,7 +72,8 @@ internal fun NovelReaderScreen(
     currentChapter: ReaderChapterEntry, neighbors: ReaderChapterNeighbors,
     initialLastScreen: Boolean, chapterEntered: Boolean,
     chapterSwitching: Boolean, switchError: String?,
-    onSwitchChapter: (ReaderChapterEntry, Boolean) -> Unit
+    onSwitchChapter: (ReaderChapterEntry, Boolean) -> Unit,
+    offline: Boolean = false
 ) {
     val context = LocalContext.current
     val initialOverrides = remember(preferenceKey) {
@@ -91,6 +98,11 @@ internal fun NovelReaderScreen(
     var reachedAnchor by rememberSaveable { mutableStateOf(initialProgress.bookScrollId) }
     var openLast by rememberSaveable { mutableStateOf(initialLastScreen) }
     var menu by remember { mutableStateOf(false) }
+    var bookmarkList by remember { mutableStateOf(false) }
+    var bookmarkContext by remember { mutableStateOf<NovelBookmarkContext?>(null) }
+    var bookmarkPositionError by remember { mutableStateOf<String?>(null) }
+    var checkingBookmark by remember { mutableStateOf(false) }
+    var pendingBookmarkAnchor by rememberSaveable { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
     var failure by remember { mutableStateOf<String?>(null) }
     var position by remember { mutableStateOf<NovelPosition?>(null) }
@@ -110,8 +122,15 @@ internal fun NovelReaderScreen(
             ReaderChapterBoundary(if (delta > 0) ReaderTurnDirection.Next else ReaderTurnDirection.Previous, currentChapter, it)
         }
     }
-    val writer = remember(api, incognito) { NovelProgressWriter(api, incognito) }
+    // Retrofit proxies need identity keys; their Object.equals implementation is not reflexive.
+    val apiIdentity = System.identityHashCode(api)
+    val writer = remember(apiIdentity, incognito) { NovelProgressWriter(api, incognito) }
     val view = remember { NovelPageView(context).apply { setColors(colors) } }
+    val scope = rememberCoroutineScope()
+    val bookmarks = remember(apiIdentity, chapterId, incognito, offline) {
+        if (readerCanManageBookmarks(incognito, offline))
+            NovelBookmarks(api, chapterId, volumeId, seriesId, libraryId, spineCount) else null
+    }
     LaunchedEffect(colors) { view.setColors(colors) }
     val minimumFlingVelocity = remember(context) { ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat() }
 
@@ -137,16 +156,32 @@ internal fun NovelReaderScreen(
         if (loading || failure != null || boundaryDirection != null || chapterSwitching) finishClose(reachedAnchor)
         else view.position { latest -> finishClose(latest?.anchor ?: reachedAnchor) }
     }
-    fun loadSpine(target: Int, last: Boolean = false) {
+    fun loadSpine(target: Int, last: Boolean = false, anchor: String? = null) {
         renderedSpine = -1
         view.beginSectionLoad()
         spine = target
-        savedAnchor = null
+        savedAnchor = anchor
         savedLocation = null
         openLast = last
         loading = true
         turning = false
         moved = true
+    }
+    fun openBookmark(item: PersonalToCDto) {
+        if (loading || turning || chapterSwitching || closing || bookmarks?.state?.busy == true) return
+        bookmarkPositionError = null
+        moved = true
+        if (item.pageNumber != spine) {
+            pendingBookmarkAnchor = item.bookScrollId.orEmpty()
+            loadSpine(item.pageNumber, anchor = item.bookScrollId)
+        } else {
+            turning = true
+            view.jumpToBookmark(item.bookScrollId) { error ->
+                turning = false
+                bookmarkPositionError = error
+                if (error == null) { bookmarkList = false; menu = false }
+            }
+        }
     }
     fun continueChapter() {
         boundary?.let { onSwitchChapter(it.neighbor, it.direction == ReaderTurnDirection.Previous) }
@@ -212,8 +247,29 @@ internal fun NovelReaderScreen(
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Throwable) { failure = "Could not load this EPUB section."; loading = false }
     }
-    LaunchedEffect(menu) { onMenuChanged(menu) }
-    BackHandler { if (menu) menu = false else close() }
+    LaunchedEffect(menu) { onMenuChanged(menu); if (!menu) bookmarkList = false }
+    LaunchedEffect(menu, bookmarks) { if (menu) bookmarks?.refresh() }
+    LaunchedEffect(menu, position, spine, loading, turning, writingStyle, fontSize,
+        bookmarks?.state?.items, bookmarks?.state?.loaded, bookmarks?.state?.loading) {
+        bookmarkContext = null
+        if (menu && !loading && !turning && bookmarks?.state?.loaded == true) {
+            val items = bookmarks.state.items.filter { it.pageNumber == spine }
+            bookmarkContext = suspendCancellableCoroutine { continuation ->
+                view.bookmarkContext(items) { if (continuation.isActive) continuation.resume(it) }
+            }
+            if (bookmarkContext == null) bookmarkPositionError = "Could not locate this page. Reopen the menu to retry."
+        }
+    }
+    LaunchedEffect(pendingBookmarkAnchor, loading) {
+        val anchor = pendingBookmarkAnchor ?: return@LaunchedEffect
+        if (loading || closing || failure != null) return@LaunchedEffect
+        pendingBookmarkAnchor = null
+        view.jumpToBookmark(anchor) { error ->
+            bookmarkPositionError = error
+            if (error == null) { bookmarkList = false; menu = false }
+        }
+    }
+    BackHandler { when { bookmarkList && menu -> bookmarkList = false; menu -> menu = false; else -> close() } }
     ReaderKeyEffect(
         if (preferences.rightToLeft) ReaderReadingDirection.RightToLeft else ReaderReadingDirection.LeftToRight,
         volumeKeys, isBlocked = { loading || turning || menu || dragging || chapterSwitching || closing || failure != null },
@@ -262,14 +318,53 @@ internal fun NovelReaderScreen(
             ReaderChapterBoundaryScreen(seriesName, it, chapterSwitching, switchError != null,
                 onContinue = ::continueChapter, onBackToSeries = ::close)
         }
-        if (menu) {
+        if (menu && bookmarkList && bookmarks != null) {
+            NovelBookmarksList(seriesName, bookmarks.state,
+                enabled = !loading && !turning && !chapterSwitching && !closing,
+                feedback = bookmarkPositionError,
+                onBack = { bookmarkList = false }, onDismiss = { bookmarkList = false; menu = false },
+                onRefresh = { bookmarkPositionError = null; scope.launch { bookmarks.refresh() } },
+                onOpen = ::openBookmark, onRemove = { scope.launch { bookmarks.remove(it) } })
+        } else if (menu) {
+            val bookmarkState = bookmarks?.state?.let { state -> ReaderBookmarkState(
+                pages = if (bookmarkContext?.visible?.isNotEmpty() == true) setOf(spine) else emptySet(),
+                loaded = state.loaded && bookmarkContext != null,
+                loading = state.loading || checkingBookmark || loading || turning ||
+                    (state.loaded && bookmarkContext == null && bookmarkPositionError == null),
+                savingPage = spine.takeIf { state.saving }, message = state.message,
+                error = bookmarkPositionError ?: state.error)
+            }
             NovelReaderMenu(seriesName, chapterName, spine, spineCount, position, preferences,
                 enabled = !loading && failure == null && !turning,
                 onBack = ::close, onDismiss = { menu = false },
                 onWritingStyle = { writingStyle = it; persistOverrides(style = it); view.setVertical(it == 1) },
                 onFontSize = { fontSize = it; persistOverrides(font = it); view.setFontSize(it) },
                 onJumpToPage = { loadSpine(it) },
-                onBackground = { backgroundOverride = it.name; persistOverrides(background = it) })
+                onBackground = { backgroundOverride = it.name; persistOverrides(background = it) },
+                bookmarkState = bookmarkState,
+                onOpenBookmarks = { bookmarkPositionError = null; bookmarkList = true },
+                onBookmark = {
+                    if (bookmarks != null && !checkingBookmark && !bookmarks.state.busy && !loading && !turning) {
+                        checkingBookmark = true
+                        val targetSpine = spine
+                        scope.launch {
+                            try {
+                                if (!bookmarks.state.loaded) { bookmarkPositionError = null; bookmarks.refresh() }
+                                else {
+                                    val target = suspendCancellableCoroutine<NovelBookmarkContext?> { continuation ->
+                                        view.bookmarkContext(bookmarks.state.items.filter { it.pageNumber == targetSpine }) {
+                                            if (continuation.isActive) continuation.resume(it)
+                                        }
+                                    }
+                                    if (target == null) bookmarkPositionError = "Could not locate this page. Reopen the menu to retry."
+                                    else if (targetSpine == spine && menu && !closing && !loading) {
+                                        bookmarks.toggle(targetSpine, target)
+                                    }
+                                }
+                            } finally { checkingBookmark = false }
+                        }
+                    }
+                })
         }
     }
 }

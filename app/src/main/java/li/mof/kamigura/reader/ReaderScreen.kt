@@ -808,6 +808,7 @@ fun ReaderScreen(
             defaultBackground = novelDefaultBackground(
                 settings.reader.pageBackground, settings.reader.invertMode),
             usePureColors = settings.reader.usePurePageBackgroundColors,
+            offline = offlineChapter != null,
             currentChapter = currentChapter, neighbors = readerChapterNeighbors(chapterSequence, currentChapterId),
             initialLastScreen = novelOpenLastScreen, chapterEntered = novelChapterEntered,
             chapterSwitching = chapterSwitching, switchError = error,
