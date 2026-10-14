@@ -149,8 +149,8 @@
         book.style.direction = 'ltr';
         // The server scopes the book's body classes onto the fragment root.
         vertical = window.novelWritingMode == null ? getComputedStyle(root).writingMode.startsWith('vertical') : window.novelWritingMode;
-        book.style.writingMode = vertical ? 'vertical-rl' : 'horizontal-tb';
-        root.style.writingMode = vertical ? 'vertical-rl' : 'horizontal-tb';
+        book.style.setProperty('writing-mode', vertical ? 'vertical-rl' : 'horizontal-tb', 'important');
+        root.style.setProperty('writing-mode', vertical ? 'vertical-rl' : 'horizontal-tb', 'important');
         applySpacing();
         width = window.innerWidth;
         height = window.innerHeight;
@@ -180,6 +180,7 @@
     }
     window.novelReader = {
         ready: false, state, layout,
+        reflow() { return layout(anchor(), false, lastLocation); },
         turn(delta) {
             const target = screen + delta;
             if (target < 0 || target >= count) return { boundary: delta };

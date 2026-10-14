@@ -69,8 +69,22 @@ internal class NovelPageView(context: Context) : WebView(context) {
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
                 val token = generation
                 postDelayed({
-                    if (!disposed && token == generation && token > 0) position { it?.let(onPosition) }
+                    if (token > 0) reflowAfterResize(token, right - left, bottom - top)
                 }, 250)
+            }
+        }
+    }
+
+    private fun reflowAfterResize(token: Int, widthPx: Int, heightPx: Int, attempt: Int = 0) {
+        if (disposed || token != generation) return
+        // Chromium can publish its viewport after the native layout callback, without a resize event.
+        evaluateJavascript("window.novelDocumentId === '$token' && window.novelReader && window.novelReader.ready ? " +
+            "(Math.abs(innerWidth - $widthPx / devicePixelRatio) <= 1 && Math.abs(innerHeight - $heightPx / devicePixelRatio) <= 1 ? " +
+            "window.novelReader.reflow() : 'resize-pending') : null") { value ->
+            if (disposed || token != generation) return@evaluateJavascript
+            if (value.startsWith("{")) report(value)
+            else if (value == "\"resize-pending\"" && attempt < 20) {
+                postDelayed({ reflowAfterResize(token, widthPx, heightPx, attempt + 1) }, 100)
             }
         }
     }

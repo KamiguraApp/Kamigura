@@ -34,6 +34,21 @@ class NovelReaderProductionTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
+    @Test fun profileWritingStyleWinsOverImportantBookCss() {
+        lateinit var view: NovelPageView
+        var ready = false
+        compose.setContent { AndroidView(factory = { NovelPageView(it).also { v ->
+            view = v; v.onPosition = { ready = true }
+            v.open("<div class='author'><style>.book-content .author{writing-mode:vertical-rl!important}</style><p>Original test prose.</p></div>",
+                "http://127.0.0.1", 1, null, false, false)
+        } }, modifier = Modifier.fillMaxSize()) }
+        compose.waitUntil(20_000) { ready }
+        assertEquals("\"horizontal-tb\"", js(view, "getComputedStyle(document.querySelector('.author')).writingMode"))
+        compose.runOnIdle { view.setVertical(true) }
+        assertEquals("\"vertical-rl\"", js(view, "getComputedStyle(document.querySelector('.author')).writingMode"))
+        compose.runOnIdle { view.dispose() }
+    }
+
     @Test fun normalLineHeightIsMeasuredAlongTheBooksBlockAxis() {
         lateinit var view: NovelPageView
         var ready = false
@@ -170,8 +185,7 @@ class NovelReaderProductionTest {
         assertVisible(view, before)
         val afterFont = position!!.location!!
         compose.runOnIdle { landscape.value = true }
-        Thread.sleep(600)
-        compose.waitForIdle()
+        compose.waitUntil(5_000) { js(view, "document.querySelector('.book-content').style.height") == "\"320px\"" }
         assertVisible(view, afterFont)
         compose.runOnIdle { view.setVertical(true) }
         compose.waitUntil(5_000) { position!!.vertical }
@@ -344,7 +358,8 @@ class NovelReaderProductionTest {
     private fun findView(view: View): NovelPageView? = if (view is NovelPageView) view else if (view is ViewGroup)
         (0 until view.childCount).firstNotNullOfOrNull { findView(view.getChildAt(it)) } else null
     private fun assertVisible(view: NovelPageView, location: String) {
-        assertEquals("true", js(view, "(()=>{const p=JSON.parse(${JSONObject.quote(location)}),nodes=[],w=document.createTreeWalker(document.querySelector('.book-content').firstElementChild,NodeFilter.SHOW_TEXT);while(w.nextNode()){const n=w.currentNode;if(n.textContent.trim()&&!n.parentElement.closest('style,script,rt,rp'))nodes.push(n);}const n=nodes[p.text],r=document.createRange();r.setStart(n,p.offset);r.setEnd(n,p.offset+1);const b=r.getBoundingClientRect();return b.right>0&&b.left<innerWidth&&b.bottom>0&&b.top<innerHeight;})()"))
+        val geometry = JSONObject(js(view, "(()=>{const p=JSON.parse(${JSONObject.quote(location)}),nodes=[],w=document.createTreeWalker(document.querySelector('.book-content').firstElementChild,NodeFilter.SHOW_TEXT);while(w.nextNode()){const n=w.currentNode;if(n.textContent.trim()&&!n.parentElement.closest('style,script,rt,rp'))nodes.push(n);}const n=nodes[p.text],r=document.createRange();r.setStart(n,p.offset);r.setEnd(n,p.offset+1);const b=r.getBoundingClientRect();return {visible:b.right>0&&b.left<innerWidth&&b.bottom>0&&b.top<innerHeight,rect:b.toJSON(),viewport:[innerWidth,innerHeight],state:window.novelReader.state()};})()"))
+        assertTrue("Retained glyph: $geometry", geometry.getBoolean("visible"))
     }
     private fun js(view: NovelPageView, script: String): String {
         val latch = CountDownLatch(1); var result = ""
