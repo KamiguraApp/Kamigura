@@ -54,7 +54,7 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
             background-color:transparent !important; text-shadow:none !important;
         }
         </style></head><body><div id="novel-viewport"><div class="book-content">$fragment</div></div>
-        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelLineSpacing=${preferences.lineSpacing};window.novelColors={background:'${colors.backgroundCss}',text:'${colors.textCss}'};
+        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelLineSpacing=${preferences.lineSpacing};window.novelFontSize=${preferences.fontSize};window.novelColors={background:'${colors.backgroundCss}',text:'${colors.textCss}'};
         $script</script></body></html>""".trimIndent()
 }
 

@@ -234,6 +234,22 @@ class NovelReaderProductionTest {
         compose.runOnIdle { view.dispose() }
     }
 
+    @Test fun openingFontSizeWinsOverBookRulesScopedOntoTheContent() {
+        lateinit var view: NovelPageView
+        var ready = false
+        // Kavita scopes a book's html/body rules onto .book-content and serves them after our head style.
+        val fragment = "<div><style>.book-content { font-size: 100% }</style><p>Original test prose</p></div>"
+        compose.setContent { AndroidView(factory = { NovelPageView(it).also { v ->
+            view = v; v.onPosition = { ready = true }
+            v.open(fragment, "http://127.0.0.1", 1, null, false, false,
+                preferences = NovelReaderPreferences(fontSize = 150))
+        } }, modifier = Modifier.fillMaxSize()) }
+        compose.waitUntil(20_000) { ready }
+        assertEquals("\"24px\"", js(view, "getComputedStyle(document.querySelector('.book-content')).fontSize"))
+        assertEquals("\"24px\"", js(view, "getComputedStyle(document.querySelector('p')).fontSize"))
+        compose.runOnIdle { view.dispose() }
+    }
+
     @Test fun defaultSpacingLeavesBookCssUntouchedAndOverridesScaleAuthoredValuesOnce() {
         lateinit var view: NovelPageView
         var ready = false

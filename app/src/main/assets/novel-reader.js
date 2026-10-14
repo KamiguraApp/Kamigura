@@ -2,6 +2,12 @@
 (() => {
     const book = document.querySelector('.book-content');
     const root = book.firstElementChild;
+    // The book's own html/body rules are scoped onto .book-content by the server and come later
+    // than our head style, so the user's size is set inline and important, as menu changes are.
+    function applyFontSize(percent) {
+        book.style.setProperty('font-size', (percent * 0.16) + 'px', 'important');
+    }
+    applyFontSize(window.novelFontSize ?? 100);
     const svgColors = new WeakMap();
     const svgPaintProperties = ['color', 'fill', 'stroke', '-webkit-text-fill-color',
         '-webkit-text-stroke-color', 'text-decoration-color', 'text-emphasis-color', 'text-shadow'];
@@ -253,7 +259,7 @@
         setVertical(value) { const xpath = anchor(), precise = lastLocation ?? location(); window.novelWritingMode = value; return layout(xpath, false, precise); },
         setFontSize(value) {
             const xpath = anchor(), precise = lastLocation ?? location();
-            book.style.fontSize = (value * 0.16) + 'px';
+            applyFontSize(value);
             return layout(xpath, false, precise);
         },
         path, resolve
