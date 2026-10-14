@@ -40,12 +40,9 @@ class NovelReaderMenuUiTest {
         show(width, height)
         compose.onNodeWithText("Writing").assertIsDisplayed()
         compose.onNodeWithText("Vertical").assertIsOn()
-        compose.onNodeWithText("100%").assertIsDisplayed()
-        compose.onNodeWithText("73% complete").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("11 / 23 within this page").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("16 / 21").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Volume 33 | Page 16 / 21 \u00b7 Screen 11 / 23").assertIsDisplayed()
         val header = compose.onNodeWithContentDescription("Close menu").fetchSemanticsNode().boundsInRoot
-        val panel = compose.onNodeWithText("Page").fetchSemanticsNode().boundsInRoot
+        val panel = compose.onNodeWithText("Writing").fetchSemanticsNode().boundsInRoot
         assertTrue("Header must not overlap the scrollable panel", header.bottom <= panel.top)
         val slider = slider("EPUB page navigation").fetchSemanticsNode()
         assertEquals(5f, slider.config[SemanticsProperties.ProgressBarRangeInfo].current)
@@ -54,12 +51,20 @@ class NovelReaderMenuUiTest {
         assertTrue(left.right <= slider.boundsInRoot.left)
         assertTrue(slider.boundsInRoot.right <= right.left)
         assertTrue(compose.onAllNodesWithText("Section", substring = true).fetchSemanticsNodes().isEmpty())
-        assertTrue(compose.onAllNodesWithText("Screen", substring = true).fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("Page").fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("complete", substring = true).fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("within this page", substring = true).fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("100%").fetchSemanticsNodes().isEmpty())
+        val fontLabel = compose.onNodeWithText("Font size").fetchSemanticsNode().boundsInRoot
+        val fontSlider = slider("Font size").fetchSemanticsNode().boundsInRoot
+        assertTrue(fontLabel.right <= fontSlider.left)
+        assertTrue(fontLabel.center.y in fontSlider.top..fontSlider.bottom)
+        assertTrue(fontSlider.bottom <= slider.boundsInRoot.top)
         compose.onNodeWithContentDescription("Back to series").assertIsDisplayed()
         compose.onNodeWithContentDescription("Close menu").assertIsDisplayed()
         compose.onNodeWithText("Writing").performScrollTo()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
-        File(context.cacheDir, "b-ui-$name.png").outputStream().use {
+        File(context.cacheDir, "b-ui2-$name.png").outputStream().use {
             compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it)
         }
     }
@@ -83,9 +88,17 @@ class NovelReaderMenuUiTest {
         slider.performTouchInput { click(androidx.compose.ui.geometry.Offset(width * .25f, height / 2f)) }
         compose.runOnIdle { assertTrue("RTL reached $jumped", jumped in 14..16) }
         slider("Font size").performTouchInput {
+            down(androidx.compose.ui.geometry.Offset(width * .25f, height / 2f))
+        }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("100%").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText("100%").assertIsDisplayed()
+        slider("Font size").performTouchInput { up() }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("100%").fetchSemanticsNodes().isEmpty() }
+        slider("Font size").performTouchInput {
             click(androidx.compose.ui.geometry.Offset(width / 2f, height / 2f))
         }
-        compose.onNodeWithText("150%").assertIsDisplayed()
+        compose.runOnIdle { assertEquals(150, preferences.value.fontSize) }
+        compose.waitUntil(5_000) { compose.onAllNodesWithText("150%").fetchSemanticsNodes().isEmpty() }
     }
 
     @Test fun singlePageAndLoadingMenusKeepLabelsWithoutOfferingInvalidActions() {
@@ -93,7 +106,7 @@ class NovelReaderMenuUiTest {
         slider("EPUB page navigation").assertIsNotEnabled()
         slider("Font size").assertIsNotEnabled()
         compose.onNodeWithText("Vertical").assertIsNotEnabled()
-        compose.onNodeWithText("1 / 1").assertIsDisplayed()
+        compose.onNodeWithText("Page 1 / 1", substring = true).assertIsDisplayed()
         compose.onNodeWithContentDescription("Back to series").assertIsEnabled()
         compose.onNodeWithContentDescription("Close menu").assertIsEnabled()
     }

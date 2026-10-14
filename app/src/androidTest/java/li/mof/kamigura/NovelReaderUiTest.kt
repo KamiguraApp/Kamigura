@@ -42,7 +42,7 @@ class NovelReaderUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
-    @Test fun nativeReaderMenuShowsPageNavigationAndWholeBookProgress() {
+    @Test fun nativeReaderMenuShowsCompactControlsAndScreenPosition() {
         ReaderServer(3, spineCount = 21, bookFragment = { novelFixture(true) },
             readingProfile = """{"bookReaderWritingStyle":1,"bookReaderFontSize":100}""").use { server ->
             val store = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
@@ -51,17 +51,17 @@ class NovelReaderUiTest {
                 1, 1, 1, 1, incognito = true, initialPage = 15, onBack = { visible.value = false }) } }
             awaitSection(16)
             openMenu()
-            compose.onNodeWithText("Page").assertIsDisplayed()
-            compose.onNodeWithText("16 / 21").assertIsDisplayed()
-            compose.onNodeWithText("100%").assertIsDisplayed()
+            compose.onNodeWithText("Page 16 / 21", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("Screen 1 /", substring = true).assertIsDisplayed()
+            assertTrue(compose.onAllNodesWithText("100%").fetchSemanticsNodes().isEmpty())
+            assertTrue(compose.onAllNodesWithText("complete", substring = true).fetchSemanticsNodes().isEmpty())
             compose.onNodeWithText("Vertical").assertIsOn()
-            compose.onNodeWithText("71% complete").performScrollTo().assertIsDisplayed()
             compose.onNodeWithText("Writing").performScrollTo()
             val header = compose.onNodeWithContentDescription("Close menu").fetchSemanticsNode().boundsInRoot
             val panel = compose.onNodeWithText("Writing").fetchSemanticsNode().boundsInRoot
             assertTrue(header.bottom <= panel.top)
             val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
-            java.io.File(context.cacheDir, "b-ui-native-${bitmap.width}x${bitmap.height}.png").outputStream().use {
+            java.io.File(context.cacheDir, "b-ui2-native-${bitmap.width}x${bitmap.height}.png").outputStream().use {
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
             }
             compose.onNodeWithContentDescription("Back to series").performClick()
@@ -255,8 +255,8 @@ class NovelReaderUiTest {
                     androidx.compose.ui.semantics.SemanticsProperties.StateDescription].contains("Screen 2 /")
             }
             openMenu()
-            compose.onNodeWithText("Page").assertIsDisplayed()
-            compose.onNodeWithText("within this page", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("Page 1 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("Screen 2 /", substring = true).assertIsDisplayed()
             compose.onNodeWithContentDescription("Close menu").performClick()
             openMenu()
             compose.onNodeWithContentDescription("Back to series").performClick()
