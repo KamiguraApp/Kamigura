@@ -98,7 +98,9 @@ internal fun NovelReaderScreen(
     var reachedAnchor by rememberSaveable { mutableStateOf(initialProgress.bookScrollId) }
     var openLast by rememberSaveable { mutableStateOf(initialLastScreen) }
     var menu by remember { mutableStateOf(false) }
-    var bookmarkList by remember { mutableStateOf(false) }
+    var contentsList by remember { mutableStateOf(false) }
+    var contentsTab by rememberSaveable { mutableIntStateOf(0) }
+    var currentContentsEntry by remember { mutableStateOf<Int?>(null) }
     var bookmarkContext by remember { mutableStateOf<NovelBookmarkContext?>(null) }
     var bookmarkPositionError by remember { mutableStateOf<String?>(null) }
     var checkingBookmark by remember { mutableStateOf(false) }
@@ -130,6 +132,9 @@ internal fun NovelReaderScreen(
     val bookmarks = remember(apiIdentity, chapterId, incognito, offline) {
         if (readerCanManageBookmarks(incognito, offline))
             NovelBookmarks(api, chapterId, volumeId, seriesId, libraryId, spineCount) else null
+    }
+    val contents = remember(apiIdentity, chapterId, offline) {
+        if (!offline) NovelContents(api, chapterId, spineCount) else null
     }
     LaunchedEffect(colors) { view.setColors(colors) }
     val minimumFlingVelocity = remember(context) { ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat() }
@@ -167,19 +172,20 @@ internal fun NovelReaderScreen(
         turning = false
         moved = true
     }
-    fun openBookmark(item: PersonalToCDto) {
+    fun openLocation(page: Int, anchor: String?) {
         if (loading || turning || chapterSwitching || closing || bookmarks?.state?.busy == true) return
+        if (page !in 0 until spineCount) return
         bookmarkPositionError = null
         moved = true
-        if (item.pageNumber != spine) {
-            pendingBookmarkAnchor = item.bookScrollId.orEmpty()
-            loadSpine(item.pageNumber, anchor = item.bookScrollId)
+        if (page != spine) {
+            pendingBookmarkAnchor = anchor.orEmpty()
+            loadSpine(page, anchor = anchor)
         } else {
             turning = true
-            view.jumpToBookmark(item.bookScrollId) { error ->
+            view.jumpToBookmark(anchor) { error ->
                 turning = false
                 bookmarkPositionError = error
-                if (error == null) { bookmarkList = false; menu = false }
+                if (error == null) { contentsList = false; menu = false }
             }
         }
     }
@@ -247,8 +253,22 @@ internal fun NovelReaderScreen(
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Throwable) { failure = "Could not load this EPUB section."; loading = false }
     }
-    LaunchedEffect(menu) { onMenuChanged(menu); if (!menu) bookmarkList = false }
+    LaunchedEffect(menu) { onMenuChanged(menu); if (!menu) contentsList = false }
     LaunchedEffect(menu, bookmarks) { if (menu) bookmarks?.refresh() }
+    LaunchedEffect(contentsList, contentsTab, contents) {
+        if (contentsList && (bookmarks == null || contentsTab == 0) && contents?.state?.loaded == false) contents.refresh()
+    }
+    LaunchedEffect(position, spine, loading, writingStyle, fontSize, contents?.state?.entries) {
+        currentContentsEntry = null
+        if (!loading && contents?.state?.loaded == true) {
+            val entries = contents.state.entries
+            val parts = entries.filter { it.page == spine && it.part.isNotBlank() }.map { it.part }.distinct()
+            val reached = suspendCancellableCoroutine<Set<String>?> { continuation ->
+                view.contentsParts(parts) { if (continuation.isActive) continuation.resume(it) }
+            }
+            currentContentsEntry = currentNovelContentsEntry(entries, spine, reached.orEmpty())
+        }
+    }
     LaunchedEffect(menu, position, spine, loading, turning, writingStyle, fontSize,
         bookmarks?.state?.items, bookmarks?.state?.loaded, bookmarks?.state?.loading) {
         bookmarkContext = null
@@ -266,10 +286,10 @@ internal fun NovelReaderScreen(
         pendingBookmarkAnchor = null
         view.jumpToBookmark(anchor) { error ->
             bookmarkPositionError = error
-            if (error == null) { bookmarkList = false; menu = false }
+            if (error == null) { contentsList = false; menu = false }
         }
     }
-    BackHandler { when { bookmarkList && menu -> bookmarkList = false; menu -> menu = false; else -> close() } }
+    BackHandler { when { contentsList && menu -> contentsList = false; menu -> menu = false; else -> close() } }
     ReaderKeyEffect(
         if (preferences.rightToLeft) ReaderReadingDirection.RightToLeft else ReaderReadingDirection.LeftToRight,
         volumeKeys, isBlocked = { loading || turning || menu || dragging || chapterSwitching || closing || failure != null },
@@ -318,13 +338,18 @@ internal fun NovelReaderScreen(
             ReaderChapterBoundaryScreen(seriesName, it, chapterSwitching, switchError != null,
                 onContinue = ::continueChapter, onBackToSeries = ::close)
         }
-        if (menu && bookmarkList && bookmarks != null) {
-            NovelBookmarksList(seriesName, bookmarks.state,
+        if (menu && contentsList && contents != null) {
+            NovelContentsScreen(seriesName, contents.state, bookmarks?.state, contentsTab, currentContentsEntry,
                 enabled = !loading && !turning && !chapterSwitching && !closing,
                 feedback = bookmarkPositionError,
-                onBack = { bookmarkList = false }, onDismiss = { bookmarkList = false; menu = false },
-                onRefresh = { bookmarkPositionError = null; scope.launch { bookmarks.refresh() } },
-                onOpen = ::openBookmark, onRemove = { scope.launch { bookmarks.remove(it) } })
+                onBack = { contentsList = false }, onDismiss = { contentsList = false; menu = false },
+                onRefresh = { bookmarkPositionError = null; scope.launch {
+                    if (bookmarks == null || contentsTab == 0) contents.refresh() else bookmarks.refresh()
+                } },
+                onTab = { bookmarkPositionError = null; contentsTab = it },
+                onOpenContents = { openLocation(it.page, novelContentsAnchor(it.part)) },
+                onOpenBookmark = { openLocation(it.pageNumber, it.bookScrollId) },
+                onRemove = { scope.launch { bookmarks?.remove(it) } })
         } else if (menu) {
             val bookmarkState = bookmarks?.state?.let { state -> ReaderBookmarkState(
                 pages = if (bookmarkContext?.visible?.isNotEmpty() == true) setOf(spine) else emptySet(),
@@ -342,7 +367,8 @@ internal fun NovelReaderScreen(
                 onJumpToPage = { loadSpine(it) },
                 onBackground = { backgroundOverride = it.name; persistOverrides(background = it) },
                 bookmarkState = bookmarkState,
-                onOpenBookmarks = { bookmarkPositionError = null; bookmarkList = true },
+                onOpenContents = { bookmarkPositionError = null; contentsList = true },
+                showContents = contents != null,
                 onBookmark = {
                     if (bookmarks != null && !checkingBookmark && !bookmarks.state.busy && !loading && !turning) {
                         checkingBookmark = true

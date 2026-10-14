@@ -72,7 +72,8 @@ class NovelBookmarksUiTest {
             assertEquals("This is a paragraph", added.title)
             compose.onNodeWithContentDescription("Remove bookmark from page 1").performClick()
             waitButton("Bookmark page 1")
-            compose.onNodeWithContentDescription("Bookmarks").performClick()
+            compose.onNodeWithContentDescription("Contents").performClick()
+            compose.onNodeWithText("Bookmarks").performClick()
             compose.onNodeWithText("No bookmarks in this book.").assertIsDisplayed()
             compose.onNodeWithContentDescription("Back to reader menu").performClick()
             compose.onNodeWithText("Background").assertIsDisplayed()
@@ -94,7 +95,8 @@ class NovelBookmarksUiTest {
             personalHandler = fixture::handle).use { server ->
             val restoration = StateRestorationTester(compose)
             open(server, restoration = restoration); menu()
-            compose.onNodeWithContentDescription("Bookmarks").performClick()
+            compose.onNodeWithContentDescription("Contents").performClick()
+            compose.onNodeWithText("Bookmarks").performClick()
             compose.onNodeWithText("Chapter Part Two, Page 3").assertIsDisplayed()
             compose.onNodeWithText("Page 1").assertIsDisplayed()
             compose.onNodeWithContentDescription("Open bookmark: Web selection").performClick()
@@ -105,7 +107,8 @@ class NovelBookmarksUiTest {
             menu(); waitButton("Remove bookmark from page 3")
             compose.onNodeWithText("Horizontal").performClick()
             waitButton("Remove bookmark from page 3")
-            compose.onNodeWithContentDescription("Bookmarks").performClick()
+            compose.onNodeWithContentDescription("Contents").performClick()
+            compose.onNodeWithText("Bookmarks").performClick()
             compose.onNodeWithContentDescription("Remove bookmark: Web selection").performClick()
             compose.waitUntil(5_000) { fixture.items.none { it.id == 10 } }
             compose.waitUntil(5_000) { compose.onAllNodesWithText("Web selection").fetchSemanticsNodes().isEmpty() }
@@ -167,7 +170,7 @@ class NovelBookmarksUiTest {
                     {}, {}, {}, {}, {}, {}, ReaderBookmarkState(loaded = true), {}, {})
             }
         } } }
-        val list = compose.onNodeWithContentDescription("Bookmarks").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val list = compose.onNodeWithContentDescription("Contents").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val bookmark = compose.onNodeWithContentDescription("Bookmark page 1").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val close = compose.onNodeWithContentDescription("Close menu").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue(list.right <= bookmark.left); assertTrue(bookmark.right <= close.left)

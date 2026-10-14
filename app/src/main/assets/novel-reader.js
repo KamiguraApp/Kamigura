@@ -108,6 +108,16 @@
         });
         return { anchor: xpath, title: Array.from(text).slice(0, 20).join(''), visible };
     }
+    function contentsParts(parts) {
+        const reference = textNodes().find(node => rects(node).some(r =>
+            r.right > 25 && r.left < width - 25 && r.bottom > 25 && r.top < height - 25)) || resolve(anchor());
+        return parts.filter(part => {
+            const target = document.getElementById(part);
+            return target && root.contains(target) && reference &&
+                (target === reference || target.contains(reference) ||
+                    (target.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
+        });
+    }
     let lastLocation = null;
     function location() {
         const nodes = textNodes();
@@ -227,7 +237,7 @@
         return state();
     }
     window.novelReader = {
-        ready: false, state, layout, setColors, bookmarkContext,
+        ready: false, state, layout, setColors, bookmarkContext, contentsParts,
         reflow() { return layout(anchor(), false, lastLocation); },
         turn(delta) {
             const target = screen + delta;

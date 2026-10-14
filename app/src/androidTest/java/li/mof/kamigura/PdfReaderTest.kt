@@ -453,7 +453,8 @@ internal class ReaderServer(
     readingProfile: String = """{"kind":1,"readingDirection":1}""",
     spineCount: Int = 6,
     bookChapterFragment: ((Int, Int) -> String)? = null,
-    personalHandler: ((String, Uri, String) -> Pair<Int, String>)? = null
+    personalHandler: ((String, Uri, String) -> Pair<Int, String>)? = null,
+    contentsResponse: () -> Pair<Int, String> = { 200 to "[]" }
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -514,7 +515,9 @@ internal class ReaderServer(
                         requests += uri
                         val personal = if (uri.path in listOf("/api/reader/ptoc", "/api/reader/create-ptoc"))
                             personalHandler?.invoke(request.substringBefore(' '), uri, String(requestBody)) else null
-                        val json = personal?.second ?: when (uri.path) {
+                        val contents = if (uri.path in listOf("/api/Book/1/chapters", "/api/Book/2/chapters")) contentsResponse() else null
+                        val custom = personal ?: contents
+                        val json = custom?.second ?: when (uri.path) {
                             "/api/Series/1" -> """{"id":1,"name":"Test book","format":$format}"""
                             "/api/Series/volumes" -> if (neighbor)
                                 """[{"id":1,"chapters":[{"id":1,"title":"First"},{"id":2,"title":"Second"}]}]""" else "[]"
@@ -553,7 +556,7 @@ internal class ReaderServer(
                             else if (uri.path == "/api/Book/1/book-page") "text/html" else "application/json"
                         val cacheHeader = if (isImage && cacheImages) "Cache-Control: max-age=3600\r\n" else ""
                         runCatching {
-                            it.getOutputStream().write(("HTTP/1.1 ${personal?.first ?: 200} Response\r\nContent-Type: $type\r\n" +
+                            it.getOutputStream().write(("HTTP/1.1 ${custom?.first ?: 200} Response\r\nContent-Type: $type\r\n" +
                                 cacheHeader + "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray() + body)
                         }
                     }

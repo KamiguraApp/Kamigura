@@ -197,6 +197,17 @@ internal class NovelPageView(context: Context) : WebView(context) {
         }
     }
 
+    fun contentsParts(parts: List<String>, callback: (Set<String>?) -> Unit) {
+        val token = generation
+        evaluateJavascript("window.novelReader && window.novelReader.ready ? window.novelReader.contentsParts(${JSONArray(parts)}) : null") { value ->
+            if (disposed || token != generation) { callback(null); return@evaluateJavascript }
+            callback(runCatching {
+                val array = JSONArray(value)
+                (0 until array.length()).map { array.getString(it) }.toSet()
+            }.getOrNull())
+        }
+    }
+
     fun position(callback: (NovelPosition?) -> Unit) {
         val token = generation
         evaluateJavascript("window.novelReader && window.novelReader.ready ? window.novelReader.state() : null") { value ->

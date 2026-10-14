@@ -53,7 +53,8 @@ internal fun NovelReaderMenu(
     onBackground: (PageBackground) -> Unit,
     bookmarkState: ReaderBookmarkState? = null,
     onBookmark: () -> Unit = {},
-    onOpenBookmarks: () -> Unit = {}
+    onOpenContents: () -> Unit = {},
+    showContents: Boolean = bookmarkState != null
 ) {
     val count = pages.coerceAtLeast(1)
     val currentPage = page.coerceIn(0, count - 1)
@@ -70,8 +71,9 @@ internal fun NovelReaderMenu(
     Column(Modifier.fillMaxSize()) {
         ReaderMenuHeader(seriesName, "$chapterName | Page ${currentPage + 1} / $count \u2022 Screen ${screen + 1} / $screens",
             onBack, onDismiss, backLabel = "Back to series",
-            bookmark = { bookmarkState?.let {
-                NovelBookmarksButton(onOpenBookmarks)
+            bookmark = {
+                if (showContents) NovelContentsButton(onOpenContents)
+                bookmarkState?.let {
                 ReaderBookmarkButton(currentPage, it, onBookmark)
             } },
             feedback = bookmarkState?.error ?: bookmarkState?.message,
