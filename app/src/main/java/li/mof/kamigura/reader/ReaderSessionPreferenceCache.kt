@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import li.mof.kamigura.InvertMode
+import li.mof.kamigura.PageBackground
 import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.ReaderReadingDirection
@@ -58,7 +59,8 @@ internal object ReaderSessionPreferenceCache {
         val invertMode: String? = null,
         val touchedAtMillis: Long,
         val novelWritingStyle: Int? = null,
-        val novelFontSize: Int? = null
+        val novelFontSize: Int? = null,
+        val novelBackground: String? = null
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -92,8 +94,9 @@ internal object ReaderSessionPreferenceCache {
                     val mode = storedEntry.invertMode?.let { runCatching { InvertMode.valueOf(it) }.getOrNull() }
                     val novel = NovelReaderOverrides(
                         storedEntry.novelWritingStyle?.takeIf { it in 0..1 },
-                        storedEntry.novelFontSize?.takeIf { it in 1..1000 }
-                    ).takeIf { it.writingStyle != null || it.fontSize != null }
+                        storedEntry.novelFontSize?.takeIf { it in 1..1000 },
+                        storedEntry.novelBackground?.let { runCatching { PageBackground.valueOf(it) }.getOrNull() }
+                    ).takeIf { it.writingStyle != null || it.fontSize != null || it.background != null }
                     if (mode == null && novel == null) return@forEach
                     val direction = storedEntry.readingDirection
                         ?.let { runCatching { ReaderReadingDirection.valueOf(it) }.getOrNull() }
@@ -153,7 +156,8 @@ internal object ReaderSessionPreferenceCache {
                     invertMode = entry.preferences?.invertMode?.name,
                     touchedAtMillis = entry.touchedAtMillis,
                     novelWritingStyle = entry.novelOverrides?.writingStyle,
-                    novelFontSize = entry.novelOverrides?.fontSize
+                    novelFontSize = entry.novelOverrides?.fontSize,
+                    novelBackground = entry.novelOverrides?.background?.name
                 )
             }
         }

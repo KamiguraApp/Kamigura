@@ -3,15 +3,56 @@ package li.mof.kamigura.reader
 import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import li.mof.kamigura.InvertMode
+import li.mof.kamigura.PageBackground
 import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.UserReadingProfileDto
 import li.mof.kamigura.reader.novel.NovelReaderOverrides
 import li.mof.kamigura.reader.novel.NovelReaderPreferences
 import li.mof.kamigura.reader.novel.resolveNovelReaderPreferences
+import li.mof.kamigura.reader.novel.novelDefaultBackground
+import li.mof.kamigura.reader.novel.novelReaderColors
 import org.junit.Assert.*
 import org.junit.Test
 
 class NovelReaderPreferencesTest {
+    @Test fun backgroundDefaultsAndManualChoiceRemainIndependentFromImageOverrides() {
+        for (background in PageBackground.entries) {
+            assertEquals(background, novelDefaultBackground(background, InvertMode.Off))
+            for (invert in listOf(InvertMode.Smart, InvertMode.Always)) {
+                assertEquals(PageBackground.Dark, novelDefaultBackground(background, invert))
+            }
+        }
+        val result = resolveNovelReaderPreferences(null, NovelReaderOverrides(background = PageBackground.Paper),
+            novelDefaultBackground(PageBackground.Paper, InvertMode.Always), true)
+        assertEquals(PageBackground.Paper, result.background)
+        assertTrue(result.usePureColors)
+    }
+
+    @Test fun palettesMatchImageMarginsAndRequestedTextColors() {
+        assertEquals("#faf7f2", novelReaderColors(PageBackground.Paper, false).backgroundCss)
+        assertEquals("#101010", novelReaderColors(PageBackground.Paper, false).textCss)
+        assertEquals("#101010", novelReaderColors(PageBackground.Dark, false).backgroundCss)
+        assertEquals("#d9d4cb", novelReaderColors(PageBackground.Dark, false).textCss)
+        assertEquals("#ffffff", novelReaderColors(PageBackground.Paper, true).backgroundCss)
+        assertEquals("#000000", novelReaderColors(PageBackground.Paper, true).textCss)
+        assertEquals("#000000", novelReaderColors(PageBackground.Dark, true).backgroundCss)
+        assertEquals("#ffffff", novelReaderColors(PageBackground.Dark, true).textCss)
+    }
+
+    @Test fun backgroundOnlyCacheRoundTripsAndExpiresWithoutCreatingImagePreferences() = runBlocking {
+        val directory = Files.createTempDirectory("novel-colors").toFile()
+        try {
+            ReaderSessionPreferenceCache.clear(directory)
+            val value = NovelReaderOverrides(background = PageBackground.Dark)
+            ReaderSessionPreferenceCache.putNovel("series", value, 100)
+            ReaderSessionPreferenceCache.persist(directory)
+            ReaderSessionPreferenceCache.clearMemoryForTest()
+            ReaderSessionPreferenceCache.load(directory, 101)
+            assertEquals(value, ReaderSessionPreferenceCache.getNovel("series", 102))
+            assertNull(ReaderSessionPreferenceCache.get("series", 103))
+            assertNull(ReaderSessionPreferenceCache.getNovel("series", 103 + ReaderSessionPreferenceTtlMillis))
+        } finally { ReaderSessionPreferenceCache.clear(directory); directory.deleteRecursively() }
+    }
     @Test fun defaultsAndDefaultKindProfileApplyToBooks() {
         assertEquals(NovelReaderPreferences(), resolveNovelReaderPreferences(null, null))
         val resolved = resolveNovelReaderPreferences(UserReadingProfileDto(kind = 0,
