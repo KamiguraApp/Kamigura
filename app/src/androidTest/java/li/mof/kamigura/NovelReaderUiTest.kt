@@ -42,6 +42,34 @@ class NovelReaderUiTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
+    @Test fun nativeReaderMenuShowsPageNavigationAndWholeBookProgress() {
+        ReaderServer(3, spineCount = 21, bookFragment = { novelFixture(true) },
+            readingProfile = """{"bookReaderWritingStyle":1,"bookReaderFontSize":100}""").use { server ->
+            val store = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
+            val visible = mutableStateOf(true)
+            compose.setContent { MaterialTheme { if (visible.value) ReaderScreen(store, AppSettingsStore(context),
+                1, 1, 1, 1, incognito = true, initialPage = 15, onBack = { visible.value = false }) } }
+            awaitSection(16)
+            openMenu()
+            compose.onNodeWithText("Page").assertIsDisplayed()
+            compose.onNodeWithText("16 / 21").assertIsDisplayed()
+            compose.onNodeWithText("100%").assertIsDisplayed()
+            compose.onNodeWithText("Vertical").assertIsOn()
+            compose.onNodeWithText("71% complete").performScrollTo().assertIsDisplayed()
+            compose.onNodeWithText("Writing").performScrollTo()
+            val header = compose.onNodeWithContentDescription("Close menu").fetchSemanticsNode().boundsInRoot
+            val panel = compose.onNodeWithText("Writing").fetchSemanticsNode().boundsInRoot
+            assertTrue(header.bottom <= panel.top)
+            val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+            java.io.File(context.cacheDir, "b-ui-native-${bitmap.width}x${bitmap.height}.png").outputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+            compose.onNodeWithContentDescription("Back to series").performClick()
+            compose.waitUntil(5_000) { !visible.value }
+            assertTrue(server.bookProgressWrites.isEmpty())
+        }
+    }
+
     @Test fun verticalMulticolKeepsRubyAndRestoresXPath() = surface(true)
     @Test fun horizontalMulticolRestoresXPath() = surface(false)
 
@@ -113,7 +141,7 @@ class NovelReaderUiTest {
             openMenu()
             compose.onNodeWithText("Vertical").performClick()
             compose.waitUntil(5_000) {
-                compose.onAllNodes(hasText("Vertical") and isSelected()).fetchSemanticsNodes().isNotEmpty()
+                compose.onAllNodes(hasText("Vertical") and isOn()).fetchSemanticsNodes().isNotEmpty()
             }
             compose.onNodeWithContentDescription("Close menu").performClick()
             compose.onRoot().performTouchInput { click(Offset(width * .1f, height * .5f)) }
@@ -227,7 +255,8 @@ class NovelReaderUiTest {
                     androidx.compose.ui.semantics.SemanticsProperties.StateDescription].contains("Screen 2 /")
             }
             openMenu()
-            compose.onNodeWithText("Section 1 / 6 · Screen 2 /", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("Page").assertIsDisplayed()
+            compose.onNodeWithText("within this page", substring = true).assertIsDisplayed()
             compose.onNodeWithContentDescription("Close menu").performClick()
             openMenu()
             compose.onNodeWithContentDescription("Back to series").performClick()

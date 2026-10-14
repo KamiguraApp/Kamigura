@@ -338,7 +338,7 @@ class NovelReaderProductionTest {
             assertVisible(findView(compose.activity.window.decorView)!!, JSONObject(before).getString("location"))
             menu()
             compose.onNodeWithText("Vertical").performClick()
-            compose.waitUntil(5_000) { compose.onAllNodes(hasText("Vertical") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(5_000) { compose.onAllNodes(hasText("Vertical") and isOn()).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { !visible.value }
             compose.runOnIdle { opening.value++; visible.value = true }
