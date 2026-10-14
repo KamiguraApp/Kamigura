@@ -2,6 +2,37 @@
 (() => {
     const book = document.querySelector('.book-content');
     const root = book.firstElementChild;
+    const svgColors = new WeakMap();
+    const svgPaintProperties = ['color', 'fill', 'stroke', '-webkit-text-fill-color',
+        '-webkit-text-stroke-color', 'text-decoration-color', 'text-emphasis-color', 'text-shadow'];
+    function setColors(background, text) {
+        // Inline SVG illustrations may use inherited currentColor; freeze their original paint.
+        book.style.setProperty('color', '#101010', 'important');
+        for (const element of root.querySelectorAll('svg,svg *')) {
+            if (!svgColors.has(element)) {
+                const style = getComputedStyle(element);
+                svgColors.set(element, svgPaintProperties.map(property => style.getPropertyValue(property)));
+            }
+        }
+        for (const element of root.querySelectorAll('svg,svg *')) {
+            svgPaintProperties.forEach((property, index) =>
+                element.style.setProperty(property, svgColors.get(element)[index], 'important'));
+        }
+        document.documentElement.style.setProperty('--novel-text-color', text);
+        for (const element of [document.documentElement, document.body, book, ...root.querySelectorAll('*'), root]) {
+            if (element.closest('img,svg,video,canvas')) continue;
+            element.style.setProperty('color', text, 'important');
+            element.style.setProperty('-webkit-text-fill-color', text, 'important');
+            element.style.setProperty('-webkit-text-stroke-color', text, 'important');
+            element.style.setProperty('text-decoration-color', text, 'important');
+            element.style.setProperty('text-emphasis-color', text, 'important');
+            element.style.setProperty('text-shadow', 'none', 'important');
+            element.style.setProperty('background-color',
+                element === document.documentElement || element === document.body || element === book ? background : 'transparent',
+                'important');
+        }
+    }
+    setColors(window.novelColors.background, window.novelColors.text);
     let screen = 0, count = 1, vertical = false, width = 1, height = 1;
     const textNodes = () => {
         const nodes = [], walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -179,7 +210,7 @@
         return state();
     }
     window.novelReader = {
-        ready: false, state, layout,
+        ready: false, state, layout, setColors,
         reflow() { return layout(anchor(), false, lastLocation); },
         turn(delta) {
             const target = screen + delta;

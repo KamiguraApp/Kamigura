@@ -103,6 +103,7 @@ import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
 import li.mof.kamigura.reader.internal.loadReaderChapterPages
 import li.mof.kamigura.reader.novel.NovelReaderScreen
+import li.mof.kamigura.reader.novel.novelDefaultBackground
 import li.mof.kamigura.reader.internal.readerLoadErrorMessage
 import li.mof.kamigura.reader.internal.pageIsWide
 import li.mof.kamigura.reader.internal.preAnalyzeReaderPages
@@ -804,6 +805,9 @@ fun ReaderScreen(
             chapterName = currentChapter.displayName, initialProgress = progress,
             incognito = incognito, volumeKeys = settings.reader.turnPagesWithVolumeKeys,
             profile = readingProfile, preferenceKey = requireNotNull(sessionPreferenceKey),
+            defaultBackground = novelDefaultBackground(
+                settings.reader.pageBackground, settings.reader.invertMode),
+            usePureColors = settings.reader.usePurePageBackgroundColors,
             currentChapter = currentChapter, neighbors = readerChapterNeighbors(chapterSequence, currentChapterId),
             initialLastScreen = novelOpenLastScreen, chapterEntered = novelChapterEntered,
             chapterSwitching = chapterSwitching, switchError = error,

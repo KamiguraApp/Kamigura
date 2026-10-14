@@ -33,17 +33,26 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
     val origin = base.newBuilder().encodedPath("/").query(null).fragment(null).build().toString().trimEnd('/')
     val csp = "default-src 'none'; style-src 'unsafe-inline' $origin; img-src $origin data:; " +
         "font-src $origin; script-src 'nonce-$nonce'; base-uri 'none'; form-action 'none'"
+    val colors = novelReaderColors(preferences.background, preferences.usePureColors)
     return """<!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
         <meta http-equiv="Content-Security-Policy" content="$csp">
         <style>
-        html,body { margin:0; padding:0; width:100%; height:100vh; background:#FAF7F2; color:#171717; line-height:1.5; }
+        html,body { margin:0; padding:0; width:100%; height:100vh; background:${colors.backgroundCss}; color:${colors.textCss}; line-height:1.5; }
         #novel-viewport { position:fixed; inset:0; overflow:hidden; }
         .book-content { box-sizing:border-box; column-fill:auto; font-size:${preferences.fontSize * 0.16}px; }
         .book-content > div { margin:0; padding:0; }
         .book-content img,.book-content svg { max-width:100%; max-height:100%; object-fit:contain; }
+        #novel-viewport .book-content::before, #novel-viewport .book-content::after,
+        #novel-viewport .book-content :not(svg):not(svg *)::before,
+        #novel-viewport .book-content :not(svg):not(svg *)::after {
+            color:var(--novel-text-color) !important; -webkit-text-fill-color:var(--novel-text-color) !important;
+            text-decoration-color:var(--novel-text-color) !important; text-emphasis-color:var(--novel-text-color) !important;
+            -webkit-text-stroke-color:var(--novel-text-color) !important;
+            background-color:transparent !important; text-shadow:none !important;
+        }
         </style></head><body><div id="novel-viewport"><div class="book-content">$fragment</div></div>
-        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelLineSpacing=${preferences.lineSpacing};
+        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelLineSpacing=${preferences.lineSpacing};window.novelColors={background:'${colors.backgroundCss}',text:'${colors.textCss}'};
         $script</script></body></html>""".trimIndent()
 }
 
@@ -54,6 +63,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
     var onFailure: (String) -> Unit = {}
     private var generation = 0
     private var disposed = false
+    private var colors = novelReaderColors(li.mof.kamigura.PageBackground.Paper, false)
 
     init {
         settings.javaScriptEnabled = true
@@ -91,6 +101,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
 
     fun open(fragment: String, baseUrl: String, chapterId: Int, anchor: String?, last: Boolean, vertical: Boolean? = null,
         location: String? = null, preferences: NovelReaderPreferences = NovelReaderPreferences()) {
+        setColors(novelReaderColors(preferences.background, preferences.usePureColors))
         val token = ++generation
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
@@ -109,7 +120,10 @@ internal class NovelPageView(context: Context) : WebView(context) {
         if (disposed || token != generation) return
         evaluateJavascript("window.novelDocumentId === '$token' && window.novelReader && window.novelReader.ready ? window.novelReader.state() : null") { value ->
             if (disposed || token != generation) return@evaluateJavascript
-            if (value.startsWith("{")) report(value) else if (attempt < 200) {
+            if (value.startsWith("{")) {
+                setColors(colors)
+                report(value)
+            } else if (attempt < 200) {
                 postDelayed({ awaitLayout(token, attempt + 1) }, 100)
             } else onFailure("Could not lay out this EPUB.")
         }
@@ -143,6 +157,13 @@ internal class NovelPageView(context: Context) : WebView(context) {
         evaluateJavascript("window.novelReader.setFontSize(${percent.coerceIn(1, 1000)})") {
             if (!disposed && token == generation) report(it)
         }
+    }
+
+    fun setColors(value: NovelReaderColors) {
+        colors = value
+        setBackgroundColor(value.background)
+        // Paint-only update: no reflow, navigation or progress callback.
+        evaluateJavascript("window.novelReader && window.novelReader.setColors('${value.backgroundCss}','${value.textCss}')", null)
     }
 
     fun beginSectionLoad() { generation++; stopLoading() }

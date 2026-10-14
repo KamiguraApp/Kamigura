@@ -40,26 +40,31 @@ class NovelReaderMenuUiTest {
         show(width, height)
         compose.onNodeWithText("Writing").assertIsDisplayed()
         compose.onNodeWithText("Vertical").assertIsOn()
+        compose.onNodeWithText("Background").assertIsDisplayed()
+        compose.onNodeWithText("Paper").assertIsOn()
         compose.onNodeWithText("Volume 33 | Page 16 / 21 \u2022 Screen 11 / 23").assertIsDisplayed()
         val header = compose.onNodeWithContentDescription("Close menu").fetchSemanticsNode().boundsInRoot
         val panel = compose.onNodeWithText("Writing").fetchSemanticsNode().boundsInRoot
         assertTrue("Header must not overlap the scrollable panel", header.bottom <= panel.top)
-        val slider = slider("EPUB page navigation").fetchSemanticsNode()
-        assertEquals(5f, slider.config[SemanticsProperties.ProgressBarRangeInfo].current)
-        val left = compose.onNodeWithText("21").fetchSemanticsNode().boundsInRoot
-        val right = compose.onNodeWithText("1").fetchSemanticsNode().boundsInRoot
-        assertTrue(left.right <= slider.boundsInRoot.left)
-        assertTrue(slider.boundsInRoot.right <= right.left)
         assertTrue(compose.onAllNodesWithText("Section", substring = true).fetchSemanticsNodes().isEmpty())
         assertTrue(compose.onAllNodesWithText("Page").fetchSemanticsNodes().isEmpty())
         assertTrue(compose.onAllNodesWithText("complete", substring = true).fetchSemanticsNodes().isEmpty())
         assertTrue(compose.onAllNodesWithText("within this page", substring = true).fetchSemanticsNodes().isEmpty())
         assertTrue(compose.onAllNodesWithText("100%").fetchSemanticsNodes().isEmpty())
-        val fontLabel = compose.onNodeWithText("Font size").fetchSemanticsNode().boundsInRoot
-        val fontSlider = slider("Font size").fetchSemanticsNode().boundsInRoot
-        assertTrue(fontLabel.right <= fontSlider.left)
-        assertTrue(fontLabel.center.y in fontSlider.top..fontSlider.bottom)
-        assertTrue(fontSlider.bottom <= slider.boundsInRoot.top)
+        slider("Font size").performScrollTo().assertIsDisplayed()
+        val fontLabel = compose.onNodeWithText("Font size").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val fontSlider = slider("Font size").fetchSemanticsNode()
+        assertTrue(fontLabel.right <= fontSlider.boundsInRoot.left)
+        assertTrue(fontLabel.center.y in fontSlider.boundsInRoot.top..fontSlider.boundsInRoot.bottom)
+        val pageSlider = slider("EPUB page navigation").fetchSemanticsNode()
+        assertTrue(fontSlider.positionInRoot.y + fontSlider.size.height <= pageSlider.positionInRoot.y)
+        slider("EPUB page navigation").performScrollTo().assertIsDisplayed()
+        val slider = slider("EPUB page navigation").fetchSemanticsNode()
+        assertEquals(5f, slider.config[SemanticsProperties.ProgressBarRangeInfo].current)
+        val left = compose.onNodeWithText("21").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val right = compose.onNodeWithText("1").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(left.right <= slider.boundsInRoot.left)
+        assertTrue(slider.boundsInRoot.right <= right.left)
         compose.onNodeWithContentDescription("Back to series").assertIsDisplayed()
         compose.onNodeWithContentDescription("Close menu").assertIsDisplayed()
         compose.onNodeWithText("Writing").performScrollTo()
@@ -75,7 +80,10 @@ class NovelReaderMenuUiTest {
         var jumped = -1
         show(420, 880, page = { page.value }, preferences = { preferences.value }, onStyle = {
             preferences.value = preferences.value.copy(writingStyle = it)
-        }, onFont = { preferences.value = preferences.value.copy(fontSize = it) }, onJump = { jumped = it; page.value = it })
+        }, onFont = { preferences.value = preferences.value.copy(fontSize = it) }, onJump = { jumped = it; page.value = it },
+            onBackground = { preferences.value = preferences.value.copy(background = it) })
+        compose.onNodeWithText("Dark").performClick().assertIsOn()
+        compose.onNodeWithText("Paper").assertIsOff()
         compose.onNodeWithText("Horizontal").performClick().assertIsOn()
         compose.onNodeWithText("Vertical").assertIsOff()
         val slider = slider("EPUB page navigation")
@@ -117,14 +125,15 @@ class NovelReaderMenuUiTest {
 
     private fun show(width: Int, height: Int, page: () -> Int = { 15 }, pages: Int = 21, enabled: Boolean = true,
         preferences: () -> NovelReaderPreferences = { NovelReaderPreferences(writingStyle = 1) },
-        onStyle: (Int) -> Unit = {}, onFont: (Int) -> Unit = {}, onJump: (Int) -> Unit = {}) {
+        onStyle: (Int) -> Unit = {}, onFont: (Int) -> Unit = {}, onJump: (Int) -> Unit = {},
+        onBackground: (PageBackground) -> Unit = {}) {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 MaterialTheme {
                     Box(Modifier.size(width.dp, height.dp).background(Color(0xFFFAF7F2))) {
                         NovelReaderMenu("A long novel series title that must not crowd either icon",
                             "Volume 33", page(), pages, NovelPosition(10, 23, true, "//body/p[57]"),
-                            preferences(), enabled, {}, {}, onStyle, onFont, onJump)
+                            preferences(), enabled, {}, {}, onStyle, onFont, onJump, onBackground)
                     }
                 }
             }

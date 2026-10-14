@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import li.mof.kamigura.reader.internal.ReaderMenuHeader
 import li.mof.kamigura.ui.ValueBubbleSlider
+import li.mof.kamigura.PageBackground
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -46,7 +47,8 @@ internal fun NovelReaderMenu(
     onDismiss: () -> Unit,
     onWritingStyle: (Int) -> Unit,
     onFontSize: (Int) -> Unit,
-    onJumpToPage: (Int) -> Unit
+    onJumpToPage: (Int) -> Unit,
+    onBackground: (PageBackground) -> Unit
 ) {
     val count = pages.coerceAtLeast(1)
     val currentPage = page.coerceIn(0, count - 1)
@@ -78,6 +80,19 @@ internal fun NovelReaderMenu(
                                 modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
                                 shapes = if (index == 0) ButtonGroupDefaults.connectedLeadingButtonShapes()
                                     else ButtonGroupDefaults.connectedTrailingButtonShapes()) { Text(label) }
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("Background", color = Color.White)
+                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
+                        PageBackground.entries.forEachIndexed { index, background ->
+                            ToggleButton(checked = preferences.background == background, enabled = enabled,
+                                onCheckedChange = { onBackground(background) },
+                                modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
+                                shapes = if (index == 0) ButtonGroupDefaults.connectedLeadingButtonShapes()
+                                    else ButtonGroupDefaults.connectedTrailingButtonShapes()) { Text(background.name) }
                         }
                     }
                 }

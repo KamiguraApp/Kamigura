@@ -40,6 +40,7 @@ import li.mof.kamigura.KavitaApi
 import li.mof.kamigura.MarkChapterReadDto
 import li.mof.kamigura.MarkVolumesReadDto
 import li.mof.kamigura.ProgressDto
+import li.mof.kamigura.PageBackground
 import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.UserReadingProfileDto
 import li.mof.kamigura.reader.ReaderSessionPreferenceCache
@@ -61,6 +62,7 @@ internal fun NovelReaderScreen(
     initialProgress: ProgressDto, incognito: Boolean, volumeKeys: Boolean,
     onMenuChanged: (Boolean) -> Unit, onBack: () -> Unit,
     profile: UserReadingProfileDto?, preferenceKey: String,
+    defaultBackground: PageBackground, usePureColors: Boolean,
     currentChapter: ReaderChapterEntry, neighbors: ReaderChapterNeighbors,
     initialLastScreen: Boolean, chapterEntered: Boolean,
     chapterSwitching: Boolean, switchError: String?,
@@ -71,15 +73,18 @@ internal fun NovelReaderScreen(
         ReaderSessionPreferenceCache.getNovel(preferenceKey, System.currentTimeMillis())
             ?: NovelReaderOverrides()
     }
-    val initialPreferences = resolveNovelReaderPreferences(profile, initialOverrides)
+    val initialPreferences = resolveNovelReaderPreferences(profile, initialOverrides, defaultBackground, usePureColors)
     LaunchedEffect(preferenceKey) {
-        if (initialOverrides.writingStyle != null || initialOverrides.fontSize != null) {
+        if (initialOverrides.writingStyle != null || initialOverrides.fontSize != null || initialOverrides.background != null) {
             NovelPreferenceWriteScope.launch { ReaderSessionPreferenceCache.persist(context.cacheDir) }
         }
     }
     var writingStyle by rememberSaveable { mutableIntStateOf(initialPreferences.writingStyle) }
     var fontSize by rememberSaveable { mutableIntStateOf(initialPreferences.fontSize) }
-    val preferences = initialPreferences.copy(writingStyle = writingStyle, fontSize = fontSize)
+    var backgroundOverride by rememberSaveable { mutableStateOf(initialOverrides.background?.name) }
+    val preferences = initialPreferences.copy(writingStyle = writingStyle, fontSize = fontSize,
+        background = backgroundOverride?.let { PageBackground.valueOf(it) } ?: initialPreferences.background)
+    val colors = novelReaderColors(preferences.background, preferences.usePureColors)
     var spine by rememberSaveable { mutableIntStateOf(initialProgress.pageNum.coerceIn(0, spineCount - 1)) }
     var savedAnchor by rememberSaveable { mutableStateOf(initialProgress.bookScrollId) }
     var savedLocation by rememberSaveable { mutableStateOf<String?>(null) }
@@ -106,15 +111,16 @@ internal fun NovelReaderScreen(
         }
     }
     val writer = remember(api, incognito) { NovelProgressWriter(api, incognito) }
-    val view = remember { NovelPageView(context) }
+    val view = remember { NovelPageView(context).apply { setColors(colors) } }
+    LaunchedEffect(colors) { view.setColors(colors) }
     val minimumFlingVelocity = remember(context) { ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat() }
 
     fun progress(anchor: String?) = ProgressDto(libraryId, seriesId, volumeId, chapterId, reachedSpine, anchor)
-    fun persistOverrides(style: Int? = null, font: Int? = null) {
+    fun persistOverrides(style: Int? = null, font: Int? = null, background: PageBackground? = null) {
         preferenceKey.let { key ->
             val old = ReaderSessionPreferenceCache.getNovel(key, System.currentTimeMillis()) ?: NovelReaderOverrides()
             ReaderSessionPreferenceCache.putNovel(key, old.copy(writingStyle = style ?: old.writingStyle,
-                fontSize = font ?: old.fontSize), System.currentTimeMillis())
+                fontSize = font ?: old.fontSize, background = background ?: old.background), System.currentTimeMillis())
             NovelPreferenceWriteScope.launch { ReaderSessionPreferenceCache.persist(context.cacheDir) }
         }
     }
@@ -214,7 +220,7 @@ internal fun NovelReaderScreen(
         onTurn = { turn(if (it == ReaderTurnDirection.Next) 1 else -1) }
     )
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFFFAF7F2))) {
+    BoxWithConstraints(Modifier.fillMaxSize().background(Color(colors.background))) {
         AndroidView(factory = { view }, modifier = Modifier.fillMaxSize())
         ReaderTapLayer(
             rightToLeft = preferences.rightToLeft,
@@ -245,9 +251,9 @@ internal fun NovelReaderScreen(
             stateDescription = "Page ${spine + 1} / $spineCount • Screen ${(position?.screen ?: 0) + 1} / ${position?.count ?: 1}"
         })
         if (loading || failure != null) {
-            Column(Modifier.align(Alignment.Center).background(Color(0xFFFAF7F2)).padding(24.dp),
+            Column(Modifier.align(Alignment.Center).background(Color(colors.background)).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(failure ?: "Opening EPUB...", color = Color(0xFF171717))
+                Text(failure ?: "Opening EPUB...", color = Color(colors.text))
                 if (failure != null) TextButton(onClick = { reload++ }) { Text("Retry") }
                 TextButton(onClick = ::close) { Text("Back to series") }
             }
@@ -262,7 +268,8 @@ internal fun NovelReaderScreen(
                 onBack = ::close, onDismiss = { menu = false },
                 onWritingStyle = { writingStyle = it; persistOverrides(style = it); view.setVertical(it == 1) },
                 onFontSize = { fontSize = it; persistOverrides(font = it); view.setFontSize(it) },
-                onJumpToPage = { loadSpine(it) })
+                onJumpToPage = { loadSpine(it) },
+                onBackground = { backgroundOverride = it.name; persistOverrides(background = it) })
         }
     }
 }
