@@ -14,7 +14,8 @@ import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.util.UUID
 
-internal data class NovelPosition(val screen: Int, val count: Int, val vertical: Boolean, val anchor: String)
+internal data class NovelPosition(val screen: Int, val count: Int, val vertical: Boolean, val anchor: String,
+    val location: String? = null)
 
 internal fun novelResourceAllowed(url: String, baseUrl: String, chapterId: Int): Boolean {
     val base = normalizeKavitaBaseUrl(baseUrl).toHttpUrl()
@@ -25,7 +26,8 @@ internal fun novelResourceAllowed(url: String, baseUrl: String, chapterId: Int):
 }
 
 internal fun novelDocument(fragment: String, baseUrl: String, script: String, anchor: String?, last: Boolean,
-    vertical: Boolean? = null, documentId: String = ""): String {
+    vertical: Boolean? = null, documentId: String = "", location: String? = null,
+    preferences: NovelReaderPreferences = NovelReaderPreferences()): String {
     val nonce = UUID.randomUUID().toString()
     val base = normalizeKavitaBaseUrl(baseUrl).toHttpUrl()
     val origin = base.newBuilder().encodedPath("/").query(null).fragment(null).build().toString().trimEnd('/')
@@ -35,13 +37,13 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
         <meta http-equiv="Content-Security-Policy" content="$csp">
         <style>
-        html,body { margin:0; padding:0; width:100%; height:100vh; background:#FAF7F2; color:#171717; }
+        html,body { margin:0; padding:0; width:100%; height:100vh; background:#FAF7F2; color:#171717; line-height:1.5; }
         #novel-viewport { position:fixed; inset:0; overflow:hidden; }
-        .book-content { box-sizing:border-box; padding:24px; column-gap:48px; column-fill:auto; font-size:18px; line-height:1.8; }
+        .book-content { box-sizing:border-box; column-fill:auto; font-size:${preferences.fontSize * 0.16}px; }
         .book-content > div { margin:0; padding:0; }
         .book-content img,.book-content svg { max-width:100%; max-height:100%; object-fit:contain; }
         </style></head><body><div id="novel-viewport"><div class="book-content">$fragment</div></div>
-        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelDocumentId=${JSONObject.quote(documentId)};
+        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelLineSpacing=${preferences.lineSpacing};
         $script</script></body></html>""".trimIndent()
 }
 
@@ -73,7 +75,8 @@ internal class NovelPageView(context: Context) : WebView(context) {
         }
     }
 
-    fun open(fragment: String, baseUrl: String, chapterId: Int, anchor: String?, last: Boolean, vertical: Boolean? = null) {
+    fun open(fragment: String, baseUrl: String, chapterId: Int, anchor: String?, last: Boolean, vertical: Boolean? = null,
+        location: String? = null, preferences: NovelReaderPreferences = NovelReaderPreferences()) {
         val token = ++generation
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
@@ -84,7 +87,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
             override fun onPageFinished(view: WebView, url: String) { awaitLayout(token, 0) }
         }
         val script = context.assets.open("novel-reader.js").bufferedReader().use { it.readText() }
-        loadDataWithBaseURL(normalizeKavitaBaseUrl(baseUrl) + "/", novelDocument(fragment, baseUrl, script, anchor, last, vertical, token.toString()),
+        loadDataWithBaseURL(normalizeKavitaBaseUrl(baseUrl) + "/", novelDocument(fragment, baseUrl, script, anchor, last, vertical, token.toString(), location, preferences),
             "text/html", "UTF-8", null)
     }
 
@@ -101,7 +104,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
     private fun report(value: String) {
         runCatching {
             val json = JSONObject(value)
-            NovelPosition(json.getInt("screen"), json.getInt("count"), json.getBoolean("vertical"), json.getString("anchor"))
+            json.toNovelPosition()
         }.onSuccess(onPosition).onFailure { onFailure("Could not read the EPUB position.") }
     }
 
@@ -121,13 +124,22 @@ internal class NovelPageView(context: Context) : WebView(context) {
         }
     }
 
+    fun setFontSize(percent: Int) {
+        val token = generation
+        evaluateJavascript("window.novelReader.setFontSize(${percent.coerceIn(1, 1000)})") {
+            if (!disposed && token == generation) report(it)
+        }
+    }
+
     fun beginSectionLoad() { generation++; stopLoading() }
 
     fun position(callback: (NovelPosition?) -> Unit) {
+        val token = generation
         evaluateJavascript("window.novelReader && window.novelReader.ready ? window.novelReader.state() : null") { value ->
+            if (disposed || token != generation) { callback(null); return@evaluateJavascript }
             val position = runCatching {
                 val json = JSONObject(value)
-                NovelPosition(json.getInt("screen"), json.getInt("count"), json.getBoolean("vertical"), json.getString("anchor"))
+                json.toNovelPosition()
             }.getOrNull()
             callback(position)
         }
@@ -135,3 +147,6 @@ internal class NovelPageView(context: Context) : WebView(context) {
 
     fun dispose() { disposed = true; generation++; stopLoading(); destroy() }
 }
+
+private fun JSONObject.toNovelPosition() = NovelPosition(getInt("screen"), getInt("count"), getBoolean("vertical"),
+    getString("anchor"), optString("location").takeIf { it.isNotBlank() && it != "null" })

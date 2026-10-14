@@ -12,6 +12,37 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class NovelReaderTest {
+    @Test fun failedFinalProgressDoesNotPreventReadMarking() = runBlocking {
+        val failingApi = object : KavitaApi by api(mutableListOf()) {
+            override suspend fun saveProgress(dto: ProgressDto) { throw java.io.IOException("unavailable") }
+        }
+        var marked = false
+        val errors = mutableListOf<Throwable>()
+        NovelProgressWriter(failingApi, false, this, logFailure = { _, error -> errors += error })
+            .finish(progress(3, "//body/p[9]")) { marked = true }
+        assertTrue(marked)
+        assertEquals(1, errors.size)
+    }
+    @Test fun aNewPositionDoesNotCancelAnInFlightSaveAndExitWaitsItsTurn() = runBlocking {
+        val completed = CopyOnWriteArrayList<ProgressDto>()
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val slowApi = object : KavitaApi by api(completed) {
+            override suspend fun saveProgress(dto: ProgressDto) {
+                if (dto.pageNum == 0) { entered.complete(Unit); release.await() }
+                completed += dto
+            }
+        }
+        val writer = NovelProgressWriter(slowApi, false, this, 1)
+        writer.submit(progress(0, "//body/p[1]"), true)
+        entered.await()
+        writer.submit(progress(1, "//body/p[2]"), true)
+        delay(10)
+        assertTrue(completed.isEmpty())
+        release.complete(Unit)
+        delay(20)
+        assertEquals(listOf(progress(0, "//body/p[1]"), progress(1, "//body/p[2]")), completed)
+    }
     private fun progress(spine: Int, path: String) = ProgressDto(1, 2, 3, 4, spine, path)
     private fun api(writes: MutableList<ProgressDto>): KavitaApi = Proxy.newProxyInstance(
         KavitaApi::class.java.classLoader, arrayOf(KavitaApi::class.java)

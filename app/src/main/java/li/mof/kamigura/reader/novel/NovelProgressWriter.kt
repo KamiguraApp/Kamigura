@@ -3,6 +3,7 @@ package li.mof.kamigura.reader.novel
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -20,7 +21,8 @@ internal class NovelProgressWriter(
     private val api: KavitaApi,
     private val incognito: Boolean,
     private val scope: CoroutineScope = NovelExitScope,
-    private val delayMillis: Long = 3_000L
+    private val delayMillis: Long = 3_000L,
+    private val logFailure: (String, Throwable) -> Unit = { message, error -> KamiguraLog.w(message, error) }
 ) {
     private val mutex = Mutex()
     private val revision = AtomicLong()
@@ -31,9 +33,9 @@ internal class NovelProgressWriter(
         if (incognito) return
         val token = revision.incrementAndGet()
         pending?.cancel()
-        pending = scope.launch {
-            if (!immediately) delay(delayMillis)
-            mutex.withLock {
+        fun enqueue() {
+            // Debounce cancellation must not cancel an HTTP write already in flight.
+            scope.launch(start = CoroutineStart.UNDISPATCHED) { mutex.withLock {
                 if (revision.get() != token || lastSaved == progress) return@withLock
                 try {
                     api.saveProgress(progress)
@@ -41,9 +43,13 @@ internal class NovelProgressWriter(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Throwable) {
-                    KamiguraLog.w("Could not save novel EPUB progress.", error)
+                    logFailure("Could not save novel EPUB progress.", error)
                 }
-            }
+            } }
+        }
+        if (immediately) enqueue() else pending = scope.launch {
+            delay(delayMillis)
+            enqueue()
         }
     }
 
@@ -53,8 +59,23 @@ internal class NovelProgressWriter(
         cancelPending()
         if (incognito) return
         mutex.withLock {
-            if (progress != null && progress != lastSaved) api.saveProgress(progress)
+            if (progress != null && progress != lastSaved) {
+                try {
+                    api.saveProgress(progress)
+                    lastSaved = progress
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Throwable) { logFailure("Could not save final novel EPUB progress.", error) }
+            }
             mark()
+        }
+    }
+
+    fun finishAsync(progress: ProgressDto?, mark: suspend () -> Unit) {
+        cancelPending()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            try { finish(progress, mark) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Throwable) { logFailure("Could not finish novel EPUB progress.", error) }
         }
     }
 }
