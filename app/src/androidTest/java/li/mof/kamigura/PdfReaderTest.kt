@@ -254,14 +254,14 @@ class PdfReaderTest {
     }
 
     @Test
-    fun textEpubOpensNovelPocWithoutRequestingReaderImages() {
+    fun textEpubOpensNovelReaderWithoutRequestingReaderImages() {
         ReaderServer(format = 3).use { server ->
             val visible = open(server)
             compose.waitUntil(10_000) {
                 compose.onAllNodesWithContentDescription("EPUB page").fetchSemanticsNodes().isNotEmpty()
             }
             openMenu()
-            compose.onNodeWithText("Section 1 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("Section 1 / 6 · Screen", substring = true).assertIsDisplayed()
             assertFalse(server.requests.any { it.path == "/api/Reader/image" })
             assertTrue(server.requests.any { it.path == "/api/Book/1/book-page" })
             assertTrue(server.requests.filter { it.path == "/api/Reader/chapter-info" }
@@ -447,7 +447,10 @@ internal class ReaderServer(
     failPage: (Int) -> Boolean = { false },
     imageResponseGate: (Int) -> CountDownLatch? = { null },
     bookFragment: (Int) -> String = { "<div><p>Novel prose requiring a text reader.</p></div>" },
-    bookProgress: ProgressDto? = null
+    bookProgress: ProgressDto? = null,
+    readingProfile: String = """{"kind":1,"readingDirection":1}""",
+    spineCount: Int = 6,
+    bookChapterFragment: ((Int, Int) -> String)? = null
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -516,7 +519,7 @@ internal class ReaderServer(
                             "/api/Series/1" -> """{"id":1,"name":"Test book","format":$format}"""
                             "/api/Series/volumes" -> if (neighbor)
                                 """[{"id":1,"chapters":[{"id":1,"title":"First"},{"id":2,"title":"Second"}]}]""" else "[]"
-                            "/api/reading-profile/1/1" -> """{"kind":1,"readingDirection":1}"""
+                            "/api/reading-profile/1/1" -> readingProfile
                             "/api/Reader/get-progress" -> {
                                 val bookSaved = bookProgressWrites.lastOrNull() ?: bookProgress
                                 val chapter = uri.getQueryParameter("chapterId")?.toInt() ?: 1
@@ -525,18 +528,21 @@ internal class ReaderServer(
                                     """{"libraryId":1,"seriesId":1,"volumeId":1,"chapterId":$chapter,"pageNum":$page}"""
                             }
                             "/api/Reader/chapter-bookmarks" -> "[]"
-                            "/api/Book/1/book-page" -> bookFragment(uri.getQueryParameter("page")?.toInt() ?: 0)
+                            "/api/Book/1/book-page", "/api/Book/2/book-page" -> {
+                                val spine = uri.getQueryParameter("page")?.toInt() ?: 0
+                                bookChapterFragment?.invoke(uri.pathSegments[2].toInt(), spine) ?: bookFragment(spine)
+                            }
                             "/api/Reader/chapter-info" -> {
                                 chapterRequested.countDown()
                                 releaseChapter.await(45, TimeUnit.SECONDS)
                                 val dimensions = (0..5).joinToString(",") {
                                     """{"pageNumber":$it,"width":600,"height":900}"""
                                 }
-                                """{"chapterId":1,"pages":6,"pageDimensions":[$dimensions]}"""
+                                """{"chapterId":${uri.getQueryParameter("chapterId") ?: 1},"pages":$spineCount,"pageDimensions":[$dimensions]}"""
                             }
                             else -> "{}"
                         }
-                        val isImage = uri.path == "/api/Reader/image"
+                        val isImage = uri.path == "/api/Reader/image" || uri.path.orEmpty().endsWith("/book-resources")
                         val isDownload = uri.path == "/api/Download/chapter"
                         if (isImage) imageResponseGate(uri.getQueryParameter("page")?.toInt() ?: 0)
                             ?.await(30, TimeUnit.SECONDS)

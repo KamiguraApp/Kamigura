@@ -110,7 +110,7 @@ class NovelReaderUiTest {
             compose.setContent { MaterialTheme { if (visible.value) ReaderScreen(store, AppSettingsStore(context),
                 1, 1, 1, 1, incognito = true, onBack = { visible.value = false }) } }
             awaitSection(1)
-            compose.onRoot().performTouchInput { click(center) }
+            openMenu()
             compose.onNodeWithText("Vertical").performClick()
             compose.waitUntil(5_000) {
                 compose.onAllNodes(hasText("Vertical") and isSelected()).fetchSemanticsNodes().isNotEmpty()
@@ -121,7 +121,7 @@ class NovelReaderUiTest {
                 compose.onNodeWithContentDescription("EPUB page").fetchSemanticsNode().config[
                     androidx.compose.ui.semantics.SemanticsProperties.StateDescription].contains("Screen 2 /")
             }
-            compose.onRoot().performTouchInput { click(center) }
+            openMenu()
             compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { !visible.value }
             assertTrue(server.bookProgressWrites.isEmpty())
@@ -139,7 +139,7 @@ class NovelReaderUiTest {
             awaitSection(3)
             compose.onRoot().performTouchInput { click(Offset(width * .1f, height * .5f)) }
             awaitSection(2)
-            compose.onRoot().performTouchInput { click(center) }
+            openMenu()
             compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { server.bookProgressWrites.isNotEmpty() }
             assertEquals(1, server.bookProgressWrites.last().pageNum)
@@ -158,7 +158,7 @@ class NovelReaderUiTest {
             val state = compose.onNodeWithContentDescription("EPUB page").fetchSemanticsNode().config[
                 androidx.compose.ui.semantics.SemanticsProperties.StateDescription]
             assertTrue(state.substringAfter("Screen ").substringBefore(" / ").toInt() > 1)
-            compose.onRoot().performTouchInput { click(center) }
+            openMenu()
             compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { !visible.value }
             Thread.sleep(3_500)
@@ -201,6 +201,11 @@ class NovelReaderUiTest {
     private fun findNovelView(view: View): NovelPageView? = if (view is NovelPageView) view else if (view is ViewGroup)
         (0 until view.childCount).firstNotNullOfOrNull { findNovelView(view.getChildAt(it)) } else null
 
+    private fun openMenu() {
+        compose.onRoot().performTouchInput { click(center) }
+        compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isNotEmpty() }
+    }
+
     private fun awaitSection(section: Int) {
         compose.waitUntil(20_000) {
             compose.onAllNodesWithContentDescription("EPUB page").fetchSemanticsNodes().firstOrNull()?.config?.get(
@@ -209,7 +214,8 @@ class NovelReaderUiTest {
     }
 
     private fun reader(vertical: Boolean, incognito: Boolean) {
-        ReaderServer(3, bookFragment = { novelFixture(vertical) }).use { server ->
+        ReaderServer(3, bookFragment = { novelFixture(vertical) },
+            readingProfile = """{"bookReaderWritingStyle":${if (vertical) 1 else 0}}""").use { server ->
             val store = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
             val visible = mutableStateOf(true)
             compose.setContent { MaterialTheme { if (visible.value) ReaderScreen(store, AppSettingsStore(context),
@@ -220,10 +226,10 @@ class NovelReaderUiTest {
                 compose.onNodeWithContentDescription("EPUB page").fetchSemanticsNode().config[
                     androidx.compose.ui.semantics.SemanticsProperties.StateDescription].contains("Screen 2 /")
             }
-            compose.onRoot().performTouchInput { click(center) }
+            openMenu()
             compose.onNodeWithText("Section 1 / 6 · Screen 2 /", substring = true).assertIsDisplayed()
             compose.onNodeWithContentDescription("Close menu").performClick()
-            compose.onRoot().performTouchInput { click(center) }
+            openMenu()
             compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { !visible.value }
             if (incognito) {
