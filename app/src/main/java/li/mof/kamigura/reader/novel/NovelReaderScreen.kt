@@ -133,16 +133,17 @@ internal fun NovelReaderScreen(
         }
     }
     fun close() {
-        if (closing || chapterSwitching) return
+        if (closing) return
         closing = true
-        view.position { latest ->
-            if (moved && hasReachedPage && boundary == null) {
-                val anchor = if (!loading) latest?.anchor ?: reachedAnchor else reachedAnchor
+        fun finishClose(anchor: String?) {
+            if (moved && hasReachedPage && boundaryDirection == null) {
                 writer.submit(progress(anchor), immediately = true)
             }
             onMenuChanged(false)
             onBack()
         }
+        if (loading || failure != null || boundaryDirection != null || chapterSwitching) finishClose(reachedAnchor)
+        else view.position { latest -> finishClose(latest?.anchor ?: reachedAnchor) }
     }
     fun loadSpine(target: Int, last: Boolean = false) {
         renderedSpine = -1

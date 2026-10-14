@@ -34,6 +34,29 @@ class NovelReaderProductionTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
 
+    @Test fun systemBackCanCancelOpeningTheNextChapter() {
+        val requested = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        ReaderServer(3, neighbor = true, spineCount = 1, bookChapterFragment = { chapter, _ ->
+            if (chapter == 2) {
+                requested.countDown()
+                try { release.await(10, TimeUnit.SECONDS) } catch (_: InterruptedException) { }
+            }
+            novelFixture(false, 1)
+        }).use { server ->
+            val visible = mutableStateOf(true)
+            try {
+                open(server, visible, incognito = true)
+                key(KeyEvent.KEYCODE_PAGE_DOWN)
+                compose.onNodeWithText("Next chapter").performClick()
+                compose.waitUntil(5_000) { requested.count == 0L }
+                compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+                compose.waitUntil(5_000) { !visible.value }
+                assertTrue(server.bookProgressWrites.isEmpty())
+            } finally { release.countDown() }
+        }
+    }
+
     @Test fun profileWritingStyleWinsOverImportantBookCss() {
         lateinit var view: NovelPageView
         var ready = false
