@@ -176,6 +176,42 @@
         return { screen, count, vertical, anchor: anchor(), location: lastLocation };
     }
     let spacingOverrides = [];
+    const imageStyles = new WeakMap();
+    const imageSizeProperties = ['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
+        'object-fit', 'break-inside'];
+    function fitImages() {
+        const style = getComputedStyle(book);
+        const availableWidth = Math.max(1, book.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+        const availableHeight = Math.max(1, book.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom));
+        for (const image of root.querySelectorAll('img,svg')) {
+            if (image.matches('img.gaiji') || image.parentElement.closest('svg')) continue;
+            if (!imageStyles.has(image)) imageStyles.set(image, imageSizeProperties.map(property => ({
+                value: image.style.getPropertyValue(property), priority: image.style.getPropertyPriority(property)
+            })));
+            imageSizeProperties.forEach((property, index) => {
+                const saved = imageStyles.get(image)[index];
+                if (saved.value) image.style.setProperty(property, saved.value, saved.priority);
+                else image.style.removeProperty(property);
+            });
+            const bounds = image.getBoundingClientRect();
+            const scale = Math.min(1, availableWidth / bounds.width, availableHeight / bounds.height);
+            // Percentage limits have no useful block-size reference in fragmented book content.
+            image.style.setProperty('max-width', availableWidth + 'px', 'important');
+            image.style.setProperty('max-height', availableHeight + 'px', 'important');
+            image.style.setProperty('object-fit', 'contain', 'important');
+            image.style.setProperty('break-inside', 'avoid', 'important');
+            if (scale < 1) {
+                const box = image.viewBox?.baseVal;
+                const ratio = image.naturalWidth > 0 && image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight :
+                    box?.width > 0 && box?.height > 0 ? box.width / box.height : bounds.width / bounds.height;
+                const fittedWidth = Math.min(bounds.width, bounds.height * ratio, availableWidth, availableHeight * ratio);
+                image.style.setProperty('min-width', '0', 'important');
+                image.style.setProperty('min-height', '0', 'important');
+                image.style.setProperty('width', fittedWidth + 'px', 'important');
+                image.style.setProperty('height', fittedWidth / ratio + 'px', 'important');
+            }
+        }
+    }
     function applySpacing() {
         for (const saved of spacingOverrides) {
             if (saved.value) saved.element.style.setProperty('line-height', saved.value, saved.priority);
@@ -233,6 +269,7 @@
         book.style.height = window.innerHeight + 'px';
         book.style.columnWidth = (vertical ? window.innerHeight : width) + 'px';
         book.style.columnCount = '1';
+        fitImages();
         // CSS multicol follows the inline axis: vertical column sets continue below.
         let maximum = vertical ? height : width;
         for (const node of textNodes()) for (const r of rects(node)) {
