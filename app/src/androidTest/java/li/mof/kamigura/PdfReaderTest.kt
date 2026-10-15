@@ -454,7 +454,8 @@ internal class ReaderServer(
     spineCount: Int = 6,
     bookChapterFragment: ((Int, Int) -> String)? = null,
     personalHandler: ((String, Uri, String) -> Pair<Int, String>)? = null,
-    contentsResponse: () -> Pair<Int, String> = { 200 to "[]" }
+    contentsResponse: () -> Pair<Int, String> = { 200 to "[]" },
+    bookPageResponse: ((Int, Int) -> Pair<Int, String>)? = null
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -516,7 +517,9 @@ internal class ReaderServer(
                         val personal = if (uri.path in listOf("/api/reader/ptoc", "/api/reader/create-ptoc"))
                             personalHandler?.invoke(request.substringBefore(' '), uri, String(requestBody)) else null
                         val contents = if (uri.path in listOf("/api/Book/1/chapters", "/api/Book/2/chapters")) contentsResponse() else null
-                        val custom = personal ?: contents
+                        val book = if (uri.path in listOf("/api/Book/1/book-page", "/api/Book/2/book-page"))
+                            bookPageResponse?.invoke(uri.pathSegments[2].toInt(), uri.getQueryParameter("page")?.toInt() ?: 0) else null
+                        val custom = personal ?: contents ?: book
                         val json = custom?.second ?: when (uri.path) {
                             "/api/Series/1" -> """{"id":1,"name":"Test book","format":$format}"""
                             "/api/Series/volumes" -> if (neighbor)

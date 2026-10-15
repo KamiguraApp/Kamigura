@@ -195,7 +195,7 @@ class NovelReaderUiTest {
     }
 
     @Test fun closeDuringSectionLoadIgnoresOldLayoutCallbacks() {
-        val hold = AtomicBoolean(false)
+        val hold = AtomicBoolean(true)
         val requested = CountDownLatch(1)
         val release = CountDownLatch(1)
         ReaderServer(3, bookFragment = { spine ->
@@ -218,7 +218,7 @@ class NovelReaderUiTest {
                     findNovelView(compose.activity.window.decorView)!!.onPosition(
                         NovelPosition(12, 27, false, "id(\"wrong-spine\")"))
                 }
-                compose.onNodeWithText("Back to series").performClick()
+                compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
                 compose.waitUntil(5_000) { server.bookProgressWrites.isNotEmpty() }
                 assertEquals(1, server.bookProgressWrites.last().pageNum)
                 assertEquals("id(\"paragraph-0\")", server.bookProgressWrites.last().bookScrollId)

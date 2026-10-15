@@ -57,11 +57,11 @@ class NovelLinksUiTest {
                 prose() + "<p id='target'><a id='return' href='#top' kavita-part='top'>Return</a></p></div>"
         }).use { server ->
             open(server)
-            val requests = server.requests.count { it.path == "/api/Book/1/book-page" }
+            val requests = server.requests.count { it.path == "/api/Book/1/book-page" && it.getQueryParameter("page") == "0" }
             tap("go"); compose.waitUntil(5_000) { screen() > 1 }; assertNoMenu()
             tap("return"); compose.waitUntil(5_000) { screen() == 1 }; assertNoMenu()
             assertTrue(state().startsWith("Page 1 /"))
-            assertEquals(requests, server.requests.count { it.path == "/api/Book/1/book-page" })
+            assertEquals(requests, server.requests.count { it.path == "/api/Book/1/book-page" && it.getQueryParameter("page") == "0" })
         }
     }
 

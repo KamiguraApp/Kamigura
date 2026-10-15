@@ -3,6 +3,8 @@ package li.mof.kamigura.reader.novel
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -172,6 +174,13 @@ internal class NovelPageView(context: Context) : WebView(context) {
     }
 
     fun beginSectionLoad() { generation++; stopLoading() }
+
+    fun captureFrame(): Bitmap? {
+        if (disposed || width <= 0 || height <= 0) return null
+        return runCatching {
+            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { draw(Canvas(it)) }
+        }.getOrNull()
+    }
 
     fun bookmarkContext(items: List<PersonalToCDto>, callback: (NovelBookmarkContext?) -> Unit) {
         val token = generation

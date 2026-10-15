@@ -153,7 +153,7 @@ class NovelReaderColorsTest {
     @Test fun darkLoadingAndChapterBoundaryNeverShowPaper() {
         val settings = AppSettingsStore(context)
         val original = runBlocking { settings.flow.first().reader }
-        val armed = AtomicBoolean(false)
+        val armed = AtomicBoolean(true)
         val gate = CountDownLatch(1)
         ReaderServer(3, neighbor = true, spineCount = 2, bookFragment = { spine ->
             if (spine == 1 && armed.get()) try { gate.await(20, TimeUnit.SECONDS) } catch (_: InterruptedException) { }
@@ -163,9 +163,12 @@ class NovelReaderColorsTest {
                 runBlocking { settings.setPageBackground(PageBackground.Dark); settings.setInvertMode(InvertMode.Off); settings.setUsePurePageBackgroundColors(false) }
                 val store = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
                 compose.setContent { MaterialTheme(colorScheme = KamiguraDarkColorScheme) { ReaderScreen(store, settings, 1, 1, 1, 1, incognito = true, onBack = {}) } }
-                loaded(); armed.set(true)
+                loaded()
                 key(KeyEvent.KEYCODE_PAGE_DOWN)
-                compose.onNodeWithText("Opening EPUB...").assertIsDisplayed()
+                compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Loading EPUB section").fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithContentDescription("Loading EPUB section").assertIsDisplayed()
+                compose.onNodeWithText("Opening EPUB...").assertDoesNotExist()
+                compose.onNodeWithText("Back to series").assertDoesNotExist()
                 val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
                 assertEquals(0xFF101010.toInt(), screenshot.getPixel(10, screenshot.height / 2))
                 screenshot.recycle()

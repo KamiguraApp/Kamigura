@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -109,6 +113,7 @@ internal fun NovelReaderScreen(
     var checkingBookmark by remember { mutableStateOf(false) }
     var pendingBookmarkAnchor by rememberSaveable { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var previousFrame by remember { mutableStateOf<ImageBitmap?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var position by remember { mutableStateOf<NovelPosition?>(null) }
     var reachedSpine by rememberSaveable { mutableIntStateOf(spine) }
@@ -133,6 +138,10 @@ internal fun NovelReaderScreen(
     val writer = remember(apiIdentity, incognito) { NovelProgressWriter(api, incognito) }
     val view = remember { NovelPageView(context).apply { setColors(colors) } }
     val scope = rememberCoroutineScope()
+    val sections = remember(apiIdentity, chapterId) {
+        NovelSectionCache(scope) { page -> withContext(Dispatchers.IO) { api.bookPage(chapterId, page).use { it.string() } } }
+    }
+    DisposableEffect(sections) { onDispose { sections.close() } }
     val bookmarks = remember(apiIdentity, chapterId, incognito, offline) {
         if (readerCanManageBookmarks(incognito, offline))
             NovelBookmarks(api, chapterId, volumeId, seriesId, libraryId, spineCount) else null
@@ -166,6 +175,7 @@ internal fun NovelReaderScreen(
         else view.position { latest -> finishClose(latest?.anchor ?: reachedAnchor) }
     }
     fun loadSpine(target: Int, last: Boolean = false, anchor: String? = null) {
+        if (!loading && renderedSpine >= 0) previousFrame = view.captureFrame()?.asImageBitmap()
         renderedSpine = -1
         view.beginSectionLoad()
         spine = target
@@ -233,6 +243,7 @@ internal fun NovelReaderScreen(
             hasReachedPage = true
             openLast = false
             loading = false
+            previousFrame = null
             turning = false
             if (moved && boundaryDirection == null) writer.submit(progress(current.anchor))
         }
@@ -249,14 +260,18 @@ internal fun NovelReaderScreen(
         view.beginSectionLoad()
         loading = true
         failure = null
+        sections.retainAround(targetSpine, spineCount)
         try {
-            val html = withContext(Dispatchers.IO) { api.bookPage(chapterId, targetSpine).use { it.string() } }
+            val html = sections.get(targetSpine)
             withContext(Dispatchers.Main.immediate) {
                 renderedSpine = targetSpine
                 view.open(html, baseUrl, chapterId, savedAnchor, openLast, preferences.vertical, savedLocation, preferences)
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Throwable) { failure = "Could not load this EPUB section."; loading = false }
+    }
+    LaunchedEffect(loading, failure, renderedSpine) {
+        if (!loading && failure == null && renderedSpine == spine) sections.prefetchAround(spine, spineCount)
     }
     LaunchedEffect(menu) { onMenuChanged(menu); if (!menu) contentsList = false }
     LaunchedEffect(menu, bookmarks) { if (menu) bookmarks?.refresh() }
@@ -304,6 +319,7 @@ internal fun NovelReaderScreen(
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(colors.background))) {
         AndroidView(factory = { view }, modifier = Modifier.fillMaxSize())
+        previousFrame?.let { Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
         ReaderTapLayer(
             rightToLeft = preferences.rightToLeft,
             onNextSpread = { turn(1) }, onPreviousSpread = { turn(-1) },
@@ -353,7 +369,10 @@ internal fun NovelReaderScreen(
             }
             stateDescription = "Page ${spine + 1} / $spineCount • Screen ${(position?.screen ?: 0) + 1} / ${position?.count ?: 1}"
         })
-        if (loading || failure != null) {
+        if (loading && previousFrame != null) {
+            Text("...", color = Color(colors.text).copy(alpha = .45f),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp).semantics { contentDescription = "Loading EPUB section" })
+        } else if (loading || failure != null) {
             Column(Modifier.align(Alignment.Center).background(Color(colors.background)).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(failure ?: "Opening EPUB...", color = Color(colors.text))
