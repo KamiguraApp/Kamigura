@@ -1,6 +1,9 @@
 package li.mof.kamigura.reader.novel
 
 import android.view.ViewConfiguration
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -113,6 +116,7 @@ internal fun NovelReaderScreen(
     var renderedSpine by remember { mutableIntStateOf(-1) }
     var moved by rememberSaveable { mutableStateOf(chapterEntered) }
     var turning by remember { mutableStateOf(false) }
+    var checkingLink by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var dragDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
@@ -185,6 +189,7 @@ internal fun NovelReaderScreen(
             view.jumpToBookmark(anchor) { error ->
                 turning = false
                 bookmarkPositionError = error
+                if (error != null && !menu) Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
                 if (error == null) { contentsList = false; menu = false }
             }
         }
@@ -209,7 +214,7 @@ internal fun NovelReaderScreen(
         } else boundaryDirection = delta
     }
     fun turn(delta: Int) {
-        if (loading || turning || menu || failure != null || chapterSwitching || closing) return
+        if (loading || turning || checkingLink || menu || failure != null || chapterSwitching || closing) return
         boundaryDirection?.let {
             if (it == delta) continueChapter() else boundaryDirection = null
             return
@@ -286,13 +291,14 @@ internal fun NovelReaderScreen(
         pendingBookmarkAnchor = null
         view.jumpToBookmark(anchor) { error ->
             bookmarkPositionError = error
+            if (error != null && !menu) Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
             if (error == null) { contentsList = false; menu = false }
         }
     }
     BackHandler { when { contentsList && menu -> contentsList = false; menu -> menu = false; else -> close() } }
     ReaderKeyEffect(
         if (preferences.rightToLeft) ReaderReadingDirection.RightToLeft else ReaderReadingDirection.LeftToRight,
-        volumeKeys, isBlocked = { loading || turning || menu || dragging || chapterSwitching || closing || failure != null },
+        volumeKeys, isBlocked = { loading || turning || checkingLink || menu || dragging || chapterSwitching || closing || failure != null },
         onTurn = { turn(if (it == ReaderTurnDirection.Next) 1 else -1) }
     )
 
@@ -303,6 +309,27 @@ internal fun NovelReaderScreen(
             onNextSpread = { turn(1) }, onPreviousSpread = { turn(-1) },
             onNextSingle = { turn(1) }, onPreviousSingle = { turn(-1) },
             onCenterTap = { if (boundary == null && !chapterSwitching && !closing) menu = !menu },
+            interceptTap = { tap, fallback ->
+                if (boundary != null || loading || failure != null) fallback()
+                else if (!checkingLink && !turning && !menu && !chapterSwitching && !closing) {
+                    checkingLink = true
+                    view.linkAt(tap.x, tap.y, spine, spineCount) { link ->
+                        checkingLink = false
+                        if (!dragging && !menu && !loading && !turning && !chapterSwitching && !closing) {
+                            when (link) {
+                                NovelLink.None -> fallback()
+                                is NovelLink.Internal -> openLocation(link.page, link.anchor)
+                                is NovelLink.External -> runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link.url)).apply {
+                                        addCategory(Intent.CATEGORY_BROWSABLE)
+                                    })
+                                }.onFailure { Toast.makeText(context, "Could not open this link in a browser.", Toast.LENGTH_SHORT).show() }
+                                NovelLink.Ignored, null -> Unit
+                            }
+                        }
+                    }
+                }
+            },
             turnVisualDistancePx = constraints.maxWidth.toFloat(),
             onTurnDragStart = { direction, _ -> dragging = true; dragDirection = direction; dragProgress = 0f },
             onTurnDrag = { direction, progress, _ -> dragDirection = direction; dragProgress = progress },

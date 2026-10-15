@@ -126,7 +126,8 @@
     }
     function linkAt(x, y) {
         const link = document.elementFromPoint(x * innerWidth, y * innerHeight)?.closest('a');
-        if (!link || !root.contains(link)) return { link: false };
+        if (!link || !root.contains(link) || (!link.hasAttribute('href') &&
+            !link.hasAttribute('kavita-page') && !link.hasAttribute('kavita-note-ref'))) return { link: false };
         return { link: true, page: link.getAttribute('kavita-page'), part: link.getAttribute('kavita-part'),
             href: link.getAttribute('href'), note: link.hasAttribute('kavita-note-ref') };
     }

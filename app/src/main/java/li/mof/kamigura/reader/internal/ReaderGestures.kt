@@ -63,7 +63,8 @@ internal fun ReaderTapLayer(
     onCloseDragEnd: (Boolean) -> Unit = {},
     onCloseDragCancel: () -> Unit = {},
     onDoubleTap: (Offset) -> Unit = {},
-    onTransform: (Float, Offset, Offset) -> Unit = { _, _, _ -> }
+    onTransform: (Float, Offset, Offset) -> Unit = { _, _, _ -> },
+    interceptTap: ((Offset, () -> Unit) -> Unit)? = null
 ) {
     val latestOnNextSpread by rememberUpdatedState(onNextSpread)
     val latestOnPreviousSpread by rememberUpdatedState(onPreviousSpread)
@@ -71,7 +72,13 @@ internal fun ReaderTapLayer(
     val latestOnPreviousSingle by rememberUpdatedState(onPreviousSingle)
     val latestOnCenterTap by rememberUpdatedState(onCenterTap)
     val latestOnDoubleTap by rememberUpdatedState(onDoubleTap)
+    val latestInterceptTap by rememberUpdatedState(interceptTap)
     val density = LocalDensity.current
+
+    fun tap(position: Offset, fallback: () -> Unit) {
+        val interceptor = latestInterceptTap
+        if (interceptor == null) fallback() else interceptor(position, fallback)
+    }
 
     Box(
         Modifier
@@ -97,14 +104,18 @@ internal fun ReaderTapLayer(
                 onCloseDragEnd = onCloseDragEnd,
                 onCloseDragCancel = onCloseDragCancel,
                 onLeftTap = { position ->
-                    if (!zoomPanEnabled) {
-                        if (rightToLeft) latestOnNextSpread(position) else latestOnPreviousSpread(position)
+                    tap(position) {
+                        if (!zoomPanEnabled) {
+                            if (rightToLeft) latestOnNextSpread(position) else latestOnPreviousSpread(position)
+                        }
                     }
                 },
-                onCenterTap = latestOnCenterTap,
+                onCenterTap = { position -> tap(position) { latestOnCenterTap() } },
                 onRightTap = { position ->
-                    if (!zoomPanEnabled) {
-                        if (rightToLeft) latestOnPreviousSpread(position) else latestOnNextSpread(position)
+                    tap(position) {
+                        if (!zoomPanEnabled) {
+                            if (rightToLeft) latestOnPreviousSpread(position) else latestOnNextSpread(position)
+                        }
                     }
                 },
                 onLeftLongPress = {
@@ -216,7 +227,7 @@ private fun Modifier.readerGestures(
     onCloseDragEnd: (Boolean) -> Unit = {},
     onCloseDragCancel: () -> Unit = {},
     onLeftTap: (Offset) -> Unit = {},
-    onCenterTap: () -> Unit = {},
+    onCenterTap: (Offset) -> Unit = {},
     onRightTap: (Offset) -> Unit = {},
     onLeftLongPress: () -> Unit = {},
     onRightLongPress: () -> Unit = {},
@@ -319,9 +330,9 @@ private fun Modifier.readerGestures(
         }
 
         fun flushPendingCenterTap() {
-            if (pendingCenterTap != null) {
+            pendingCenterTap?.let { pending ->
                 pendingCenterTap = null
-                latestOnCenterTap()
+                latestOnCenterTap(pending.position)
             }
         }
 
