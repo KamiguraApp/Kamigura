@@ -45,6 +45,9 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
         .book-content { box-sizing:border-box; column-fill:auto; font-size:${preferences.fontSize * 0.16}px; }
         .book-content > div { margin:0; padding:0; }
         .book-content img,.book-content svg { max-width:100%; max-height:100%; object-fit:contain; }
+        .book-content .visually-hidden { position:absolute !important; width:1px !important; height:1px !important;
+            padding:0 !important; margin:-1px !important; overflow:hidden !important; clip:rect(0,0,0,0) !important;
+            white-space:nowrap !important; border:0 !important; }
         #novel-viewport .book-content::before, #novel-viewport .book-content::after,
         #novel-viewport .book-content :not(svg):not(svg *)::before,
         #novel-viewport .book-content :not(svg):not(svg *)::after {
@@ -190,7 +193,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
             if (disposed || token != generation) { callback("The EPUB section changed."); return@evaluateJavascript }
             val result = runCatching { JSONObject(value) }.getOrNull()
             when {
-                result == null -> callback("Could not open this bookmark.")
+                result == null -> callback("Could not open this reading position.")
                 result.has("error") -> callback(result.getString("error"))
                 else -> { report(value); callback(null) }
             }
@@ -204,6 +207,26 @@ internal class NovelPageView(context: Context) : WebView(context) {
             callback(runCatching {
                 val array = JSONArray(value)
                 (0 until array.length()).map { array.getString(it) }.toSet()
+            }.getOrNull())
+        }
+    }
+
+    fun linkAt(xPx: Float, yPx: Float, currentPage: Int, pageCount: Int, callback: (NovelLink?) -> Unit) {
+        if (disposed || width <= 0 || height <= 0 || !xPx.isFinite() || !yPx.isFinite()) {
+            callback(null); return
+        }
+        val token = generation
+        // Fractions use Chromium's actual viewport rather than assuming Android/WebView densities agree.
+        evaluateJavascript("window.novelReader && window.novelReader.ready ? " +
+            "window.novelReader.linkAt(${xPx / width},${yPx / height}) : null") { value ->
+            if (disposed || token != generation) { callback(null); return@evaluateJavascript }
+            callback(runCatching {
+                val json = JSONObject(value)
+                if (!json.getBoolean("link")) NovelLink.None else novelLink(
+                    json.optString("page").takeUnless { json.isNull("page") },
+                    json.optString("part").takeUnless { json.isNull("part") },
+                    json.optString("href").takeUnless { json.isNull("href") },
+                    json.getBoolean("note"), currentPage, pageCount)
             }.getOrNull())
         }
     }

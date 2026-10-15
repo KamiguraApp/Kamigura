@@ -44,7 +44,7 @@
         const nodes = [], walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
         while (walker.nextNode()) {
             const node = walker.currentNode;
-            if (node.textContent.trim() && !node.parentElement.closest('style,script,rt,rp')) nodes.push(node);
+            if (node.textContent.trim() && !node.parentElement.closest('style,script,rt,rp,.visually-hidden')) nodes.push(node);
         }
         return nodes;
     };
@@ -123,6 +123,12 @@
                 (target === reference || target.contains(reference) ||
                     (target.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
         });
+    }
+    function linkAt(x, y) {
+        const link = document.elementFromPoint(x * innerWidth, y * innerHeight)?.closest('a');
+        if (!link || !root.contains(link)) return { link: false };
+        return { link: true, page: link.getAttribute('kavita-page'), part: link.getAttribute('kavita-part'),
+            href: link.getAttribute('href'), note: link.hasAttribute('kavita-note-ref') };
     }
     let lastLocation = null;
     function location() {
@@ -243,7 +249,7 @@
         return state();
     }
     window.novelReader = {
-        ready: false, state, layout, setColors, bookmarkContext, contentsParts,
+        ready: false, state, layout, setColors, bookmarkContext, contentsParts, linkAt,
         reflow() { return layout(anchor(), false, lastLocation); },
         turn(delta) {
             const target = screen + delta;
@@ -252,7 +258,7 @@
         },
         jump(xpath) {
             const target = xpath ? resolve(xpath) : root;
-            if (!target) return { error: 'Bookmark position is no longer available.' };
+            if (!target || !root.contains(target)) return { error: 'Reading position is no longer available.' };
             book.style.transform = '';
             show(locate(target)); lastLocation = null; return state();
         },
