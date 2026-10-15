@@ -1,11 +1,16 @@
-/* Independent multicol/XPath pagination; no Kavita Web Reader code is used. */
+/* Independent multicol/XPath pagination; no Kavita Web Reader code is used.
+ * Kavita appends scoped book CSS after our wrapper styles. Kamigura-owned declarations
+ * go through readerStyle as inline !important; restoring book styles uses their saved priority.
+ */
 (() => {
     const book = document.querySelector('.book-content');
     const root = book.firstElementChild;
-    // The book's own html/body rules are scoped onto .book-content by the server and come later
-    // than our head style, so the user's size is set inline and important, as menu changes are.
+    function readerStyle(element, property, value, priority = 'important') {
+        if (value === '') element.style.removeProperty(property);
+        else element.style.setProperty(property, value, priority);
+    }
     function applyFontSize(percent) {
-        book.style.setProperty('font-size', (percent * 0.16) + 'px', 'important');
+        readerStyle(book, 'font-size', (percent * 0.16) + 'px');
     }
     applyFontSize(window.novelFontSize ?? 100);
     const svgColors = new WeakMap();
@@ -13,7 +18,7 @@
         '-webkit-text-stroke-color', 'text-decoration-color', 'text-emphasis-color', 'text-shadow'];
     function setColors(background, text) {
         // Inline SVG illustrations may use inherited currentColor; freeze their original paint.
-        book.style.setProperty('color', '#101010', 'important');
+        readerStyle(book, 'color', '#101010');
         for (const element of root.querySelectorAll('svg,svg *')) {
             if (!svgColors.has(element)) {
                 const style = getComputedStyle(element);
@@ -22,20 +27,19 @@
         }
         for (const element of root.querySelectorAll('svg,svg *')) {
             svgPaintProperties.forEach((property, index) =>
-                element.style.setProperty(property, svgColors.get(element)[index], 'important'));
+                readerStyle(element, property, svgColors.get(element)[index]));
         }
-        document.documentElement.style.setProperty('--novel-text-color', text);
+        readerStyle(document.documentElement, '--novel-text-color', text);
         for (const element of [document.documentElement, document.body, book, ...root.querySelectorAll('*'), root]) {
             if (element.closest('img,svg,video,canvas')) continue;
-            element.style.setProperty('color', text, 'important');
-            element.style.setProperty('-webkit-text-fill-color', text, 'important');
-            element.style.setProperty('-webkit-text-stroke-color', text, 'important');
-            element.style.setProperty('text-decoration-color', text, 'important');
-            element.style.setProperty('text-emphasis-color', text, 'important');
-            element.style.setProperty('text-shadow', 'none', 'important');
-            element.style.setProperty('background-color',
-                element === document.documentElement || element === document.body || element === book ? background : 'transparent',
-                'important');
+            readerStyle(element, 'color', text);
+            readerStyle(element, '-webkit-text-fill-color', text);
+            readerStyle(element, '-webkit-text-stroke-color', text);
+            readerStyle(element, 'text-decoration-color', text);
+            readerStyle(element, 'text-emphasis-color', text);
+            readerStyle(element, 'text-shadow', 'none');
+            readerStyle(element, 'background-color',
+                element === document.documentElement || element === document.body || element === book ? background : 'transparent');
         }
     }
     setColors(window.novelColors.background, window.novelColors.text);
@@ -161,8 +165,8 @@
     }
     function show(index) {
         screen = Math.max(0, Math.min(count - 1, index));
-        book.style.transform = vertical ? 'translateY(' + (-screen * height) + 'px)' :
-            'translateX(' + (-screen * width) + 'px)';
+        readerStyle(book, 'transform', vertical ? 'translateY(' + (-screen * height) + 'px)' :
+            'translateX(' + (-screen * width) + 'px)');
     }
     function locate(element) {
         if (!element || element === root) return 0;
@@ -190,32 +194,30 @@
             })));
             imageSizeProperties.forEach((property, index) => {
                 const saved = imageStyles.get(image)[index];
-                if (saved.value) image.style.setProperty(property, saved.value, saved.priority);
-                else image.style.removeProperty(property);
+                readerStyle(image, property, saved.value, saved.priority);
             });
             const bounds = image.getBoundingClientRect();
             const scale = Math.min(1, availableWidth / bounds.width, availableHeight / bounds.height);
             // Percentage limits have no useful block-size reference in fragmented book content.
-            image.style.setProperty('max-width', availableWidth + 'px', 'important');
-            image.style.setProperty('max-height', availableHeight + 'px', 'important');
-            image.style.setProperty('object-fit', 'contain', 'important');
-            image.style.setProperty('break-inside', 'avoid', 'important');
+            readerStyle(image, 'max-width', availableWidth + 'px');
+            readerStyle(image, 'max-height', availableHeight + 'px');
+            readerStyle(image, 'object-fit', 'contain');
+            readerStyle(image, 'break-inside', 'avoid');
             if (scale < 1) {
                 const box = image.viewBox?.baseVal;
                 const ratio = image.naturalWidth > 0 && image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight :
                     box?.width > 0 && box?.height > 0 ? box.width / box.height : bounds.width / bounds.height;
                 const fittedWidth = Math.min(bounds.width, bounds.height * ratio, availableWidth, availableHeight * ratio);
-                image.style.setProperty('min-width', '0', 'important');
-                image.style.setProperty('min-height', '0', 'important');
-                image.style.setProperty('width', fittedWidth + 'px', 'important');
-                image.style.setProperty('height', fittedWidth / ratio + 'px', 'important');
+                readerStyle(image, 'min-width', '0');
+                readerStyle(image, 'min-height', '0');
+                readerStyle(image, 'width', fittedWidth + 'px');
+                readerStyle(image, 'height', fittedWidth / ratio + 'px');
             }
         }
     }
     function applySpacing() {
         for (const saved of spacingOverrides) {
-            if (saved.value) saved.element.style.setProperty('line-height', saved.value, saved.priority);
-            else saved.element.style.removeProperty('line-height');
+            readerStyle(saved.element, 'line-height', saved.value, saved.priority);
         }
         spacingOverrides = [];
         const factor = (window.novelLineSpacing ?? 100) / 100;
@@ -229,9 +231,9 @@
             let pixels = parseFloat(style.lineHeight);
             if (!Number.isFinite(pixels)) {
                 const probe = document.createElement('span');
-                Object.assign(probe.style, { position: 'fixed', top: '-10000px', display: 'block',
-                    visibility: 'hidden', whiteSpace: 'nowrap', font: style.font, lineHeight: 'normal',
-                    writingMode: style.writingMode });
+                for (const [property, value] of Object.entries({ position: 'fixed', top: '-10000px', display: 'block',
+                    visibility: 'hidden', 'white-space': 'nowrap', font: style.font, 'line-height': 'normal',
+                    'writing-mode': style.writingMode })) readerStyle(probe, property, value);
                 // Use this element's actual prose so fallback-font metrics are preserved.
                 probe.textContent = prose.find(node => element.contains(node))?.textContent || 'M';
                 document.body.appendChild(probe);
@@ -244,31 +246,33 @@
         spacingOverrides = elements.map((element, index) => {
             const saved = { element, value: element.style.getPropertyValue('line-height'),
                 priority: element.style.getPropertyPriority('line-height') };
-            element.style.setProperty('line-height', String(heights[index] * factor), 'important');
+            readerStyle(element, 'line-height', String(heights[index] * factor));
             return saved;
         });
     }
     function layout(xpath, last = false, precise = null) {
-        book.style.transform = '';
-        book.style.columnWidth = '';
-        book.style.columnCount = '';
-        book.style.writingMode = '';
-        book.style.direction = 'ltr';
+        readerStyle(book, 'transform', '');
+        readerStyle(book, 'column-width', '');
+        readerStyle(book, 'column-count', '');
+        readerStyle(book, 'writing-mode', '');
+        readerStyle(book, 'direction', 'ltr');
         // The server scopes the book's body classes onto the fragment root.
         vertical = window.novelWritingMode == null ? getComputedStyle(root).writingMode.startsWith('vertical') : window.novelWritingMode;
-        book.style.setProperty('writing-mode', vertical ? 'vertical-rl' : 'horizontal-tb', 'important');
-        root.style.setProperty('writing-mode', vertical ? 'vertical-rl' : 'horizontal-tb', 'important');
+        readerStyle(book, 'writing-mode', vertical ? 'vertical-rl' : 'horizontal-tb');
+        readerStyle(root, 'writing-mode', vertical ? 'vertical-rl' : 'horizontal-tb');
         applySpacing();
         width = window.innerWidth;
         height = window.innerHeight;
         const margin = width * (window.novelMargin ?? 15) / 100;
-        book.style.padding = '20px ' + margin + 'px 40px';
+        readerStyle(book, 'box-sizing', 'border-box');
+        readerStyle(book, 'column-fill', 'auto');
+        readerStyle(book, 'padding', '20px ' + margin + 'px 40px');
         // A complete column plus its gap occupies exactly one viewport in either mode.
-        book.style.columnGap = (vertical ? 60 : margin * 2) + 'px';
-        book.style.width = width + 'px';
-        book.style.height = window.innerHeight + 'px';
-        book.style.columnWidth = (vertical ? window.innerHeight : width) + 'px';
-        book.style.columnCount = '1';
+        readerStyle(book, 'column-gap', (vertical ? 60 : margin * 2) + 'px');
+        readerStyle(book, 'width', width + 'px');
+        readerStyle(book, 'height', window.innerHeight + 'px');
+        readerStyle(book, 'column-width', (vertical ? window.innerHeight : width) + 'px');
+        readerStyle(book, 'column-count', '1');
         fitImages();
         // CSS multicol follows the inline axis: vertical column sets continue below.
         let maximum = vertical ? height : width;
@@ -297,7 +301,7 @@
         jump(xpath) {
             const target = xpath ? resolve(xpath) : root;
             if (!target || !root.contains(target)) return { error: 'Reading position is no longer available.' };
-            book.style.transform = '';
+            readerStyle(book, 'transform', '');
             show(locate(target)); lastLocation = null; return state();
         },
         setVertical(value) { const xpath = anchor(), precise = lastLocation ?? location(); window.novelWritingMode = value; return layout(xpath, false, precise); },
