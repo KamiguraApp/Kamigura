@@ -10,6 +10,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.ui.geometry.Rect
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
@@ -19,7 +20,8 @@ import java.io.ByteArrayInputStream
 import java.util.UUID
 
 internal data class NovelPosition(val screen: Int, val count: Int, val vertical: Boolean, val anchor: String,
-    val location: String? = null)
+    val location: String? = null, val links: List<NovelLinkRegion> = emptyList(),
+    val viewportWidthPx: Int = 0, val viewportHeightPx: Int = 0)
 
 internal fun novelResourceAllowed(url: String, baseUrl: String, chapterId: Int): Boolean {
     val base = normalizeKavitaBaseUrl(baseUrl).toHttpUrl()
@@ -139,7 +141,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
     private fun report(value: String) {
         runCatching {
             val json = JSONObject(value)
-            json.toNovelPosition()
+            json.toNovelPosition(width, height)
         }.onSuccess(onPosition).onFailure { onFailure("Could not read the EPUB position.") }
     }
 
@@ -220,33 +222,13 @@ internal class NovelPageView(context: Context) : WebView(context) {
         }
     }
 
-    fun linkAt(xPx: Float, yPx: Float, currentPage: Int, pageCount: Int, callback: (NovelLink?) -> Unit) {
-        if (disposed || width <= 0 || height <= 0 || !xPx.isFinite() || !yPx.isFinite()) {
-            callback(null); return
-        }
-        val token = generation
-        // Fractions use Chromium's actual viewport rather than assuming Android/WebView densities agree.
-        evaluateJavascript("window.novelReader && window.novelReader.ready ? " +
-            "window.novelReader.linkAt(${xPx / width},${yPx / height}) : null") { value ->
-            if (disposed || token != generation) { callback(null); return@evaluateJavascript }
-            callback(runCatching {
-                val json = JSONObject(value)
-                if (!json.getBoolean("link")) NovelLink.None else novelLink(
-                    json.optString("page").takeUnless { json.isNull("page") },
-                    json.optString("part").takeUnless { json.isNull("part") },
-                    json.optString("href").takeUnless { json.isNull("href") },
-                    json.getBoolean("note"), currentPage, pageCount)
-            }.getOrNull())
-        }
-    }
-
     fun position(callback: (NovelPosition?) -> Unit) {
         val token = generation
         evaluateJavascript("window.novelReader && window.novelReader.ready ? window.novelReader.state() : null") { value ->
             if (disposed || token != generation) { callback(null); return@evaluateJavascript }
             val position = runCatching {
                 val json = JSONObject(value)
-                json.toNovelPosition()
+                json.toNovelPosition(width, height)
             }.getOrNull()
             callback(position)
         }
@@ -255,5 +237,17 @@ internal class NovelPageView(context: Context) : WebView(context) {
     fun dispose() { disposed = true; generation++; stopLoading(); destroy() }
 }
 
-private fun JSONObject.toNovelPosition() = NovelPosition(getInt("screen"), getInt("count"), getBoolean("vertical"),
-    getString("anchor"), optString("location").takeIf { it.isNotBlank() && it != "null" })
+private fun JSONObject.toNovelPosition(width: Int, height: Int): NovelPosition {
+    val items = optJSONArray("links")
+    val links = (0 until (items?.length() ?: 0)).mapNotNull { index -> runCatching {
+        val link = items!!.getJSONObject(index)
+        val bounds = listOf("left", "top", "right", "bottom").map { link.getDouble(it).toFloat() }
+        if (bounds.any { !it.isFinite() || it !in 0f..1f } || bounds[0] >= bounds[2] || bounds[1] >= bounds[3]) null
+        else NovelLinkRegion(Rect(bounds[0], bounds[1], bounds[2], bounds[3]),
+            link.optString("page").takeUnless { link.isNull("page") },
+            link.optString("part").takeUnless { link.isNull("part") },
+            link.optString("href").takeUnless { link.isNull("href") }, link.optBoolean("note"))
+    }.getOrNull() }
+    return NovelPosition(getInt("screen"), getInt("count"), getBoolean("vertical"), getString("anchor"),
+        optString("location").takeIf { it.isNotBlank() && it != "null" }, links, width, height)
+}

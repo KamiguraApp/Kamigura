@@ -2,6 +2,18 @@ package li.mof.kamigura.reader.novel
 
 import java.net.URI
 import java.util.Locale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+
+internal data class NovelLinkRegion(val bounds: Rect, val page: String?, val part: String?, val href: String?, val note: Boolean)
+
+internal fun novelLinkAt(regions: List<NovelLinkRegion>, x: Float, y: Float, width: Int, height: Int,
+    currentPage: Int, pageCount: Int): NovelLink {
+    if (width <= 0 || height <= 0 || !x.isFinite() || !y.isFinite()) return NovelLink.None
+    val point = Offset(x / width, y / height)
+    val region = regions.firstOrNull { it.bounds.contains(point) } ?: return NovelLink.None
+    return novelLink(region.page, region.part, region.href, region.note, currentPage, pageCount)
+}
 
 internal sealed interface NovelLink {
     data object None : NovelLink

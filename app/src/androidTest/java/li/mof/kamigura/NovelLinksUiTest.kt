@@ -15,7 +15,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import li.mof.kamigura.reader.ReaderScreen
 import li.mof.kamigura.reader.novel.NovelPageView
-import li.mof.kamigura.reader.novel.NovelLink
+import li.mof.kamigura.reader.novel.NovelPosition
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
@@ -85,7 +85,7 @@ class NovelLinksUiTest {
                 <p><a id='content' href='content://book/1'>Content</a></p>
                 <p><a id='script' href='javascript:window.epubExecuted=true'>Script</a></p>
                 <p><a id='invalid' kavita-page='999' href='https://example.org'>Invalid</a></p>
-                <p class='visually-hidden' id='hidden'>Hidden footnote text.</p>
+                <p class='visually-hidden' id='hidden'>Hidden footnote text.<a href='#note'>Return</a></p>
                 <script>window.epubExecuted=true</script>
                 </div>""" }).use { server ->
                 open(server); val before = state()
@@ -95,6 +95,7 @@ class NovelLinksUiTest {
                 assertEquals(listOf("https", "http"), launched.map { it.data!!.scheme })
                 assertTrue(launched.all { it.hasCategory(Intent.CATEGORY_BROWSABLE) })
                 assertEquals("false", js("window.epubExecuted === true"))
+                assertEquals("false", js("window.novelReader.state().links.some(link => link.href === '#note')"))
                 assertEquals("rect(0px, 0px, 0px, 0px)", JSONObject("{\"v\":" + js("getComputedStyle(document.getElementById('hidden')).clip") + "}").getString("v"))
                 assertTrue(server.bookProgressWrites.isEmpty())
             }
@@ -118,14 +119,29 @@ class NovelLinksUiTest {
         }
     }
 
-    @Test fun hitTestsFromAnOldDocumentAreDiscarded() {
+    @Test fun menuDoesNotActivateUnderlyingBodyLinksOrTapZones() {
+        ReaderServer(3, bookFragment = {
+            "<div><p style='margin-top:200px'><a id='go' kavita-page='2'>Open section</a></p></div>"
+        }).use { server ->
+            open(server); val before = state()
+            menu(); tap("go")
+            Thread.sleep(200); assertEquals(before, state())
+            compose.onNodeWithContentDescription("Close menu").assertIsDisplayed()
+            compose.onRoot().performTouchInput { click(center) }
+            compose.onNodeWithContentDescription("Close menu").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Close menu").performClick()
+            assertNoMenu(); assertEquals(before, state())
+        }
+    }
+
+    @Test fun positionSnapshotsFromAnOldDocumentAreDiscarded() {
         ReaderServer(3, bookFragment = { "<div><a id='go' kavita-page='2'>Go</a></div>" }).use { server ->
             open(server)
             var called = false
             var result: Any? = "not-called"
             compose.runOnIdle {
                 val view = view()
-                view.linkAt(0f, 0f, 0, 6) { result = it; called = true }
+                view.position { result = it; called = true }
                 view.beginSectionLoad()
             }
             compose.waitUntil(5_000) { called }; assertNull(result)
@@ -135,10 +151,9 @@ class NovelLinksUiTest {
     @Test fun namedAnchorsAreNotLinksAndHitTestingNeverWritesProgress() {
         ReaderServer(3, bookFragment = { "<div><p style='text-align:right'><a id='named'>Named</a></p></div>" }).use { server ->
             open(server)
-            val point = point("named")
-            val done = CountDownLatch(1); var result: NovelLink? = null
-            compose.runOnIdle { view().linkAt(point.x, point.y, 0, 6) { result = it; done.countDown() } }
-            assertTrue(done.await(5, TimeUnit.SECONDS)); assertEquals(NovelLink.None, result)
+            val done = CountDownLatch(1); var result: NovelPosition? = null
+            compose.runOnIdle { view().position { result = it; done.countDown() } }
+            assertTrue(done.await(5, TimeUnit.SECONDS)); assertTrue(requireNotNull(result).links.isEmpty())
             Thread.sleep(3_200); assertTrue(server.bookProgressWrites.isEmpty())
             tap("named")
             compose.waitUntil(5_000) { server.requests.any {

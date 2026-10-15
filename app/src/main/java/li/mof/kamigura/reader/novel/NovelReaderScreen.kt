@@ -121,7 +121,7 @@ internal fun NovelReaderScreen(
     var renderedSpine by remember { mutableIntStateOf(-1) }
     var moved by rememberSaveable { mutableStateOf(chapterEntered) }
     var turning by remember { mutableStateOf(false) }
-    var checkingLink by remember { mutableStateOf(false) }
+    var queuedTurns by remember { mutableStateOf<List<Int>>(emptyList()) }
     var closing by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var dragDirection by remember { mutableStateOf<ReaderTurnDirection?>(null) }
@@ -164,6 +164,7 @@ internal fun NovelReaderScreen(
     fun close() {
         if (closing) return
         closing = true
+        queuedTurns = emptyList()
         fun finishClose(anchor: String?) {
             if (moved && hasReachedPage && boundaryDirection == null) {
                 writer.submit(progress(anchor), immediately = true)
@@ -213,6 +214,7 @@ internal fun NovelReaderScreen(
         if (target in 0 until spineCount) { loadSpine(target, delta < 0); return }
         turning = false
         menu = false
+        queuedTurns = emptyList()
         writer.finishAsync(if (delta > 0) progress(reachedAnchor) else null) {
             if (delta > 0) api.markChapterRead(MarkChapterReadDto(seriesId, chapterId, false))
             else api.markChaptersUnread(MarkVolumesReadDto(seriesId = seriesId, chapterIds = listOf(chapterId)))
@@ -224,7 +226,8 @@ internal fun NovelReaderScreen(
         } else boundaryDirection = delta
     }
     fun turn(delta: Int) {
-        if (loading || turning || checkingLink || menu || failure != null || chapterSwitching || closing) return
+        if (menu || failure != null || chapterSwitching || closing) return
+        if (loading || turning) { queuedTurns = queuedTurns + delta; return }
         boundaryDirection?.let {
             if (it == delta) continueChapter() else boundaryDirection = null
             return
@@ -232,6 +235,14 @@ internal fun NovelReaderScreen(
         turning = true
         moved = true
         view.turn(delta, ::sectionBoundary)
+    }
+    LaunchedEffect(loading, turning, dragging, queuedTurns, menu, failure, chapterSwitching, closing, boundaryDirection, pendingBookmarkAnchor) {
+        if (menu || failure != null || closing || boundaryDirection != null) queuedTurns = emptyList()
+        else if (!loading && !turning && !dragging && !chapterSwitching && pendingBookmarkAnchor == null && queuedTurns.isNotEmpty()) {
+            val next = queuedTurns.first()
+            queuedTurns = queuedTurns.drop(1)
+            turn(next)
+        }
     }
     val latestPosition by rememberUpdatedState<(NovelPosition) -> Unit>({ current ->
         if (renderedSpine == spine && !closing) {
@@ -304,7 +315,9 @@ internal fun NovelReaderScreen(
         val anchor = pendingBookmarkAnchor ?: return@LaunchedEffect
         if (loading || closing || failure != null) return@LaunchedEffect
         pendingBookmarkAnchor = null
+        turning = true
         view.jumpToBookmark(anchor) { error ->
+            turning = false
             bookmarkPositionError = error
             if (error != null && !menu) Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
             if (error == null) { contentsList = false; menu = false }
@@ -313,7 +326,7 @@ internal fun NovelReaderScreen(
     BackHandler { when { contentsList && menu -> contentsList = false; menu -> menu = false; else -> close() } }
     ReaderKeyEffect(
         if (preferences.rightToLeft) ReaderReadingDirection.RightToLeft else ReaderReadingDirection.LeftToRight,
-        volumeKeys, isBlocked = { loading || turning || checkingLink || menu || dragging || chapterSwitching || closing || failure != null },
+        volumeKeys, isBlocked = { loading || turning || menu || dragging || chapterSwitching || closing || failure != null },
         onTurn = { turn(if (it == ReaderTurnDirection.Next) 1 else -1) }
     )
 
@@ -325,25 +338,21 @@ internal fun NovelReaderScreen(
             onNextSpread = { turn(1) }, onPreviousSpread = { turn(-1) },
             onNextSingle = { turn(1) }, onPreviousSingle = { turn(-1) },
             onCenterTap = { if (boundary == null && !chapterSwitching && !closing) menu = !menu },
-            interceptTap = { tap, fallback ->
-                if (boundary != null || loading || failure != null) fallback()
-                else if (!checkingLink && !turning && !menu && !chapterSwitching && !closing) {
-                    checkingLink = true
-                    view.linkAt(tap.x, tap.y, spine, spineCount) { link ->
-                        checkingLink = false
-                        if (!dragging && !menu && !loading && !turning && !chapterSwitching && !closing) {
-                            when (link) {
-                                NovelLink.None -> fallback()
-                                is NovelLink.Internal -> openLocation(link.page, link.anchor)
-                                is NovelLink.External -> runCatching {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link.url)).apply {
-                                        addCategory(Intent.CATEGORY_BROWSABLE)
-                                    })
-                                }.onFailure { Toast.makeText(context, "Could not open this link in a browser.", Toast.LENGTH_SHORT).show() }
-                                NovelLink.Ignored, null -> Unit
-                            }
-                        }
+            interceptTap = intercept@ { tap, fallback ->
+                if (menu || chapterSwitching || closing || dragging) return@intercept
+                val snapshot = position
+                val link = if (!loading && !turning && failure == null && boundary == null && renderedSpine == spine &&
+                    snapshot?.viewportWidthPx == view.width && snapshot.viewportHeightPx == view.height)
+                    novelLinkAt(snapshot.links, tap.x, tap.y, view.width, view.height, spine, spineCount) else NovelLink.None
+                when (link) {
+                    NovelLink.None -> fallback()
+                    is NovelLink.Internal -> openLocation(link.page, link.anchor)
+                    is NovelLink.External -> {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link.url)).apply {
+                            addCategory(Intent.CATEGORY_BROWSABLE)
+                        }) }.onFailure { Toast.makeText(context, "Could not open this link in a browser.", Toast.LENGTH_SHORT).show() }
                     }
+                    NovelLink.Ignored -> Unit
                 }
             },
             turnVisualDistancePx = constraints.maxWidth.toFloat(),

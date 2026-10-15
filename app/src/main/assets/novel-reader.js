@@ -128,12 +128,21 @@
                     (target.compareDocumentPosition(reference) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0);
         });
     }
-    function linkAt(x, y) {
-        const link = document.elementFromPoint(x * innerWidth, y * innerHeight)?.closest('a');
-        if (!link || !root.contains(link) || (!link.hasAttribute('href') &&
-            !link.hasAttribute('kavita-page') && !link.hasAttribute('kavita-note-ref'))) return { link: false };
-        return { link: true, page: link.getAttribute('kavita-page'), part: link.getAttribute('kavita-part'),
-            href: link.getAttribute('href'), note: link.hasAttribute('kavita-note-ref') };
+    function linkRegions() {
+        const regions = [];
+        for (const link of root.querySelectorAll('a[href],a[kavita-page],a[kavita-note-ref]')) {
+            const style = getComputedStyle(link);
+            if (style.visibility !== 'visible' || style.pointerEvents === 'none' || link.closest('.visually-hidden')) continue;
+            for (const rect of link.getClientRects()) {
+                const left = Math.max(0, rect.left), top = Math.max(0, rect.top);
+                const right = Math.min(innerWidth, rect.right), bottom = Math.min(innerHeight, rect.bottom);
+                if (right <= left || bottom <= top) continue;
+                regions.push({ left: left / innerWidth, top: top / innerHeight, right: right / innerWidth,
+                    bottom: bottom / innerHeight, page: link.getAttribute('kavita-page'),
+                    part: link.getAttribute('kavita-part'), href: link.getAttribute('href'), note: link.hasAttribute('kavita-note-ref') });
+            }
+        }
+        return regions;
     }
     let lastLocation = null;
     function location() {
@@ -177,7 +186,7 @@
     function state() {
         // Reflow may reveal an earlier page start; don't walk backward on each reflow.
         if (lastLocation == null) lastLocation = location();
-        return { screen, count, vertical, anchor: anchor(), location: lastLocation };
+        return { screen, count, vertical, anchor: anchor(), location: lastLocation, links: linkRegions() };
     }
     let spacingOverrides = [];
     const imageStyles = new WeakMap();
@@ -251,7 +260,7 @@
         });
     }
     function layout(xpath, last = false, precise = null) {
-        readerStyle(book, 'transform', '');
+        readerStyle(book, 'transform', 'none');
         readerStyle(book, 'column-width', '');
         readerStyle(book, 'column-count', '');
         readerStyle(book, 'writing-mode', '');
@@ -291,7 +300,7 @@
         return state();
     }
     window.novelReader = {
-        ready: false, state, layout, setColors, bookmarkContext, contentsParts, linkAt,
+        ready: false, state, layout, setColors, bookmarkContext, contentsParts,
         reflow() { return layout(anchor(), false, lastLocation); },
         turn(delta) {
             const target = screen + delta;
@@ -301,7 +310,7 @@
         jump(xpath) {
             const target = xpath ? resolve(xpath) : root;
             if (!target || !root.contains(target)) return { error: 'Reading position is no longer available.' };
-            readerStyle(book, 'transform', '');
+            readerStyle(book, 'transform', 'none');
             show(locate(target)); lastLocation = null; return state();
         },
         setVertical(value) { const xpath = anchor(), precise = lastLocation ?? location(); window.novelWritingMode = value; return layout(xpath, false, precise); },

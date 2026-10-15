@@ -24,11 +24,12 @@ class NovelReaderStyleTest {
         lateinit var view: NovelPageView
         var position: NovelPosition? = null
         val wide = mutableStateOf(false)
+        val prose = (1..160).joinToString("") { "<p id='p$it'>Original paragraph $it for scoped CSS pagination and retained prose.</p>" }
         val html = "<div><style>.book-content {padding:0!important;column-gap:0!important;column-width:40px!important;" +
             "column-count:99!important;width:2400px!important;height:80px!important;box-sizing:content-box!important;" +
             "column-fill:balance!important;font-size:8px!important;writing-mode:vertical-rl!important;direction:rtl!important;" +
             "color:white!important;background:black!important;line-height:20px!important;transform:translateX(10000px)!important;}</style>" +
-            (1..160).joinToString("") { "<p id='p$it'>Original paragraph $it for scoped CSS pagination and retained prose.</p>" } + "</div>"
+            prose + "</div>"
         compose.setContent { AndroidView(factory = { NovelPageView(it).also { v -> view=v; v.onPosition={position=it} } },
             modifier = Modifier.requiredSize(if(wide.value)700.dp else 360.dp,if(wide.value)360.dp else 700.dp)) }
         for(landscape in listOf(false,true)) for(vertical in listOf(false,true)) {
@@ -48,11 +49,21 @@ class NovelReaderStyleTest {
             assertEquals(if(vertical)60.0 else geometry.getDouble("viewportWidth")*.3,geometry.getDouble("gap"),.5)
             assertEquals("30px",geometry.getString("line"));assertEquals("rgb(16, 16, 16)",geometry.getString("color"))
             assertTrue(geometry.toString(),geometry.getBoolean("important"));assertTrue(position!!.count>6)
+            val count=position!!.count
             compose.runOnIdle { view.turn(1){fail("Premature boundary")} };compose.waitUntil(5_000){position!!.screen==1}
             val anchor=position!!.anchor
+            val jumped=CountDownLatch(1)
+            compose.runOnIdle{view.jumpToBookmark("id(\"p80\")"){assertNull(it);jumped.countDown()}}
+            assertTrue(jumped.await(5,TimeUnit.SECONDS))
+            assertEquals("true",js(view,"Array.from(document.getElementById('p80').getClientRects()).some(r=>r.right>0&&r.left<innerWidth&&r.bottom>0&&r.top<innerHeight)"))
             compose.runOnIdle { view.setFontSize(150) };js(view,"window.novelReader.reflow()")
             assertEquals("30px",JSONObject("{\"v\":"+js(view,"getComputedStyle(document.querySelector('.book-content').firstElementChild).lineHeight")+"}").getString("v"))
             assertTrue(anchor.isNotBlank())
+            position=null
+            compose.runOnIdle{view.open("<div><style>.book-content{line-height:20px!important;}</style>$prose</div>",
+                "http://127.0.0.1",1,null,false,vertical,preferences=NovelReaderPreferences(fontSize=125,lineSpacing=150))}
+            compose.waitUntil(20_000){position!=null}
+            assertEquals("Book geometry must not add blank screens",count,position!!.count)
         }
         compose.runOnIdle{view.dispose()}
     }

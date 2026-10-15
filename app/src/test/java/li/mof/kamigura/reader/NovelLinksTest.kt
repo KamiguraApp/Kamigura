@@ -3,8 +3,19 @@ package li.mof.kamigura.reader
 import li.mof.kamigura.reader.novel.*
 import org.junit.Assert.*
 import org.junit.Test
+import androidx.compose.ui.geometry.Rect
 
 class NovelLinksTest {
+    @Test fun cachedLinkRegionsUseViewportFractionsAndUnknownRegionsFallBackToNormalTaps() {
+        val region = NovelLinkRegion(Rect(.1f,.2f,.3f,.4f),"2","part",null,false)
+        assertEquals(NovelLink.Internal(2,"id(\"part\")"),novelLinkAt(listOf(region),200f,600f,1000,2000,0,6))
+        assertEquals(NovelLink.None,novelLinkAt(emptyList(),200f,600f,1000,2000,0,6))
+        assertEquals(NovelLink.None,novelLinkAt(listOf(region),800f,600f,1000,2000,0,6))
+        assertEquals(NovelLink.None,novelLinkAt(listOf(region),200f,600f,0,0,0,6))
+        assertEquals(NovelLink.None,novelLinkAt(listOf(region),Float.NaN,600f,1000,2000,0,6))
+        assertEquals(NovelLink.Ignored,novelLinkAt(listOf(region.copy(note=true)),200f,600f,1000,2000,0,6))
+        assertEquals(NovelLink.Ignored,novelLinkAt(listOf(region.copy(page=null,href="file:///book")),200f,600f,1000,2000,0,6))
+    }
     private fun link(page: String? = null, part: String? = null, href: String? = null, note: Boolean = false) =
         novelLink(page, part, href, note, currentPage = 8, pageCount = 21)
 
