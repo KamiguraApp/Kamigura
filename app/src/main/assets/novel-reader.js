@@ -57,6 +57,7 @@
         range.selectNodeContents(node);
         return Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0);
     };
+    const visible = r => r.right > 0 && r.left < width && r.bottom > 0 && r.top < height;
     function path(element) {
         if (!element || element === root) return '//body';
         if (element.id && !element.id.includes('"')) return 'id("' + element.id + '")';
@@ -90,21 +91,23 @@
         return element || null;
     }
     function anchor() {
-        const height = window.innerHeight;
         for (const node of textNodes()) {
-            if (rects(node).some(r => r.right > 25 && r.left < width - 25 && r.bottom > 25 && r.top < height - 25)) {
-                return path(bodyElement(node.parentElement));
+            if (rects(node).some(visible)) {
+                return path(blockElement(node.parentElement));
             }
         }
         for (const image of root.querySelectorAll('img,svg')) {
             const r = image.getBoundingClientRect();
-            if (r.right > 0 && r.left < width && r.bottom > 0 && r.top < height) return path(bodyElement(image));
+            if (visible(r)) return path(blockElement(image.parentElement));
         }
         return '//body';
     }
-    function bodyElement(element) {
-        while (element && element !== root && element.parentElement !== root) element = element.parentElement;
-        return element;
+    function blockElement(element) {
+        while (element && element !== root) {
+            if (!/^(inline|ruby|contents)/.test(getComputedStyle(element).display)) return element;
+            element = element.parentElement;
+        }
+        return root;
     }
     function bookmarkContext(paths) {
         const xpath = anchor(), element = resolve(xpath) || root;
@@ -119,8 +122,7 @@
         return { anchor: xpath, title: Array.from(text).slice(0, 20).join(''), visible };
     }
     function contentsParts(parts) {
-        const reference = textNodes().find(node => rects(node).some(r =>
-            r.right > 25 && r.left < width - 25 && r.bottom > 25 && r.top < height - 25)) || resolve(anchor());
+        const reference = textNodes().find(node => rects(node).some(visible)) || resolve(anchor());
         return parts.filter(part => {
             const target = document.getElementById(part);
             return target && root.contains(target) && reference &&
@@ -147,8 +149,7 @@
     let lastLocation = null;
     function location() {
         const nodes = textNodes();
-        const index = nodes.findIndex(node => rects(node).some(r => r.right > 25 && r.left < width - 25 &&
-            r.bottom > 25 && r.top < height - 25));
+        const index = nodes.findIndex(node => rects(node).some(visible));
         if (index < 0) return null;
         const node = nodes[index];
         let low = 0, high = node.length;
@@ -161,16 +162,25 @@
         }
         return JSON.stringify({ text: index, offset: low });
     }
-    function locateLocation(value) {
+    function resolveLocation(value) {
         try {
             const position = JSON.parse(value), node = textNodes()[position.text];
             if (!node) return null;
             const offset = Math.max(0, Math.min(node.length - 1, position.offset));
             const range = document.createRange();
             range.setStart(node, offset); range.setEnd(node, offset + 1);
-            const rect = range.getBoundingClientRect();
-            return Math.floor((vertical ? rect.top / height : rect.left / width) + 0.001);
+            return range;
         } catch (_) { return null; }
+    }
+    function startRect(target) {
+        if (!target) return null;
+        if (target instanceof Range) return target.getBoundingClientRect();
+        const node = target.nodeType === Node.TEXT_NODE ? target : textNodes().find(node => target.contains(node) && rects(node).length > 0);
+        if (!node) return target.getClientRects()[0] || null;
+        const range = document.createRange();
+        const offset = Math.max(0, node.textContent.search(/\S/u));
+        range.setStart(node, offset); range.setEnd(node, Math.min(offset + 1, node.length));
+        return range.getBoundingClientRect();
     }
     function show(index) {
         screen = Math.max(0, Math.min(count - 1, index));
@@ -179,7 +189,7 @@
     }
     function locate(element) {
         if (!element || element === root) return 0;
-        const rect = element.nodeType === Node.TEXT_NODE ? rects(element)[0] : element.getClientRects()[0];
+        const rect = startRect(element);
         if (!rect) return 0;
         return Math.floor((vertical ? rect.top / height : rect.left / width) + 0.001);
     }
@@ -283,6 +293,8 @@
         readerStyle(book, 'column-width', (vertical ? window.innerHeight : width) + 'px');
         readerStyle(book, 'column-count', '1');
         fitImages();
+        const preciseTarget = resolveLocation(precise);
+        const target = preciseTarget || resolve(xpath);
         // CSS multicol follows the inline axis: vertical column sets continue below.
         let maximum = vertical ? height : width;
         for (const node of textNodes()) for (const r of rects(node)) {
@@ -293,9 +305,8 @@
             maximum = Math.max(maximum, vertical ? r.bottom : r.right);
         }
         count = Math.max(1, Math.ceil(maximum / (vertical ? height : width) - 0.01));
-        const preciseScreen = locateLocation(precise);
-        show(last ? count - 1 : (preciseScreen ?? locate(resolve(xpath))));
-        lastLocation = !last && preciseScreen != null ? precise : null;
+        show(last ? count - 1 : locate(target));
+        lastLocation = !last && preciseTarget != null ? precise : null;
         window.novelReader.ready = true;
         return state();
     }
@@ -310,8 +321,7 @@
         jump(xpath) {
             const target = xpath ? resolve(xpath) : root;
             if (!target || !root.contains(target)) return { error: 'Reading position is no longer available.' };
-            readerStyle(book, 'transform', 'none');
-            show(locate(target)); lastLocation = null; return state();
+            return layout(xpath);
         },
         setVertical(value) { const xpath = anchor(), precise = lastLocation ?? location(); window.novelWritingMode = value; return layout(xpath, false, precise); },
         setFontSize(value) {
