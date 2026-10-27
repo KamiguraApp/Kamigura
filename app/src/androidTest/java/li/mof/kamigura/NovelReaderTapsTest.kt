@@ -69,6 +69,21 @@ class NovelReaderTapsTest {
         }
     }
 
+    @Test fun centreTapClosesTheMenuAndSideTapsDoNotTurnUnderIt() {
+        ReaderServer(3,bookFragment={novelFixture(false,240)}).use{server->
+            open(server,false);awaitState(1,1)
+            tapAt(.5f);awaitMenu(true)
+            // Mid-height, clear of the menu's bottom controls.
+            tapAt(.9f);Thread.sleep(500);compose.waitForIdle()
+            awaitMenu(true);awaitState(1,1)
+            tapAt(.5f);awaitMenu(false)
+            taps(1,forward=true,vertical=false);awaitState(1,2)
+        }
+    }
+
+    private fun tapAt(x:Float){compose.onRoot().performTouchInput{click(Offset(width*x,height*.5f))}}
+    private fun awaitMenu(open:Boolean)=compose.waitUntil(5_000){
+        compose.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isNotEmpty()==open}
     private fun open(server:ReaderServer,vertical:Boolean,count:Int=6,neighbor:Boolean=false,onSwitch:()->Unit={}) {
         val store=KavitaSessionStore(context).apply{useTransient(KavitaSession(baseUrl=server.baseUrl))}
         val api=runBlocking{KavitaClient(context,store).buildApi().first}

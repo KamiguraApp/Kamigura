@@ -354,7 +354,9 @@ internal fun NovelReaderScreen(
             onNextSingle = { turn(1) }, onPreviousSingle = { turn(-1) },
             onCenterTap = { if (boundary == null && !chapterSwitching && !closing) menu = !menu },
             interceptTap = intercept@ { tap, fallback ->
-                if (menu || chapterSwitching || closing || dragging) return@intercept
+                // With the menu open, the centre closes it; side taps reach turn(), which ignores them.
+                if (menu) return@intercept fallback()
+                if (chapterSwitching || closing || dragging) return@intercept
                 val snapshot = position
                 val link = if (!loading && !turning && failure == null && boundary == null && renderedSpine == spine &&
                     snapshot?.viewportWidthPx == view.width && snapshot.viewportHeightPx == view.height)
