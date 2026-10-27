@@ -87,6 +87,10 @@ Download the APK from [Releases](https://github.com/KamiguraApp/Kamigura/release
 3. Open a title from Home, Libraries, or Search.
 4. Tap the center of the reader to open the reader menu.
 
+## Known issues
+
+- **Vertical EPUBs open horizontally (a Kavita server issue).** When Kavita serves a book's style sheet, it drops `writing-mode` and the prefixed `-webkit-` and `-epub-` forms. A book's own vertical writing therefore never reaches the reader. Kamigura opens such books in **Settings → Reader → Novel → Writing style fallback**. If most of your novels are vertical, set it to **Vertical**. You can also switch any series from the novel reader menu.
+
 ## License
 
 [Apache License 2.0](LICENSE) © 2026 KamiguraApp

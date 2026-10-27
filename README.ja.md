@@ -87,6 +87,12 @@ Kavita クライアントは既に複数ありますが、Kamigura は **タブ�
 3. Home / Libraries / Search から作品を開きます。
 4. Reader では中央タップでメニューを表示できます。
 
+## 既知の問題
+
+- **縦書きの EPUB が横書きで開く (Kavita サーバー側の問題)**
+  Kavita は本のスタイルシートを配信するときに `writing-mode` (`-webkit-`・`-epub-` 付きを含む) を取り除いてしまいます。そのため、本自身の縦書き指定がリーダーまで届きません。
+  こうした本は **Settings → Reader → Novel → Writing style fallback** の向きで開きます。縦書きの小説が多い場合は **Vertical** にしてください。シリーズごとに小説リーダーのメニューから切り替えることもできます。
+
 ## ライセンス
 
 [Apache License 2.0](LICENSE) © 2026 KamiguraApp
