@@ -455,7 +455,8 @@ internal class ReaderServer(
     bookChapterFragment: ((Int, Int) -> String)? = null,
     personalHandler: ((String, Uri, String) -> Pair<Int, String>)? = null,
     contentsResponse: () -> Pair<Int, String> = { 200 to "[]" },
-    bookPageResponse: ((Int, Int) -> Pair<Int, String>)? = null
+    bookPageResponse: ((Int, Int) -> Pair<Int, String>)? = null,
+    bookFont: ByteArray? = null
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -553,9 +554,11 @@ internal class ReaderServer(
                         if (isImage) imageResponseGate(uri.getQueryParameter("page")?.toInt() ?: 0)
                             ?.await(30, TimeUnit.SECONDS)
                         val invalidImage = isImage && failPage(uri.getQueryParameter("page")?.toInt() ?: 0)
-                        val body = if (invalidImage) "invalid cached image".toByteArray()
+                        val isBookFont = bookFont != null && uri.path.orEmpty().endsWith("/book-resources") &&
+                            uri.getQueryParameter("font") == "embedded"
+                        val body = if (isBookFont) bookFont!! else if (invalidImage) "invalid cached image".toByteArray()
                             else if (isImage) image else if (isDownload) pdf else json.toByteArray()
-                        val type = if (isImage) "image/png" else if (isDownload) "application/pdf"
+                        val type = if (isBookFont) "font/ttf" else if (isImage) "image/png" else if (isDownload) "application/pdf"
                             else if (uri.path == "/api/Book/1/book-page") "text/html" else "application/json"
                         val cacheHeader = if (isImage && cacheImages) "Cache-Control: max-age=3600\r\n" else ""
                         runCatching {

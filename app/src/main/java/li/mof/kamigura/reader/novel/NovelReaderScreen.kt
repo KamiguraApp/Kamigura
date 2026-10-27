@@ -50,6 +50,7 @@ import li.mof.kamigura.MarkChapterReadDto
 import li.mof.kamigura.MarkVolumesReadDto
 import li.mof.kamigura.ProgressDto
 import li.mof.kamigura.PageBackground
+import li.mof.kamigura.NovelSettings
 import li.mof.kamigura.PersonalToCDto
 import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.UserReadingProfileDto
@@ -80,23 +81,25 @@ internal fun NovelReaderScreen(
     initialLastScreen: Boolean, chapterEntered: Boolean,
     chapterSwitching: Boolean, switchError: String?,
     onSwitchChapter: (ReaderChapterEntry, Boolean) -> Unit,
-    offline: Boolean = false
+    offline: Boolean = false,
+    novelSettings: NovelSettings = NovelSettings()
 ) {
     val context = LocalContext.current
     val initialOverrides = remember(preferenceKey) {
         ReaderSessionPreferenceCache.getNovel(preferenceKey, System.currentTimeMillis())
             ?: NovelReaderOverrides()
     }
-    val initialPreferences = resolveNovelReaderPreferences(profile, initialOverrides, defaultBackground, usePureColors)
+    val initialPreferences = resolveNovelReaderPreferences(profile, initialOverrides, defaultBackground, usePureColors, novelSettings)
     LaunchedEffect(preferenceKey) {
         if (initialOverrides.writingStyle != null || initialOverrides.fontSize != null || initialOverrides.background != null) {
             NovelPreferenceWriteScope.launch { ReaderSessionPreferenceCache.persist(context.cacheDir) }
         }
     }
-    var writingStyle by rememberSaveable { mutableIntStateOf(initialPreferences.writingStyle) }
+    var writingStyle by rememberSaveable { mutableIntStateOf(if (initialPreferences.automaticWritingStyle) -1 else initialPreferences.writingStyle) }
     var fontSize by rememberSaveable { mutableIntStateOf(initialPreferences.fontSize) }
     var backgroundOverride by rememberSaveable { mutableStateOf(initialOverrides.background?.name) }
-    val preferences = initialPreferences.copy(writingStyle = writingStyle, fontSize = fontSize,
+    val preferences = initialPreferences.copy(writingStyle = writingStyle.takeIf { it >= 0 } ?: initialPreferences.writingStyle,
+        automaticWritingStyle = writingStyle < 0, fontSize = fontSize,
         background = backgroundOverride?.let { PageBackground.valueOf(it) } ?: initialPreferences.background)
     val colors = novelReaderColors(preferences.background, preferences.usePureColors)
     var spine by rememberSaveable { mutableIntStateOf(initialProgress.pageNum.coerceIn(0, spineCount - 1)) }
@@ -116,9 +119,11 @@ internal fun NovelReaderScreen(
     var previousFrame by remember { mutableStateOf<ImageBitmap?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var position by remember { mutableStateOf<NovelPosition?>(null) }
+    val rightToLeft = (position?.vertical ?: preferences.vertical) || preferences.readingDirection == 1
     var reachedSpine by rememberSaveable { mutableIntStateOf(spine) }
     var hasReachedPage by rememberSaveable { mutableStateOf(false) }
     var renderedSpine by remember { mutableIntStateOf(-1) }
+    var renderedFonts by remember { mutableStateOf<String?>(null) }
     var moved by rememberSaveable { mutableStateOf(chapterEntered) }
     var turning by remember { mutableStateOf(false) }
     var queuedTurns by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -150,6 +155,14 @@ internal fun NovelReaderScreen(
         if (!offline) NovelContents(api, chapterId, spineCount) else null
     }
     LaunchedEffect(colors) { view.setColors(colors) }
+    val fontConfig = novelFontsJson(novelSettings)
+    LaunchedEffect(loading, fontConfig) {
+        if (!loading && renderedSpine == spine && renderedFonts != fontConfig) {
+            renderedFonts = fontConfig
+            turning = true
+            view.setFonts(novelSettings)
+        }
+    }
     val minimumFlingVelocity = remember(context) { ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat() }
 
     fun progress(anchor: String?) = ProgressDto(libraryId, seriesId, volumeId, chapterId, reachedSpine, anchor)
@@ -276,7 +289,9 @@ internal fun NovelReaderScreen(
             val html = sections.get(targetSpine)
             withContext(Dispatchers.Main.immediate) {
                 renderedSpine = targetSpine
-                view.open(html, baseUrl, chapterId, savedAnchor, openLast, preferences.vertical, savedLocation, preferences)
+                view.open(html, baseUrl, chapterId, savedAnchor, openLast,
+                    if (preferences.automaticWritingStyle) null else preferences.vertical, savedLocation, preferences)
+                renderedFonts = novelFontsJson(preferences.fonts)
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Throwable) { failure = "Could not load this EPUB section."; loading = false }
@@ -325,7 +340,7 @@ internal fun NovelReaderScreen(
     }
     BackHandler { when { contentsList && menu -> contentsList = false; menu -> menu = false; else -> close() } }
     ReaderKeyEffect(
-        if (preferences.rightToLeft) ReaderReadingDirection.RightToLeft else ReaderReadingDirection.LeftToRight,
+        if (rightToLeft) ReaderReadingDirection.RightToLeft else ReaderReadingDirection.LeftToRight,
         volumeKeys, isBlocked = { loading || turning || menu || dragging || chapterSwitching || closing || failure != null },
         onTurn = { turn(if (it == ReaderTurnDirection.Next) 1 else -1) }
     )
@@ -334,7 +349,7 @@ internal fun NovelReaderScreen(
         AndroidView(factory = { view }, modifier = Modifier.fillMaxSize())
         previousFrame?.let { Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
         ReaderTapLayer(
-            rightToLeft = preferences.rightToLeft,
+            rightToLeft = rightToLeft,
             onNextSpread = { turn(1) }, onPreviousSpread = { turn(-1) },
             onNextSingle = { turn(1) }, onPreviousSingle = { turn(-1) },
             onCenterTap = { if (boundary == null && !chapterSwitching && !closing) menu = !menu },
@@ -414,7 +429,8 @@ internal fun NovelReaderScreen(
                 savingPage = spine.takeIf { state.saving }, message = state.message,
                 error = bookmarkPositionError ?: state.error)
             }
-            NovelReaderMenu(seriesName, chapterName, spine, spineCount, position, preferences,
+            NovelReaderMenu(seriesName, chapterName, spine, spineCount, position,
+                preferences.copy(writingStyle = if (position?.vertical ?: preferences.vertical) 1 else 0),
                 enabled = !loading && failure == null && !turning,
                 onBack = ::close, onDismiss = { menu = false },
                 onWritingStyle = { writingStyle = it; persistOverrides(style = it); view.setVertical(it == 1) },

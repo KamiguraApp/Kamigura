@@ -9,6 +9,45 @@
         if (value === '') element.style.removeProperty(property);
         else element.style.setProperty(property, value, priority);
     }
+    function authoredRules() {
+        const rules = [];
+        function collect(sheet) {
+            try {
+                for (const rule of sheet.cssRules) {
+                    rules.push(rule);
+                    if (rule.styleSheet) collect(rule.styleSheet);
+                    else if (rule.cssRules) collect(rule);
+                }
+            } catch (_) { /* An unavailable book stylesheet has no usable declaration. */ }
+        }
+        for (const sheet of document.styleSheets) if (sheet.ownerNode?.id !== 'novel-slot-fonts') collect(sheet);
+        return rules;
+    }
+    const rules = authoredRules();
+    const proseElements = [root, ...root.querySelectorAll('*')].filter(element => !element.closest('svg,style,script'));
+    // The wrapper supplies only a fallback; scoped book CSS participates in the normal cascade.
+    const authoredVertical = getComputedStyle(root).writingMode.startsWith('vertical');
+    const families = value => (value.match(/"[^"]*"|'[^']*'|[^,]+/g) || []).map(name => name.trim().replace(/^["']|["']$/g, ''));
+    const embeddedFamilies = new Set(rules.filter(rule => rule.type === CSSRule.FONT_FACE_RULE && /url\(/i.test(rule.style.getPropertyValue('src')))
+        .flatMap(rule => families(rule.style.getPropertyValue('font-family'))).map(name => name.toLowerCase()));
+    const originalFonts = proseElements.map(element => ({ element, names: families(getComputedStyle(element).fontFamily) }));
+    function applyFonts(options) {
+        let style = document.getElementById('novel-slot-fonts');
+        if (!style) { style = document.createElement('style'); style.id = 'novel-slot-fonts'; document.head.appendChild(style); }
+        style.textContent = ['Mincho', 'Gothic'].map(slot => {
+            const url = options[slot.toLowerCase()];
+            return url ? `@font-face{font-family:"Kamigura${slot}";src:url("${url}");font-display:block;}` : '';
+        }).join('\n');
+        for (const { element, names } of originalFonts) {
+            const embedded = names.filter(name => embeddedFamilies.has(name.toLowerCase()));
+            const declared = names.filter(name => name !== 'KamiguraBookDefault');
+            const sans = declared.some(name => /sans|gothic|ゴシック/i.test(name));
+            const slot = declared.length ? (sans ? 'Gothic' : 'Mincho') : options.defaultSlot;
+            const fallback = slot === 'Gothic' ? '"Noto Sans CJK JP",sans-serif' : '"Noto Serif CJK JP",serif';
+            readerStyle(element, 'font-family', [...embedded.map(name => JSON.stringify(name)), `"Kamigura${slot}"`, fallback].join(','));
+        }
+    }
+    applyFonts(window.novelFonts || { defaultSlot: 'Mincho' });
     function applyFontSize(percent) {
         readerStyle(book, 'font-size', (percent * 0.16) + 'px');
     }
@@ -276,7 +315,7 @@
         readerStyle(book, 'writing-mode', '');
         readerStyle(book, 'direction', 'ltr');
         // The server scopes the book's body classes onto the fragment root.
-        vertical = window.novelWritingMode == null ? getComputedStyle(root).writingMode.startsWith('vertical') : window.novelWritingMode;
+        vertical = window.novelWritingMode ?? authoredVertical;
         readerStyle(book, 'writing-mode', vertical ? 'vertical-rl' : 'horizontal-tb');
         readerStyle(root, 'writing-mode', vertical ? 'vertical-rl' : 'horizontal-tb');
         applySpacing();
@@ -327,6 +366,13 @@
         setFontSize(value) {
             const xpath = anchor(), precise = lastLocation ?? location();
             applyFontSize(value);
+            return layout(xpath, false, precise);
+        },
+        async setFonts(options) {
+            const xpath = anchor(), precise = lastLocation ?? location();
+            applyFonts(options);
+            void root.offsetHeight;
+            await document.fonts.ready;
             return layout(xpath, false, precise);
         },
         path, resolve

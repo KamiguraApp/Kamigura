@@ -9,21 +9,14 @@ import li.mof.kamigura.UserReadingProfileDto
 import li.mof.kamigura.reader.novel.NovelReaderOverrides
 import li.mof.kamigura.reader.novel.NovelReaderPreferences
 import li.mof.kamigura.reader.novel.resolveNovelReaderPreferences
-import li.mof.kamigura.reader.novel.novelDefaultBackground
 import li.mof.kamigura.reader.novel.novelReaderColors
 import org.junit.Assert.*
 import org.junit.Test
 
 class NovelReaderPreferencesTest {
     @Test fun backgroundDefaultsAndManualChoiceRemainIndependentFromImageOverrides() {
-        for (background in PageBackground.entries) {
-            assertEquals(background, novelDefaultBackground(background, InvertMode.Off))
-            for (invert in listOf(InvertMode.Smart, InvertMode.Always)) {
-                assertEquals(PageBackground.Dark, novelDefaultBackground(background, invert))
-            }
-        }
         val result = resolveNovelReaderPreferences(null, NovelReaderOverrides(background = PageBackground.Paper),
-            novelDefaultBackground(PageBackground.Paper, InvertMode.Always), true)
+            PageBackground.Dark, true)
         assertEquals(PageBackground.Paper, result.background)
         assertTrue(result.usePureColors)
     }
@@ -54,12 +47,13 @@ class NovelReaderPreferencesTest {
         } finally { ReaderSessionPreferenceCache.clear(directory); directory.deleteRecursively() }
     }
     @Test fun defaultsAndDefaultKindProfileApplyToBooks() {
-        assertEquals(NovelReaderPreferences(), resolveNovelReaderPreferences(null, null))
+        assertEquals(NovelReaderPreferences(automaticWritingStyle = true), resolveNovelReaderPreferences(null, null))
         val resolved = resolveNovelReaderPreferences(UserReadingProfileDto(kind = 0,
             bookReaderWritingStyle = 1, bookReaderFontSize = 120, bookReaderLineSpacing = 150,
             bookReaderMargin = 20, bookReaderReadingDirection = 0), null)
-        assertTrue(resolved.vertical)
-        assertTrue(resolved.rightToLeft)
+        assertFalse(resolved.vertical)
+        assertTrue(resolved.automaticWritingStyle)
+        assertFalse(resolved.rightToLeft)
         assertEquals(120, resolved.fontSize)
         assertEquals(150, resolved.lineSpacing)
         assertEquals(20, resolved.margin)
@@ -81,7 +75,7 @@ class NovelReaderPreferencesTest {
         val resolved = resolveNovelReaderPreferences(UserReadingProfileDto(bookReaderWritingStyle = -1,
             bookReaderFontSize = 0, bookReaderLineSpacing = -1, bookReaderMargin = 100,
             bookReaderReadingDirection = 99), NovelReaderOverrides(99, -20))
-        assertEquals(NovelReaderPreferences(margin = 45), resolved)
+        assertEquals(NovelReaderPreferences(margin = 45, automaticWritingStyle = true), resolved)
     }
 
     @Test fun novelOnlyEntryDoesNotCreateAnImageOverrideAndRoundTrips() = runBlocking {

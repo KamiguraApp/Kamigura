@@ -120,7 +120,7 @@ class NovelReaderProductionTest {
 
     @Test fun volumeKeysStayScopedToNovelReaderAndAreBlockedByItsMenu() {
         val settings = AppSettingsStore(context)
-        val original = runBlocking { settings.flow.first().reader.turnPagesWithVolumeKeys }
+        val original = runBlocking { settings.flow.first().reader.common.turnPagesWithVolumeKeys }
         val callback = compose.activity.window.callback
         try {
             runBlocking { settings.setTurnPagesWithVolumeKeys(true) }

@@ -11,8 +11,8 @@ class ReaderDeviceControlsTest {
     @Test
     fun screenStaysOnByDefaultButVolumeKeysAreOptIn() {
         val settings = ReaderSettings()
-        assertTrue(settings.keepScreenOn)
-        assertFalse(settings.turnPagesWithVolumeKeys)
+        assertTrue(settings.common.keepScreenOn)
+        assertFalse(settings.common.turnPagesWithVolumeKeys)
     }
 
     @Test

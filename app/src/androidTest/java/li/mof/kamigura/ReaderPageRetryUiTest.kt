@@ -341,8 +341,7 @@ class ReaderPageRetryUiTest {
         try {
             runBlocking {
                 settings.setPrefetchTurns(0)
-                settings.setPageTurnMode(mode)
-                settings.setPageTransitionAnimation(true)
+                settings.setPageTransition(PageTransition.valueOf(mode.name))
                 settings.setInvertMode(InvertMode.Off)
             }
             block()
@@ -350,10 +349,9 @@ class ReaderPageRetryUiTest {
             compose.runOnIdle { readerVisible?.value = false }
             compose.waitForIdle()
             runBlocking {
-                settings.setPrefetchTurns(original.prefetchTurns)
-                settings.setPageTurnMode(original.pageTurnMode)
-                settings.setPageTransitionAnimation(original.pageTransitionAnimation)
-                settings.setInvertMode(original.invertMode)
+                settings.setPrefetchTurns(original.image.prefetchTurns)
+                settings.setPageTransition(original.image.pageTransition)
+                settings.setInvertMode(original.image.invertMode)
             }
             if (originalPreferences == null) preferenceFile.delete() else preferenceFile.writeBytes(originalPreferences)
             ReaderSessionPreferenceCache.clearMemoryForTest()

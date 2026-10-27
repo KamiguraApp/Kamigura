@@ -151,7 +151,7 @@ class ReaderDeviceControlsUiTest {
                 runBlocking { settings.setKeepScreenOn(false) }
                 compose.waitForIdle()
                 awaitScreenFlag(false)
-                assertFalse(runBlocking { AppSettingsStore(context).flow.first().reader.keepScreenOn })
+                assertFalse(runBlocking { AppSettingsStore(context).flow.first().reader.common.keepScreenOn })
                 runBlocking { settings.setKeepScreenOn(true) }
                 compose.waitForIdle()
                 awaitScreenFlag(true)
@@ -161,7 +161,7 @@ class ReaderDeviceControlsUiTest {
                 assertEquals(volume, audio.getStreamVolume(AudioManager.STREAM_MUSIC))
                 runBlocking { settings.setTurnPagesWithVolumeKeys(false) }
                 compose.waitForIdle()
-                assertFalse(runBlocking { AppSettingsStore(context).flow.first().reader.turnPagesWithVolumeKeys })
+                assertFalse(runBlocking { AppSettingsStore(context).flow.first().reader.common.turnPagesWithVolumeKeys })
                 assertVolumeChanges(audio)
                 compose.runOnIdle { visible.value = false }
                 compose.waitForIdle()
@@ -199,7 +199,7 @@ class ReaderDeviceControlsUiTest {
         switches[1].assertIsOff().performClick()
         compose.waitUntil(5_000) {
             val stored = runBlocking { AppSettingsStore(context).flow.first().reader }
-            !stored.keepScreenOn && stored.turnPagesWithVolumeKeys
+            !stored.common.keepScreenOn && stored.common.turnPagesWithVolumeKeys
         }
         switches[0].assertIsOff()
         switches[1].assertIsOn()
@@ -242,8 +242,7 @@ class ReaderDeviceControlsUiTest {
         val saved = file.takeIf { it.exists() }?.readBytes()
         try {
             runBlocking {
-                settings.setPageTurnMode(mode)
-                settings.setPageTransitionAnimation(true)
+                settings.setPageTransition(PageTransition.valueOf(mode.name))
                 settings.setPrefetchTurns(0)
                 settings.setInvertMode(InvertMode.Off)
                 settings.setKeepScreenOn(true)
@@ -254,12 +253,11 @@ class ReaderDeviceControlsUiTest {
             compose.runOnIdle { visible.value = false }
             compose.waitForIdle()
             runBlocking {
-                settings.setPageTurnMode(original.pageTurnMode)
-                settings.setPageTransitionAnimation(original.pageTransitionAnimation)
-                settings.setPrefetchTurns(original.prefetchTurns)
-                settings.setInvertMode(original.invertMode)
-                settings.setKeepScreenOn(original.keepScreenOn)
-                settings.setTurnPagesWithVolumeKeys(original.turnPagesWithVolumeKeys)
+                settings.setPageTransition(original.image.pageTransition)
+                settings.setPrefetchTurns(original.image.prefetchTurns)
+                settings.setInvertMode(original.image.invertMode)
+                settings.setKeepScreenOn(original.common.keepScreenOn)
+                settings.setTurnPagesWithVolumeKeys(original.common.turnPagesWithVolumeKeys)
             }
             if (saved == null) file.delete() else file.writeBytes(saved)
             ReaderSessionPreferenceCache.clearMemoryForTest()

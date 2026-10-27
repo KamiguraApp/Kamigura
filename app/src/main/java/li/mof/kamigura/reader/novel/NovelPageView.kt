@@ -38,7 +38,7 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
     val base = normalizeKavitaBaseUrl(baseUrl).toHttpUrl()
     val origin = base.newBuilder().encodedPath("/").query(null).fragment(null).build().toString().trimEnd('/')
     val csp = "default-src 'none'; style-src 'unsafe-inline' $origin; img-src $origin data:; " +
-        "font-src $origin; script-src 'nonce-$nonce'; base-uri 'none'; form-action 'none'"
+        "font-src $origin $NovelFontOrigin; script-src 'nonce-$nonce'; base-uri 'none'; form-action 'none'"
     val colors = novelReaderColors(preferences.background, preferences.usePureColors)
     return """<!doctype html><html><head><meta charset="utf-8">
         <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
@@ -46,7 +46,7 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
         <style>
         html,body { margin:0; padding:0; width:100%; height:100vh; background:${colors.backgroundCss}; color:${colors.textCss}; line-height:1.5; }
         #novel-viewport { position:fixed; inset:0; overflow:hidden; }
-        .book-content { box-sizing:border-box; column-fill:auto; font-size:${preferences.fontSize * 0.16}px; }
+        .book-content { box-sizing:border-box; column-fill:auto; font-size:${preferences.fontSize * 0.16}px; font-family:'KamiguraBookDefault'; writing-mode:${if (preferences.vertical) "vertical-rl" else "horizontal-tb"}; }
         .book-content > div { margin:0; padding:0; }
         .book-content img,.book-content svg { max-width:100%; max-height:100%; object-fit:contain; }
         .book-content .visually-hidden { position:absolute !important; width:1px !important; height:1px !important;
@@ -61,7 +61,7 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
             background-color:transparent !important; text-shadow:none !important;
         }
         </style></head><body><div id="novel-viewport"><div class="book-content">$fragment</div></div>
-        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelLineSpacing=${preferences.lineSpacing};window.novelFontSize=${preferences.fontSize};window.novelColors={background:'${colors.backgroundCss}',text:'${colors.textCss}'};
+        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelFonts=${novelFontsJson(preferences.fonts)};window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelLineSpacing=${preferences.lineSpacing};window.novelFontSize=${preferences.fontSize};window.novelColors={background:'${colors.backgroundCss}',text:'${colors.textCss}'};
         $script</script></body></html>""".trimIndent()
 }
 
@@ -73,6 +73,8 @@ internal class NovelPageView(context: Context) : WebView(context) {
     private var generation = 0
     private var disposed = false
     private var colors = novelReaderColors(li.mof.kamigura.PageBackground.Paper, false)
+    private val fonts = NovelFontStore(context)
+    @Volatile private var allowedFonts = emptySet<String>()
 
     init {
         settings.javaScriptEnabled = true
@@ -112,9 +114,11 @@ internal class NovelPageView(context: Context) : WebView(context) {
         location: String? = null, preferences: NovelReaderPreferences = NovelReaderPreferences()) {
         setColors(novelReaderColors(preferences.background, preferences.usePureColors))
         val token = ++generation
+        allowedFonts = novelFontIds(preferences.fonts)
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                fonts.response(request.url.toString(), allowedFonts)?.let { return it }
                 if (novelResourceAllowed(request.url.toString(), baseUrl, chapterId)) return null
                 return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
             }
@@ -166,6 +170,24 @@ internal class NovelPageView(context: Context) : WebView(context) {
         evaluateJavascript("window.novelReader.setFontSize(${percent.coerceIn(1, 1000)})") {
             if (!disposed && token == generation) report(it)
         }
+    }
+
+    fun setFonts(settings: li.mof.kamigura.NovelSettings) {
+        val token = generation
+        allowedFonts = novelFontIds(settings)
+        evaluateJavascript("window.novelFontUpdate = null; window.novelReader.setFonts(${novelFontsJson(settings)})" +
+            ".then(value => window.novelFontUpdate = value).catch(() => window.novelFontUpdate = {error:true})", null)
+        fun poll(attempt: Int) {
+            if (disposed || token != generation) return
+            evaluateJavascript("window.novelFontUpdate") { value ->
+                if (disposed || token != generation) return@evaluateJavascript
+                if (value.contains("\"error\"")) onFailure("Could not load the novel font.")
+                else if (value.startsWith("{")) report(value)
+                else if (attempt < 200) postDelayed({ poll(attempt + 1) }, 100)
+                else onFailure("Could not load the novel font.")
+            }
+        }
+        poll(0)
     }
 
     fun setColors(value: NovelReaderColors) {

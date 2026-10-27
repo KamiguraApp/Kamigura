@@ -113,7 +113,7 @@ class NovelReaderColorsTest {
         val opening = mutableStateOf(0)
         ReaderServer(3, bookFragment = { novelFixture(false) }).use { server ->
             try {
-                runBlocking { settings.setPageBackground(PageBackground.Paper); settings.setInvertMode(InvertMode.Smart); settings.setUsePurePageBackgroundColors(true) }
+                runBlocking { settings.setNovelBackground(PageBackground.Dark); settings.setInvertMode(InvertMode.Smart); settings.setUsePurePageBackgroundColors(true) }
                 val store = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
                 val restoration = StateRestorationTester(compose)
                 restoration.setContent { MaterialTheme(colorScheme = KamiguraDarkColorScheme) { androidx.compose.runtime.key(opening.value) {
@@ -141,11 +141,11 @@ class NovelReaderColorsTest {
                 loaded()
                 assertEquals("\"rgb(250, 247, 242)\"", js(readerView(), "getComputedStyle(document.body).backgroundColor"))
                 menu(); compose.onNodeWithText("Paper").assertIsOn()
-                assertEquals(InvertMode.Always, runBlocking { settings.flow.first().reader.invertMode })
+                assertEquals(InvertMode.Always, runBlocking { settings.flow.first().reader.image.invertMode })
                 compose.onNodeWithContentDescription("Back to series").performClick()
                 assertTrue(server.bookProgressWrites.isEmpty())
             } finally {
-                runBlocking { settings.setPageBackground(original.pageBackground); settings.setInvertMode(original.invertMode); settings.setUsePurePageBackgroundColors(original.usePurePageBackgroundColors) }
+                runBlocking { settings.setNovelBackground(original.novel.background); settings.setInvertMode(original.image.invertMode); settings.setUsePurePageBackgroundColors(original.common.usePurePageBackgroundColors) }
             }
         }
     }
@@ -160,7 +160,7 @@ class NovelReaderColorsTest {
             "<div><p>Original short novel prose.</p></div>"
         }).use { server ->
             try {
-                runBlocking { settings.setPageBackground(PageBackground.Dark); settings.setInvertMode(InvertMode.Off); settings.setUsePurePageBackgroundColors(false) }
+                runBlocking { settings.setNovelBackground(PageBackground.Dark); settings.setInvertMode(InvertMode.Off); settings.setUsePurePageBackgroundColors(false) }
                 val store = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
                 compose.setContent { MaterialTheme(colorScheme = KamiguraDarkColorScheme) { ReaderScreen(store, settings, 1, 1, 1, 1, incognito = true, onBack = {}) } }
                 loaded()
@@ -181,7 +181,7 @@ class NovelReaderColorsTest {
                 assertTrue(server.bookProgressWrites.isEmpty())
             } finally {
                 gate.countDown()
-                runBlocking { settings.setPageBackground(original.pageBackground); settings.setInvertMode(original.invertMode); settings.setUsePurePageBackgroundColors(original.usePurePageBackgroundColors) }
+                runBlocking { settings.setNovelBackground(original.novel.background); settings.setInvertMode(original.image.invertMode); settings.setUsePurePageBackgroundColors(original.common.usePurePageBackgroundColors) }
             }
         }
     }

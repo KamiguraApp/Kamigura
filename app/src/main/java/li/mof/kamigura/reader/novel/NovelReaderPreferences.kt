@@ -1,8 +1,9 @@
 package li.mof.kamigura.reader.novel
 
 import androidx.compose.ui.graphics.toArgb
-import li.mof.kamigura.InvertMode
 import li.mof.kamigura.PageBackground
+import li.mof.kamigura.NovelSettings
+import li.mof.kamigura.NovelWritingStyle
 import li.mof.kamigura.UserReadingProfileDto
 import li.mof.kamigura.reader.readerPageBackgroundColor
 
@@ -16,7 +17,9 @@ internal data class NovelReaderPreferences(
     val margin: Int = 15,
     val readingDirection: Int = 0,
     val background: PageBackground = PageBackground.Paper,
-    val usePureColors: Boolean = false
+    val usePureColors: Boolean = false,
+    val automaticWritingStyle: Boolean = false,
+    val fonts: NovelSettings = NovelSettings()
 ) {
     val vertical: Boolean get() = writingStyle == 1
     val rightToLeft: Boolean get() = vertical || readingDirection == 1
@@ -24,21 +27,23 @@ internal data class NovelReaderPreferences(
 
 internal fun resolveNovelReaderPreferences(
     profile: UserReadingProfileDto?, overrides: NovelReaderOverrides?,
-    defaultBackground: PageBackground = PageBackground.Paper, usePureColors: Boolean = false
+    defaultBackground: PageBackground = PageBackground.Paper, usePureColors: Boolean = false,
+    novelSettings: NovelSettings = NovelSettings()
 ): NovelReaderPreferences = NovelReaderPreferences(
     writingStyle = overrides?.writingStyle?.takeIf { it in 0..1 }
-        ?: profile?.bookReaderWritingStyle?.takeIf { it in 0..1 } ?: 0,
+        ?: profile?.takeIf { it.kind != 0 }?.bookReaderWritingStyle?.takeIf { it in 0..1 }
+        ?: if (novelSettings.writingStyle == NovelWritingStyle.Vertical) 1 else 0,
+    automaticWritingStyle = overrides?.writingStyle?.takeIf { it in 0..1 } == null &&
+        profile?.takeIf { it.kind != 0 }?.bookReaderWritingStyle?.takeIf { it in 0..1 } == null,
     fontSize = overrides?.fontSize?.takeIf { it in 1..1000 }
         ?: profile?.bookReaderFontSize?.takeIf { it in 1..1000 } ?: 100,
     lineSpacing = profile?.bookReaderLineSpacing?.takeIf { it in 1..1000 } ?: 100,
     margin = profile?.bookReaderMargin?.coerceIn(0, 45) ?: 15,
     readingDirection = profile?.bookReaderReadingDirection?.takeIf { it in 0..1 } ?: 0,
     background = overrides?.background ?: defaultBackground,
-    usePureColors = usePureColors
+    usePureColors = usePureColors,
+    fonts = novelSettings
 )
-
-internal fun novelDefaultBackground(background: PageBackground, invert: InvertMode): PageBackground =
-    if (invert == InvertMode.Off) background else PageBackground.Dark
 
 internal data class NovelReaderColors(val background: Int, val text: Int) {
     val backgroundCss: String get() = cssColor(background)
