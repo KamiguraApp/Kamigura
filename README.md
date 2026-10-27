@@ -90,6 +90,7 @@ Download the APK from [Releases](https://github.com/KamiguraApp/Kamigura/release
 ## Known issues
 
 - **Vertical EPUBs open horizontally (a Kavita server issue).** When Kavita serves a book's style sheet, it drops `writing-mode` and the prefixed `-webkit-` and `-epub-` forms. A book's own vertical writing therefore never reaches the reader. Kamigura opens such books in **Settings → Reader → Novel → Writing style fallback**. If most of your novels are vertical, set it to **Vertical**. You can also switch any series from the novel reader menu.
+- **Pages can show up out of order on a weak connection (Kavita nightly builds since 2026-09-20).** When an image request is aborted, for example a page fetched ahead times out or is cancelled, Kavita deletes the chapter's page cache while other requests are still reading it. It can then serve another page's image under the requested page number. The latest stable release, v0.9.1.4, is not affected. Kamigura keeps the wrong image in its own cache, so clear **Settings → Storage & cache → Reader pages** after the server is fixed or the connection improves. A chapter saved for offline reading during that time may be affected too; re-download it if a page looks wrong.
 
 ## License
 
