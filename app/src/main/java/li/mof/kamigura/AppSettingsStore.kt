@@ -30,6 +30,9 @@ enum class PageTransition { Off, Slide, Curl }
 enum class NovelWritingStyle { Horizontal, Vertical }
 enum class NovelFontSlot { Mincho, Gothic }
 enum class NovelMargins(val dp: Int) { Narrow(12), Normal(20), Wide(32) }
+internal val NovelFontSizeRange = 50..250
+internal val NovelLineSpacingRange = 100..160
+internal const val NovelLineSpacingSteps = 11
 
 data class NovelFont(val id: String? = null, val name: String? = null)
 data class CommonReaderSettings(
@@ -42,6 +45,8 @@ data class NovelSettings(
     val writingStyle: NovelWritingStyle = NovelWritingStyle.Horizontal,
     val defaultFont: NovelFontSlot = NovelFontSlot.Mincho,
     val margins: NovelMargins = NovelMargins.Normal,
+    val fontSize: Int = 100,
+    val lineSpacing: Int = 100,
     val mincho: NovelFont = NovelFont(),
     val gothic: NovelFont = NovelFont()
 )
@@ -116,6 +121,8 @@ class AppSettingsStore(private val context: Context) {
     private val KEY_NOVEL_WRITING = stringPreferencesKey("novel_writing_style")
     private val KEY_NOVEL_FONT = stringPreferencesKey("novel_default_font")
     private val KEY_NOVEL_MARGINS = stringPreferencesKey("novel_margins")
+    private val KEY_NOVEL_FONT_SIZE = intPreferencesKey("novel_font_size")
+    private val KEY_NOVEL_LINE_SPACING = intPreferencesKey("novel_line_spacing")
     private val KEY_SHOW_PORTRAIT_PAGE_BACK_CONTENT =
         booleanPreferencesKey("reader_show_portrait_page_back_content")
     private val KEY_USE_PURE_PAGE_BACKGROUND_COLORS =
@@ -135,6 +142,8 @@ class AppSettingsStore(private val context: Context) {
                 writingStyle = enumValue(prefs[KEY_NOVEL_WRITING], NovelWritingStyle.Horizontal),
                 defaultFont = enumValue(prefs[KEY_NOVEL_FONT], NovelFontSlot.Mincho),
                 margins = enumValue(prefs[KEY_NOVEL_MARGINS], NovelMargins.Normal),
+                fontSize = (prefs[KEY_NOVEL_FONT_SIZE] ?: 100).coerceIn(NovelFontSizeRange),
+                lineSpacing = (prefs[KEY_NOVEL_LINE_SPACING] ?: 100).coerceIn(NovelLineSpacingRange),
                 mincho = NovelFont(prefs[fontKey(NovelFontSlot.Mincho)], prefs[fontNameKey(NovelFontSlot.Mincho)]),
                 gothic = NovelFont(prefs[fontKey(NovelFontSlot.Gothic)], prefs[fontNameKey(NovelFontSlot.Gothic)])
             ), image = ImageReaderSettings(
@@ -197,6 +206,14 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setNovelMargins(value: NovelMargins) {
         context.settingsDataStore.edit { it[KEY_NOVEL_MARGINS] = value.name }
+    }
+
+    suspend fun setNovelFontSize(value: Int) {
+        context.settingsDataStore.edit { it[KEY_NOVEL_FONT_SIZE] = value.coerceIn(NovelFontSizeRange) }
+    }
+
+    suspend fun setNovelLineSpacing(value: Int) {
+        context.settingsDataStore.edit { it[KEY_NOVEL_LINE_SPACING] = value.coerceIn(NovelLineSpacingRange) }
     }
 
     suspend fun setNovelFont(slot: NovelFontSlot, font: NovelFont) {

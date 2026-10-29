@@ -209,6 +209,13 @@ internal class NovelPageView(context: Context) : WebView(context) {
         }
     }
 
+    fun setTypography(fontSize: Int, lineSpacing: Int) {
+        val token = generation
+        evaluateJavascript("window.novelReader.setTypography(${fontSize.coerceIn(1, 1000)}, ${lineSpacing.coerceIn(1, 1000)})") {
+            if (!disposed && token == generation) report(it)
+        }
+    }
+
     fun setFonts(settings: li.mof.kamigura.NovelSettings) {
         val token = generation
         allowedFonts = novelFontIds(settings)

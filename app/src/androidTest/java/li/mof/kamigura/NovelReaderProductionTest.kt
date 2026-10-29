@@ -360,7 +360,9 @@ class NovelReaderProductionTest {
             compose.runOnIdle { opening.value++; visible.value = true }
             awaitLoaded()
             assertTrue(js(findView(compose.activity.window.decorView)!!, "window.novelReader.state()").contains("\"vertical\":true"))
-            assertEquals("\"20px\"", js(findView(compose.activity.window.decorView)!!, "getComputedStyle(document.querySelector('.book-content')).fontSize"))
+            val defaultSize = runBlocking { AppSettingsStore(context).flow.first().reader.novel.fontSize }
+            assertEquals(defaultSize * .16, js(findView(compose.activity.window.decorView)!!,
+                "parseFloat(getComputedStyle(document.querySelector('.book-content')).fontSize)").toDouble(), .1)
             menu()
             assertTrue(compose.onAllNodesWithContentDescription("Bookmark page 1").fetchSemanticsNodes().isEmpty())
             key(KeyEvent.KEYCODE_PAGE_DOWN)

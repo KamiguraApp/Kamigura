@@ -4,6 +4,8 @@ import androidx.compose.ui.graphics.toArgb
 import li.mof.kamigura.PageBackground
 import li.mof.kamigura.NovelSettings
 import li.mof.kamigura.NovelMargins
+import li.mof.kamigura.NovelFontSizeRange
+import li.mof.kamigura.NovelLineSpacingRange
 import li.mof.kamigura.NovelWritingStyle
 import li.mof.kamigura.UserReadingProfileDto
 import li.mof.kamigura.reader.readerPageBackgroundColor
@@ -37,8 +39,8 @@ internal fun resolveNovelReaderPreferences(
     automaticWritingStyle = overrides?.writingStyle?.takeIf { it in 0..1 } == null &&
         profile?.takeIf { it.kind != 0 }?.bookReaderWritingStyle?.takeIf { it in 0..1 } == null,
     fontSize = overrides?.fontSize?.takeIf { it in 1..1000 }
-        ?: profile?.bookReaderFontSize?.takeIf { it in 1..1000 } ?: 100,
-    lineSpacing = profile?.bookReaderLineSpacing?.takeIf { it in 1..1000 } ?: 100,
+        ?: novelSettings.fontSize.coerceIn(NovelFontSizeRange),
+    lineSpacing = novelSettings.lineSpacing.coerceIn(NovelLineSpacingRange),
     margin = novelSettings.margins.dp,
     readingDirection = profile?.takeIf { it.kind != 0 }?.bookReaderReadingDirection?.takeIf { it in 0..1 } ?: 0,
     background = overrides?.background ?: defaultBackground,

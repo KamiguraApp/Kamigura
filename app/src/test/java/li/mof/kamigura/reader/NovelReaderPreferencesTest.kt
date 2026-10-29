@@ -4,6 +4,7 @@ import java.nio.file.Files
 import kotlinx.coroutines.runBlocking
 import li.mof.kamigura.InvertMode
 import li.mof.kamigura.PageBackground
+import li.mof.kamigura.NovelSettings
 import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.UserReadingProfileDto
 import li.mof.kamigura.reader.novel.NovelReaderOverrides
@@ -46,7 +47,7 @@ class NovelReaderPreferencesTest {
             assertNull(ReaderSessionPreferenceCache.getNovel("series", 103 + ReaderSessionPreferenceTtlMillis))
         } finally { ReaderSessionPreferenceCache.clear(directory); directory.deleteRecursively() }
     }
-    @Test fun defaultsAndDefaultKindProfileApplyToBooks() {
+    @Test fun defaultProfileTypographyIsIgnored() {
         assertEquals(NovelReaderPreferences(automaticWritingStyle = true), resolveNovelReaderPreferences(null, null))
         val resolved = resolveNovelReaderPreferences(UserReadingProfileDto(kind = 0,
             bookReaderWritingStyle = 1, bookReaderFontSize = 120, bookReaderLineSpacing = 150,
@@ -54,21 +55,52 @@ class NovelReaderPreferencesTest {
         assertFalse(resolved.vertical)
         assertTrue(resolved.automaticWritingStyle)
         assertFalse(resolved.rightToLeft)
-        assertEquals(120, resolved.fontSize)
-        assertEquals(150, resolved.lineSpacing)
+        assertEquals(100, resolved.fontSize)
+        assertEquals(100, resolved.lineSpacing)
         assertEquals(20, resolved.margin)
     }
 
-    @Test fun manualOverridesLeaveSpacingMarginAndHorizontalDirectionOnProfile() {
+    @Test fun manualSizeWinsWhileSpacingComesFromDeviceSettings() {
         val profile = UserReadingProfileDto(bookReaderWritingStyle = 1, bookReaderFontSize = 100,
             bookReaderLineSpacing = 125, bookReaderMargin = 10, bookReaderReadingDirection = 1)
-        val resolved = resolveNovelReaderPreferences(profile, NovelReaderOverrides(0, 160))
+        val resolved = resolveNovelReaderPreferences(profile, NovelReaderOverrides(0, 160),
+            novelSettings = NovelSettings(fontSize = 150, lineSpacing = 140))
         assertFalse(resolved.vertical)
         assertTrue(resolved.rightToLeft)
         assertEquals(160, resolved.fontSize)
-        assertEquals(125, resolved.lineSpacing)
+        assertEquals(140, resolved.lineSpacing)
         assertEquals(20, resolved.margin)
         assertFalse(resolveNovelReaderPreferences(profile.copy(bookReaderReadingDirection = 0), NovelReaderOverrides(0)).rightToLeft)
+    }
+
+    @Test fun deviceTypographyUsesAnAbsoluteScaleAndIgnoresEveryProfileKind() {
+        for (kind in listOf(null, 0, 1, 2)) {
+            val profile = UserReadingProfileDto(kind = kind, bookReaderFontSize = 220, bookReaderLineSpacing = 190)
+            val settings = NovelSettings(fontSize = 150, lineSpacing = 135)
+            assertEquals(150, resolveNovelReaderPreferences(profile, null, novelSettings = settings).fontSize)
+            assertEquals(135, resolveNovelReaderPreferences(profile, null, novelSettings = settings).lineSpacing)
+            assertEquals(170, resolveNovelReaderPreferences(profile, NovelReaderOverrides(fontSize = 170), novelSettings = settings).fontSize)
+        }
+    }
+
+    @Test fun expiredSizeOverrideReturnsToCurrentDeviceDefault() = runBlocking {
+        val directory = Files.createTempDirectory("novel-typography").toFile()
+        try {
+            ReaderSessionPreferenceCache.clear(directory)
+            ReaderSessionPreferenceCache.putNovel("series", NovelReaderOverrides(fontSize = 170), 100)
+            val settings = NovelSettings(fontSize = 150)
+            assertEquals(170, resolveNovelReaderPreferences(null, ReaderSessionPreferenceCache.getNovel("series", 101), novelSettings = settings).fontSize)
+            assertEquals(150, resolveNovelReaderPreferences(null,
+                ReaderSessionPreferenceCache.getNovel("series", 101 + ReaderSessionPreferenceTtlMillis), novelSettings = settings).fontSize)
+        } finally { ReaderSessionPreferenceCache.clear(directory); directory.deleteRecursively() }
+    }
+
+    @Test fun deviceRangesDoNotDiscardExistingLargerMenuOverrides() {
+        val settings = NovelSettings(fontSize = -20, lineSpacing = 900)
+        val fallback = resolveNovelReaderPreferences(null, null, novelSettings = settings)
+        assertEquals(50, fallback.fontSize)
+        assertEquals(160, fallback.lineSpacing)
+        assertEquals(1000, resolveNovelReaderPreferences(null, NovelReaderOverrides(fontSize = 1000), novelSettings = settings).fontSize)
     }
 
     @Test fun invalidValuesUseSafeFallbacks() {

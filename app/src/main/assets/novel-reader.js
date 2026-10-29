@@ -374,6 +374,14 @@
         setFontSize(value) {
             const xpath = anchor(), precise = lastLocation ?? location();
             applyFontSize(value);
+            window.novelFontSize = value;
+            return layout(xpath, false, precise);
+        },
+        setTypography(fontSize, lineSpacing) {
+            if (window.novelFontSize === fontSize && window.novelLineSpacing === lineSpacing) return state();
+            const xpath = anchor(), precise = lastLocation ?? location();
+            window.novelFontSize = fontSize; window.novelLineSpacing = lineSpacing;
+            applyFontSize(fontSize);
             return layout(xpath, false, precise);
         },
         setPageLayout(margin, cutout) {

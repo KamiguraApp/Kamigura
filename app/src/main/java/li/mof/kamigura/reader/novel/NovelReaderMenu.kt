@@ -33,6 +33,7 @@ import li.mof.kamigura.reader.internal.ReaderBookmarkButton
 import li.mof.kamigura.reader.internal.ReaderBookmarkState
 import li.mof.kamigura.ui.ValueBubbleSlider
 import li.mof.kamigura.PageBackground
+import li.mof.kamigura.NovelFontSizeRange
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -116,7 +117,8 @@ internal fun NovelReaderMenu(
                     ValueBubbleSlider(value = selectedFont.toFloat(),
                         onValueChange = { selectedFont = it.roundToInt() },
                         onValueChangeFinished = { onFontSize(selectedFont) },
-                        valueRange = minOf(50, preferences.fontSize).toFloat()..maxOf(250, preferences.fontSize).toFloat(),
+                        valueRange = minOf(NovelFontSizeRange.first, preferences.fontSize).toFloat()..
+                            maxOf(NovelFontSizeRange.last, preferences.fontSize).toFloat(),
                         valueLabel = { "${it.roundToInt()}%" }, enabled = enabled,
                         modifier = Modifier.weight(1f).semantics { contentDescription = "Font size" })
                 }

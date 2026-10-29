@@ -96,7 +96,8 @@ internal fun NovelReaderScreen(
         }
     }
     var writingStyle by rememberSaveable { mutableIntStateOf(if (initialPreferences.automaticWritingStyle) -1 else initialPreferences.writingStyle) }
-    var fontSize by rememberSaveable { mutableIntStateOf(initialPreferences.fontSize) }
+    var fontSizeOverride by rememberSaveable { mutableStateOf(initialOverrides.fontSize?.takeIf { it in 1..1000 }) }
+    val fontSize = fontSizeOverride ?: initialPreferences.fontSize
     var backgroundOverride by rememberSaveable { mutableStateOf(initialOverrides.background?.name) }
     val preferences = initialPreferences.copy(writingStyle = writingStyle.takeIf { it >= 0 } ?: initialPreferences.writingStyle,
         automaticWritingStyle = writingStyle < 0, fontSize = fontSize,
@@ -156,6 +157,9 @@ internal fun NovelReaderScreen(
     }
     LaunchedEffect(colors) { view.setColors(colors) }
     LaunchedEffect(loading, novelSettings.margins) { view.setMargins(novelSettings.margins) }
+    LaunchedEffect(loading, fontSize, preferences.lineSpacing) {
+        if (!loading && renderedSpine == spine) view.setTypography(fontSize, preferences.lineSpacing)
+    }
     val fontConfig = novelFontsJson(novelSettings)
     LaunchedEffect(loading, fontConfig) {
         if (!loading && renderedSpine == spine && renderedFonts != fontConfig) {
@@ -437,7 +441,7 @@ internal fun NovelReaderScreen(
                 enabled = !loading && failure == null && !turning,
                 onBack = ::close, onDismiss = { menu = false },
                 onWritingStyle = { writingStyle = it; persistOverrides(style = it); view.setVertical(it == 1) },
-                onFontSize = { fontSize = it; persistOverrides(font = it); view.setFontSize(it) },
+                onFontSize = { fontSizeOverride = it; persistOverrides(font = it) },
                 onJumpToPage = { loadSpine(it) },
                 onBackground = { backgroundOverride = it.name; persistOverrides(background = it) },
                 bookmarkState = bookmarkState,

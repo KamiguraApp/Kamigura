@@ -22,6 +22,7 @@ import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -30,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -38,6 +40,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import li.mof.kamigura.ui.ValueBubbleSlider
+import kotlin.math.roundToInt
 import li.mof.kamigura.reader.novel.NovelFontStore
 
 @Composable
@@ -74,6 +78,10 @@ internal fun NovelSettingsContent(settings: NovelSettings, store: AppSettingsSto
     NovelSettingChoices(PageBackground.entries, settings.background) { scope.launch { store.setNovelBackground(it) } }
     Text("Margins", style = MaterialTheme.typography.titleMedium)
     NovelSettingChoices(NovelMargins.entries, settings.margins) { scope.launch { store.setNovelMargins(it) } }
+    NovelPercentageSetting("Font size", settings.fontSize, NovelFontSizeRange) { scope.launch { store.setNovelFontSize(it) } }
+    NovelPercentageSetting("Line spacing", settings.lineSpacing, NovelLineSpacingRange, NovelLineSpacingSteps) {
+        scope.launch { store.setNovelLineSpacing(it) }
+    }
     Text("Fonts", style = MaterialTheme.typography.titleMedium)
     Text("A font embedded in the book is always used first. Otherwise Mincho is used for serif text and Gothic for sans-serif text.",
         style = MaterialTheme.typography.bodySmall, color = Color.Gray)
@@ -105,6 +113,21 @@ internal fun NovelSettingsContent(settings: NovelSettings, store: AppSettingsSto
     Text("Used for text the book gives no font for.",
         style = MaterialTheme.typography.bodySmall, color = Color.Gray)
     NovelSettingChoices(NovelFontSlot.entries, settings.defaultFont) { scope.launch { store.setNovelDefaultFont(it) } }
+}
+
+@Composable
+private fun NovelPercentageSetting(label: String, value: Int, range: IntRange, steps: Int = 0, onSelect: (Int) -> Unit) {
+    var selected by remember(value) { mutableIntStateOf(value) }
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, style = MaterialTheme.typography.titleMedium)
+            Text("$selected%", style = MaterialTheme.typography.bodyMedium)
+        }
+        ValueBubbleSlider(value = selected.toFloat(), onValueChange = { selected = it.roundToInt() },
+            onValueChangeFinished = { onSelect(selected) }, valueRange = range.first.toFloat()..range.last.toFloat(),
+            steps = steps, valueLabel = { "${it.roundToInt()}%" },
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label })
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
