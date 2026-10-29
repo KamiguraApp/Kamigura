@@ -83,6 +83,7 @@
     }
     setColors(window.novelColors.background, window.novelColors.text);
     let screen = 0, count = 1, vertical = false, width = 1, height = 1;
+    let pagePadding = { left: 0, top: 0, right: 0, bottom: 0 };
     const textNodes = () => {
         const nodes = [], walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
         while (walker.nextNode()) {
@@ -96,7 +97,8 @@
         range.selectNodeContents(node);
         return Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0);
     };
-    const visible = r => r.right > 0 && r.left < width && r.bottom > 0 && r.top < height;
+    const visible = r => r.right > pagePadding.left && r.left < width - pagePadding.right &&
+        r.bottom > pagePadding.top && r.top < height - pagePadding.bottom;
     function path(element) {
         if (!element || element === root) return '//body';
         if (element.id && !element.id.includes('"')) return 'id("' + element.id + '")';
@@ -152,13 +154,12 @@
         const xpath = anchor(), element = resolve(xpath) || root;
         const text = textNodes().filter(node => element.contains(node))
             .map(node => node.textContent).join('').replace(/\s+/g, ' ').trim();
-        const visible = [];
+        const selected = [];
         paths.forEach((path, index) => {
             const target = path ? resolve(path) : root;
-            if (target === root ? screen === 0 : target && rects(target).some(r =>
-                r.right > 0 && r.left < width && r.bottom > 0 && r.top < height)) visible.push(index);
+            if (target === root ? screen === 0 : target && rects(target).some(visible)) selected.push(index);
         });
-        return { anchor: xpath, title: Array.from(text).slice(0, 20).join(''), visible };
+        return { anchor: xpath, title: Array.from(text).slice(0, 20).join(''), visible: selected };
     }
     function contentsParts(parts) {
         const reference = textNodes().find(node => rects(node).some(visible)) || resolve(anchor());
@@ -175,8 +176,8 @@
             const style = getComputedStyle(link);
             if (style.visibility !== 'visible' || style.pointerEvents === 'none' || link.closest('.visually-hidden')) continue;
             for (const rect of link.getClientRects()) {
-                const left = Math.max(0, rect.left), top = Math.max(0, rect.top);
-                const right = Math.min(innerWidth, rect.right), bottom = Math.min(innerHeight, rect.bottom);
+                const left = Math.max(pagePadding.left, rect.left), top = Math.max(pagePadding.top, rect.top);
+                const right = Math.min(innerWidth - pagePadding.right, rect.right), bottom = Math.min(innerHeight - pagePadding.bottom, rect.bottom);
                 if (right <= left || bottom <= top) continue;
                 regions.push({ left: left / innerWidth, top: top / innerHeight, right: right / innerWidth,
                     bottom: bottom / innerHeight, page: link.getAttribute('kavita-page'),
@@ -261,10 +262,13 @@
             readerStyle(image, 'max-height', availableHeight + 'px');
             readerStyle(image, 'object-fit', 'contain');
             readerStyle(image, 'break-inside', 'avoid');
-            if (scale < 1) {
-                const box = image.viewBox?.baseVal;
-                const ratio = image.naturalWidth > 0 && image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight :
-                    box?.width > 0 && box?.height > 0 ? box.width / box.height : bounds.width / bounds.height;
+            const box = image.viewBox?.baseVal;
+            const ratio = image.naturalWidth > 0 && image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight :
+                box?.width > 0 && box?.height > 0 ? box.width / box.height : bounds.width / bounds.height;
+            // A book's percentage max-size may already have clamped just one axis.
+            const clamped = (bounds.height >= availableHeight - .5 || bounds.width >= availableWidth - .5) &&
+                Math.abs(bounds.width / bounds.height - ratio) > .005;
+            if (scale < 1 || clamped) {
                 const fittedWidth = Math.min(bounds.width, bounds.height * ratio, availableWidth, availableHeight * ratio);
                 readerStyle(image, 'min-width', '0');
                 readerStyle(image, 'min-height', '0');
@@ -321,12 +325,16 @@
         applySpacing();
         width = window.innerWidth;
         height = window.innerHeight;
-        const margin = width * (window.novelMargin ?? 15) / 100;
+        const margin = window.novelMargin ?? 20, cutout = window.novelCutout || {};
+        const edge = name => Math.max(margin, (cutout[name] || 0) > 0 ? cutout[name] + 8 : 0);
+        const left = edge('left'), top = edge('top'), right = edge('right'), bottom = edge('bottom');
+        pagePadding = { left, top, right, bottom };
+        readerStyle(document.getElementById('novel-viewport'), 'clip-path', `inset(${top}px ${right}px ${bottom}px ${left}px)`);
         readerStyle(book, 'box-sizing', 'border-box');
         readerStyle(book, 'column-fill', 'auto');
-        readerStyle(book, 'padding', '20px ' + margin + 'px 40px');
+        readerStyle(book, 'padding', `${top}px ${right}px ${bottom}px ${left}px`);
         // A complete column plus its gap occupies exactly one viewport in either mode.
-        readerStyle(book, 'column-gap', (vertical ? 60 : margin * 2) + 'px');
+        readerStyle(book, 'column-gap', (vertical ? top + bottom : left + right) + 'px');
         readerStyle(book, 'width', width + 'px');
         readerStyle(book, 'height', window.innerHeight + 'px');
         readerStyle(book, 'column-width', (vertical ? window.innerHeight : width) + 'px');
@@ -366,6 +374,13 @@
         setFontSize(value) {
             const xpath = anchor(), precise = lastLocation ?? location();
             applyFontSize(value);
+            return layout(xpath, false, precise);
+        },
+        setPageLayout(margin, cutout) {
+            if (width === innerWidth && height === innerHeight && window.novelMargin === margin &&
+                JSON.stringify(window.novelCutout) === JSON.stringify(cutout)) return state();
+            const xpath = anchor(), precise = lastLocation ?? location();
+            window.novelMargin = margin; window.novelCutout = cutout;
             return layout(xpath, false, precise);
         },
         async setFonts(options) {

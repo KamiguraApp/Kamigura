@@ -108,7 +108,8 @@ class NovelLinksUiTest {
         }).use { server ->
             open(server)
             val point = point("go")
-            compose.onRoot().performTouchInput { swipe(point, Offset(width * .05f, point.y), 350) }
+            // Fixed margins can put the link near the edge; keep this a committed flick.
+            compose.onRoot().performTouchInput { swipe(point, Offset(1f, point.y), 100) }
             compose.waitUntil(5_000) { screen() == 2 }
             assertTrue(state().startsWith("Page 1 /"))
             compose.onRoot().performTouchInput { click(Offset(width * .1f, height * .75f)) }

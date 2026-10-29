@@ -39,14 +39,17 @@ class NovelReaderStyleTest {
                 preferences=NovelReaderPreferences(fontSize=125,lineSpacing=150)) }
             compose.waitUntil(20_000){position!=null}
             val geometry=JSONObject(js(view,"""(()=>{const b=document.querySelector('.book-content'),s=getComputedStyle(b),r=b.getBoundingClientRect();return {
-                width:r.width,height:r.height,viewportWidth:innerWidth,viewportHeight:innerHeight,font:s.fontSize,top:s.paddingTop,bottom:s.paddingBottom,left:parseFloat(s.paddingLeft),gap:parseFloat(s.columnGap),
+                width:r.width,height:r.height,viewportWidth:innerWidth,viewportHeight:innerHeight,font:s.fontSize,top:parseFloat(s.paddingTop),bottom:parseFloat(s.paddingBottom),left:parseFloat(s.paddingLeft),right:parseFloat(s.paddingRight),gap:parseFloat(s.columnGap),cutout:window.novelCutout,
                 line:getComputedStyle(b.firstElementChild).lineHeight,color:getComputedStyle(document.querySelector('p')).color,
                 important:['padding','column-gap','column-width','column-count','width','height','box-sizing','column-fill','font-size','writing-mode','direction','transform'].every(p=>b.style.getPropertyPriority(p)==='important')};})()"""))
             assertEquals(geometry.getDouble("viewportWidth"),geometry.getDouble("width"),.5)
             assertEquals(geometry.getDouble("viewportHeight"),geometry.getDouble("height"),.5)
-            assertEquals("20px",geometry.getString("font"));assertEquals("20px",geometry.getString("top"));assertEquals("40px",geometry.getString("bottom"))
-            assertEquals(geometry.getDouble("viewportWidth")*.15,geometry.getDouble("left"),.5)
-            assertEquals(if(vertical)60.0 else geometry.getDouble("viewportWidth")*.3,geometry.getDouble("gap"),.5)
+            assertEquals("20px",geometry.getString("font"))
+            for(edge in listOf("left","top","right","bottom")) {
+                val inset=geometry.getJSONObject("cutout").getDouble(edge)
+                assertEquals(maxOf(20.0,if(inset>0)inset+8 else 0.0),geometry.getDouble(edge),.5)
+            }
+            assertEquals(if(vertical)geometry.getDouble("top")+geometry.getDouble("bottom") else geometry.getDouble("left")+geometry.getDouble("right"),geometry.getDouble("gap"),.5)
             assertEquals("30px",geometry.getString("line"));assertEquals("rgb(16, 16, 16)",geometry.getString("color"))
             assertTrue(geometry.toString(),geometry.getBoolean("important"));assertTrue(position!!.count>6)
             val count=position!!.count

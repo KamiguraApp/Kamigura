@@ -217,7 +217,7 @@ class NovelReaderProductionTest {
         compose.runOnIdle { view.dispose() }
     }
 
-    @Test fun profileTypographyUsesMeasuredFontAndMarginAndInheritedSpacing() {
+    @Test fun typographyUsesFixedCssMarginsAndInheritedSpacing() {
         lateinit var view: NovelPageView
         var ready = false
         compose.setContent { AndroidView(factory = { NovelPageView(it).also { v ->
@@ -226,11 +226,11 @@ class NovelReaderProductionTest {
                 preferences = NovelReaderPreferences(fontSize = 150, lineSpacing = 150, margin = 25))
         } }, modifier = Modifier.fillMaxSize()) }
         compose.waitUntil(20_000) { ready }
-        val metrics = JSONObject(js(view, "(()=>{const s=getComputedStyle(document.querySelector('.book-content'));return {font:s.fontSize,line:s.lineHeight,margin:parseFloat(s.paddingLeft)/innerWidth};})()"))
+        val metrics = JSONObject(js(view, "(()=>{const s=getComputedStyle(document.querySelector('.book-content'));return {font:s.fontSize,line:s.lineHeight,margin:parseFloat(s.paddingLeft)};})()"))
         assertEquals("24px", metrics.getString("font"))
         assertEquals("36px", metrics.getString("line"))
         assertEquals("\"54px\"", js(view, "getComputedStyle(document.querySelector('p')).lineHeight"))
-        assertEquals(.25, metrics.getDouble("margin"), .001)
+        assertEquals(25.0, metrics.getDouble("margin"), .001)
         compose.runOnIdle { view.dispose() }
     }
 

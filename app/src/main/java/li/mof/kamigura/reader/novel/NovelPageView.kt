@@ -11,6 +11,8 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.ui.geometry.Rect
+import androidx.core.view.ViewCompat
+import li.mof.kamigura.NovelMargins
 import li.mof.kamigura.normalizeKavitaBaseUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONObject
@@ -33,7 +35,7 @@ internal fun novelResourceAllowed(url: String, baseUrl: String, chapterId: Int):
 
 internal fun novelDocument(fragment: String, baseUrl: String, script: String, anchor: String?, last: Boolean,
     vertical: Boolean? = null, documentId: String = "", location: String? = null,
-    preferences: NovelReaderPreferences = NovelReaderPreferences()): String {
+    preferences: NovelReaderPreferences = NovelReaderPreferences(), cutout: NovelPageInsets = NovelPageInsets()): String {
     val nonce = UUID.randomUUID().toString()
     val base = normalizeKavitaBaseUrl(baseUrl).toHttpUrl()
     val origin = base.newBuilder().encodedPath("/").query(null).fragment(null).build().toString().trimEnd('/')
@@ -61,7 +63,7 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
             background-color:transparent !important; text-shadow:none !important;
         }
         </style></head><body><div id="novel-viewport"><div class="book-content">$fragment</div></div>
-        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelFonts=${novelFontsJson(preferences.fonts)};window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelLineSpacing=${preferences.lineSpacing};window.novelFontSize=${preferences.fontSize};window.novelColors={background:'${colors.backgroundCss}',text:'${colors.textCss}'};
+        <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelFonts=${novelFontsJson(preferences.fonts)};window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelCutout=${cutout.json()};window.novelLineSpacing=${preferences.lineSpacing};window.novelFontSize=${preferences.fontSize};window.novelColors={background:'${colors.backgroundCss}',text:'${colors.textCss}'};
         $script</script></body></html>""".trimIndent()
 }
 
@@ -75,6 +77,9 @@ internal class NovelPageView(context: Context) : WebView(context) {
     private var colors = novelReaderColors(li.mof.kamigura.PageBackground.Paper, false)
     private val fonts = NovelFontStore(context)
     @Volatile private var allowedFonts = emptySet<String>()
+    private var margin = NovelMargins.Normal.dp
+    private var cutoutPixels = NovelPageInsets()
+    private var pendingReflow: Runnable? = null
 
     init {
         settings.javaScriptEnabled = true
@@ -87,13 +92,44 @@ internal class NovelPageView(context: Context) : WebView(context) {
         isHorizontalScrollBarEnabled = false
         setBackgroundColor(Color.rgb(250, 247, 242))
         addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
-            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
-                val token = generation
-                postDelayed({
-                    if (token > 0) reflowAfterResize(token, right - left, bottom - top)
-                }, 250)
-            }
+            if (left != oldLeft || top != oldTop || right != oldRight || bottom != oldBottom) scheduleReflow()
         }
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+            cutoutPixels = (ViewCompat.getRootWindowInsets(this)?.displayCutout ?: insets.displayCutout)?.let {
+                NovelPageInsets(it.safeInsetLeft.toFloat(), it.safeInsetTop.toFloat(),
+                    it.safeInsetRight.toFloat(), it.safeInsetBottom.toFloat())
+            } ?: NovelPageInsets()
+            scheduleReflow()
+            insets
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        ViewCompat.requestApplyInsets(this)
+    }
+
+    private fun cutoutCss(): NovelPageInsets {
+        val origin = IntArray(2); val window = IntArray(2)
+        getLocationOnScreen(origin); rootView.getLocationOnScreen(window)
+        return cutoutPixels.relativeToView(origin[0] - window[0], origin[1] - window[1],
+            window[0] + rootView.width - origin[0] - width,
+            window[1] + rootView.height - origin[1] - height, resources.displayMetrics.density)
+    }
+
+    private fun pageLayoutScript() = "window.novelReader.setPageLayout($margin, ${cutoutCss().json()})"
+
+    private fun scheduleReflow() {
+        pendingReflow?.let(::removeCallbacks)
+        val token = generation
+        pendingReflow = Runnable { if (token > 0 && !disposed) reflowAfterResize(token, width, height) }
+        postDelayed(pendingReflow!!, 250)
+    }
+
+    fun setMargins(value: NovelMargins) {
+        if (margin == value.dp) return
+        margin = value.dp
+        scheduleReflow()
     }
 
     private fun reflowAfterResize(token: Int, widthPx: Int, heightPx: Int, attempt: Int = 0) {
@@ -101,7 +137,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
         // Chromium can publish its viewport after the native layout callback, without a resize event.
         evaluateJavascript("window.novelDocumentId === '$token' && window.novelReader && window.novelReader.ready ? " +
             "(Math.abs(innerWidth - $widthPx / devicePixelRatio) <= 1 && Math.abs(innerHeight - $heightPx / devicePixelRatio) <= 1 ? " +
-            "window.novelReader.reflow() : 'resize-pending') : null") { value ->
+            "${pageLayoutScript()} : 'resize-pending') : null") { value ->
             if (disposed || token != generation) return@evaluateJavascript
             if (value.startsWith("{")) report(value)
             else if (value == "\"resize-pending\"" && attempt < 20) {
@@ -113,6 +149,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
     fun open(fragment: String, baseUrl: String, chapterId: Int, anchor: String?, last: Boolean, vertical: Boolean? = null,
         location: String? = null, preferences: NovelReaderPreferences = NovelReaderPreferences()) {
         setColors(novelReaderColors(preferences.background, preferences.usePureColors))
+        margin = preferences.margin
         val token = ++generation
         allowedFonts = novelFontIds(preferences.fonts)
         webViewClient = object : WebViewClient() {
@@ -125,13 +162,13 @@ internal class NovelPageView(context: Context) : WebView(context) {
             override fun onPageFinished(view: WebView, url: String) { awaitLayout(token, 0) }
         }
         val script = context.assets.open("novel-reader.js").bufferedReader().use { it.readText() }
-        loadDataWithBaseURL(normalizeKavitaBaseUrl(baseUrl) + "/", novelDocument(fragment, baseUrl, script, anchor, last, vertical, token.toString(), location, preferences),
+        loadDataWithBaseURL(normalizeKavitaBaseUrl(baseUrl) + "/", novelDocument(fragment, baseUrl, script, anchor, last, vertical, token.toString(), location, preferences, cutoutCss()),
             "text/html", "UTF-8", null)
     }
 
     private fun awaitLayout(token: Int, attempt: Int) {
         if (disposed || token != generation) return
-        evaluateJavascript("window.novelDocumentId === '$token' && window.novelReader && window.novelReader.ready ? window.novelReader.state() : null") { value ->
+        evaluateJavascript("window.novelDocumentId === '$token' && window.novelReader && window.novelReader.ready ? ${pageLayoutScript()} : null") { value ->
             if (disposed || token != generation) return@evaluateJavascript
             if (value.startsWith("{")) {
                 setColors(colors)
@@ -256,8 +293,11 @@ internal class NovelPageView(context: Context) : WebView(context) {
         }
     }
 
-    fun dispose() { disposed = true; generation++; stopLoading(); destroy() }
+    fun dispose() { disposed = true; generation++; pendingReflow?.let(::removeCallbacks); stopLoading(); destroy() }
 }
+
+private fun NovelPageInsets.json() = JSONObject().put("left", left).put("top", top)
+    .put("right", right).put("bottom", bottom).toString()
 
 private fun JSONObject.toNovelPosition(width: Int, height: Int): NovelPosition {
     val items = optJSONArray("links")

@@ -155,6 +155,7 @@ internal fun NovelReaderScreen(
         if (!offline) NovelContents(api, chapterId, spineCount) else null
     }
     LaunchedEffect(colors) { view.setColors(colors) }
+    LaunchedEffect(loading, novelSettings.margins) { view.setMargins(novelSettings.margins) }
     val fontConfig = novelFontsJson(novelSettings)
     LaunchedEffect(loading, fontConfig) {
         if (!loading && renderedSpine == spine && renderedFonts != fontConfig) {

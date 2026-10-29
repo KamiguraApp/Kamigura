@@ -105,8 +105,13 @@ class NovelBookmarksUiTest {
             assertTrue(viewContext(fixture.items.toList()).visible.contains(10))
             restoration.emulateSavedInstanceStateRestore(); awaitLoaded()
             menu(); waitButton("Remove bookmark from page 3")
+            val source = viewPosition().location
             compose.onNodeWithText("Horizontal").performClick()
-            waitButton("Remove bookmark from page 3")
+            compose.waitUntil(5_000) { !viewPosition().vertical }
+            assertEquals(source, viewPosition().location)
+            // Reflow retains the first visible character, not every previously visible bookmark.
+            val stillVisible = viewContext(fixture.items.toList()).visible.contains(10)
+            waitButton(if (stillVisible) "Remove bookmark from page 3" else "Bookmark page 3")
             compose.onNodeWithContentDescription("Contents").performClick()
             compose.onNodeWithText("Bookmarks").performClick()
             compose.onNodeWithContentDescription("Remove bookmark: Web selection").performClick()
@@ -201,5 +206,10 @@ class NovelBookmarksUiTest {
         val done = CountDownLatch(1); var result: NovelBookmarkContext? = null
         compose.runOnIdle { findView(compose.activity.window.decorView)!!.bookmarkContext(items) { result = it; done.countDown() } }
         assertTrue(done.await(5, TimeUnit.SECONDS)); return requireNotNull(result)
+    }
+    private fun viewPosition(): NovelPosition {
+        val done=CountDownLatch(1); var result: NovelPosition? = null
+        compose.runOnIdle { findView(compose.activity.window.decorView)!!.position { result=it;done.countDown() } }
+        assertTrue(done.await(5,TimeUnit.SECONDS));return requireNotNull(result)
     }
 }

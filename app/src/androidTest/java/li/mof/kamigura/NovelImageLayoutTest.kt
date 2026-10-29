@@ -6,7 +6,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -38,8 +40,12 @@ class NovelImageLayoutTest {
         lateinit var view: NovelPageView
         var position: NovelPosition? = null
         val wide = mutableStateOf(false)
-        compose.setContent { AndroidView(factory = { NovelPageView(it).also { v -> view=v; v.onPosition={position=it} } },
-            modifier=Modifier.requiredSize(if(wide.value)700.dp else 360.dp,if(wide.value)360.dp else 700.dp)) }
+        compose.setContent {
+            val config = LocalConfiguration.current
+            AndroidView(factory = { NovelPageView(it).also { v -> view=v; v.onPosition={position=it} } },
+                modifier=Modifier.requiredSize(minOf(if(wide.value)700 else 360,config.screenWidthDp).dp,
+                    minOf(if(wide.value)360 else 700,config.screenHeightDp).dp).testTag("Illustration viewport"))
+        }
         val extras = if (gaijiSrc == null) "" else "<p>Prose <img id='gaiji' class='gaiji' src='$gaijiSrc'></p><img id='small' src='$gaijiSrc' style='width:60px;height:90px'>"
         val html = "<div><style>.book-content #art {width:600px!important;height:900px!important;max-height:100%!important;}" +
             ".book-content img.gaiji{width:1em!important;height:1em!important;}</style>$art$extras</div>"
@@ -63,7 +69,8 @@ class NovelImageLayoutTest {
             if (gaijiSrc != null) assertEquals(24.0,enlarged.getDouble("gaiji"),.2)
             compose.runOnIdle { view.setFontSize(100) }
             if (gaijiSrc == null) {
-                val pixels=compose.onRoot().captureToImage().toPixelMap()
+                awaitNovelPaint(view)
+                val pixels=compose.onNodeWithTag("Illustration viewport").captureToImage().toPixelMap()
                 val width=before.getDouble("viewportWidth"); val height=before.getDouble("viewportHeight")
                 val x=(before.getDouble("left")+before.getDouble("width")/2)/width*pixels.width
                 val y=(before.getDouble("top")+before.getDouble("height")*.9)/height*pixels.height

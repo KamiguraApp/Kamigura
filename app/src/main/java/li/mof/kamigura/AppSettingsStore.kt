@@ -29,6 +29,7 @@ enum class PageTurnMode {
 enum class PageTransition { Off, Slide, Curl }
 enum class NovelWritingStyle { Horizontal, Vertical }
 enum class NovelFontSlot { Mincho, Gothic }
+enum class NovelMargins(val dp: Int) { Narrow(12), Normal(20), Wide(32) }
 
 data class NovelFont(val id: String? = null, val name: String? = null)
 data class CommonReaderSettings(
@@ -40,6 +41,7 @@ data class NovelSettings(
     val background: PageBackground = PageBackground.Paper,
     val writingStyle: NovelWritingStyle = NovelWritingStyle.Horizontal,
     val defaultFont: NovelFontSlot = NovelFontSlot.Mincho,
+    val margins: NovelMargins = NovelMargins.Normal,
     val mincho: NovelFont = NovelFont(),
     val gothic: NovelFont = NovelFont()
 )
@@ -113,6 +115,7 @@ class AppSettingsStore(private val context: Context) {
     private val KEY_LEGACY_UNMETERED_PREFETCH_TURNS = intPreferencesKey("reader_unmetered_prefetch_turns")
     private val KEY_NOVEL_WRITING = stringPreferencesKey("novel_writing_style")
     private val KEY_NOVEL_FONT = stringPreferencesKey("novel_default_font")
+    private val KEY_NOVEL_MARGINS = stringPreferencesKey("novel_margins")
     private val KEY_SHOW_PORTRAIT_PAGE_BACK_CONTENT =
         booleanPreferencesKey("reader_show_portrait_page_back_content")
     private val KEY_USE_PURE_PAGE_BACKGROUND_COLORS =
@@ -131,6 +134,7 @@ class AppSettingsStore(private val context: Context) {
                 background = enumValue(prefs[NovelBackgroundKey], PageBackground.Paper),
                 writingStyle = enumValue(prefs[KEY_NOVEL_WRITING], NovelWritingStyle.Horizontal),
                 defaultFont = enumValue(prefs[KEY_NOVEL_FONT], NovelFontSlot.Mincho),
+                margins = enumValue(prefs[KEY_NOVEL_MARGINS], NovelMargins.Normal),
                 mincho = NovelFont(prefs[fontKey(NovelFontSlot.Mincho)], prefs[fontNameKey(NovelFontSlot.Mincho)]),
                 gothic = NovelFont(prefs[fontKey(NovelFontSlot.Gothic)], prefs[fontNameKey(NovelFontSlot.Gothic)])
             ), image = ImageReaderSettings(
@@ -189,6 +193,10 @@ class AppSettingsStore(private val context: Context) {
 
     suspend fun setNovelDefaultFont(value: NovelFontSlot) {
         context.settingsDataStore.edit { it[KEY_NOVEL_FONT] = value.name }
+    }
+
+    suspend fun setNovelMargins(value: NovelMargins) {
+        context.settingsDataStore.edit { it[KEY_NOVEL_MARGINS] = value.name }
     }
 
     suspend fun setNovelFont(slot: NovelFontSlot, font: NovelFont) {

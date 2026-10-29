@@ -72,6 +72,8 @@ internal fun NovelSettingsContent(settings: NovelSettings, store: AppSettingsSto
     NovelSettingChoices(NovelWritingStyle.entries, settings.writingStyle) { scope.launch { store.setNovelWritingStyle(it) } }
     Text("Background", style = MaterialTheme.typography.titleMedium)
     NovelSettingChoices(PageBackground.entries, settings.background) { scope.launch { store.setNovelBackground(it) } }
+    Text("Margins", style = MaterialTheme.typography.titleMedium)
+    NovelSettingChoices(NovelMargins.entries, settings.margins) { scope.launch { store.setNovelMargins(it) } }
     Text("Fonts", style = MaterialTheme.typography.titleMedium)
     Text("A font embedded in the book is always used first. Otherwise Mincho is used for serif text and Gothic for sans-serif text.",
         style = MaterialTheme.typography.bodySmall, color = Color.Gray)

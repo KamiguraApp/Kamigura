@@ -67,7 +67,7 @@ class NovelReaderPreferencesTest {
         assertTrue(resolved.rightToLeft)
         assertEquals(160, resolved.fontSize)
         assertEquals(125, resolved.lineSpacing)
-        assertEquals(10, resolved.margin)
+        assertEquals(20, resolved.margin)
         assertFalse(resolveNovelReaderPreferences(profile.copy(bookReaderReadingDirection = 0), NovelReaderOverrides(0)).rightToLeft)
     }
 
@@ -75,7 +75,7 @@ class NovelReaderPreferencesTest {
         val resolved = resolveNovelReaderPreferences(UserReadingProfileDto(bookReaderWritingStyle = -1,
             bookReaderFontSize = 0, bookReaderLineSpacing = -1, bookReaderMargin = 100,
             bookReaderReadingDirection = 99), NovelReaderOverrides(99, -20))
-        assertEquals(NovelReaderPreferences(margin = 45, automaticWritingStyle = true), resolved)
+        assertEquals(NovelReaderPreferences(automaticWritingStyle = true), resolved)
     }
 
     @Test fun novelOnlyEntryDoesNotCreateAnImageOverrideAndRoundTrips() = runBlocking {
