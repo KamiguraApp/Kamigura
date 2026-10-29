@@ -45,7 +45,7 @@ class ReaderSettingsFontsUiTest {
             compose.onNodeWithText("Curl").performScrollTo().performClick()
             compose.waitUntil { runBlocking { store.flow.first().reader.image.pageTransition == PageTransition.Curl } }
             compose.onNodeWithText("Page background").assertDoesNotExist()
-            compose.onNodeWithText("Writing style fallback").performScrollTo()
+            compose.onNodeWithText("Writing style").performScrollTo()
             compose.onAllNodesWithText("Vertical").onLast().performScrollTo().performClick()
             compose.onNodeWithText("Dark").performScrollTo().performClick()
             compose.onNodeWithText("Fonts").performScrollTo().assertIsDisplayed()

@@ -64,8 +64,8 @@ internal fun NovelSettingsContent(settings: NovelSettings, store: AppSettingsSto
             finally { imported?.let { fonts.remove(it) }; busy = false }
         }
     }
-    Text("Writing style fallback", style = MaterialTheme.typography.titleMedium)
-    Text("Used when the series has no reading profile of its own on the Kavita server. " +
+    Text("Writing style", style = MaterialTheme.typography.titleMedium)
+    Text("Fallback used when a series has no writing style of its own on the Kavita server. " +
         "Kavita currently drops the writing direction a book sets for itself, so choose Vertical " +
         "if most of your novels are written vertically.",
         style = MaterialTheme.typography.bodySmall, color = Color.Gray)
