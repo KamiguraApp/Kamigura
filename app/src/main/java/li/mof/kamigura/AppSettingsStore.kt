@@ -89,7 +89,7 @@ internal const val MaxReaderPrefetchTurns = 8
 data class ImageReaderSettings(
     val readingDirection: ReaderReadingDirection = ReaderReadingDirection.RightToLeft,
     val invertMode: InvertMode = InvertMode.Off,
-    val invertWhiteThreshold: Float = 0.5f,
+    val invertWhiteThreshold: Float = 0.82f,
     val prefetchTurns: Int = DefaultReaderPrefetchTurns,
     val pageTransition: PageTransition = PageTransition.Curl,
     val showPortraitPageBackContent: Boolean = true,
@@ -154,7 +154,7 @@ class AppSettingsStore(private val context: Context) {
                 invertMode = prefs[KEY_INVERT_MODE]
                     ?.let { runCatching { InvertMode.valueOf(it) }.getOrNull() }
                     ?: InvertMode.Off,
-                invertWhiteThreshold = prefs[KEY_INVERT_WHITE_THRESHOLD] ?: 0.5f,
+                invertWhiteThreshold = prefs[KEY_INVERT_WHITE_THRESHOLD] ?: 0.82f,
                 prefetchTurns = (prefs[KEY_PREFETCH_TURNS]
                     ?: prefs[KEY_LEGACY_UNMETERED_PREFETCH_TURNS]
                     ?: DefaultReaderPrefetchTurns)
