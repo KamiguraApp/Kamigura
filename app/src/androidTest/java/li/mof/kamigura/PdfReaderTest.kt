@@ -456,7 +456,9 @@ internal class ReaderServer(
     personalHandler: ((String, Uri, String) -> Pair<Int, String>)? = null,
     contentsResponse: () -> Pair<Int, String> = { 200 to "[]" },
     bookPageResponse: ((Int, Int) -> Pair<Int, String>)? = null,
-    bookFont: ByteArray? = null
+    bookFont: ByteArray? = null,
+    imageBytes: ByteArray? = null,
+    downloadPayload: Pair<String, ByteArray>? = null
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -466,7 +468,7 @@ internal class ReaderServer(
     val bookProgressWrites = CopyOnWriteArrayList<ProgressDto>()
     val chapterRequested = CountDownLatch(1)
     val releaseChapter = CountDownLatch(if (holdChapter) 1 else 0)
-    private val image = ByteArrayOutputStream().also { output ->
+    private val image = imageBytes ?: ByteArrayOutputStream().also { output ->
         val bitmap = Bitmap.createBitmap(600, 900, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
@@ -557,8 +559,8 @@ internal class ReaderServer(
                         val isBookFont = bookFont != null && uri.path.orEmpty().endsWith("/book-resources") &&
                             uri.getQueryParameter("font") == "embedded"
                         val body = if (isBookFont) bookFont!! else if (invalidImage) "invalid cached image".toByteArray()
-                            else if (isImage) image else if (isDownload) pdf else json.toByteArray()
-                        val type = if (isBookFont) "font/ttf" else if (isImage) "image/png" else if (isDownload) "application/pdf"
+                            else if (isImage) image else if (isDownload) downloadPayload?.second ?: pdf else json.toByteArray()
+                        val type = if (isBookFont) "font/ttf" else if (isImage) "image/png" else if (isDownload) downloadPayload?.first ?: "application/pdf"
                             else if (uri.path == "/api/Book/1/book-page") "text/html" else "application/json"
                         val cacheHeader = if (isImage && cacheImages) "Cache-Control: max-age=3600\r\n" else ""
                         runCatching {

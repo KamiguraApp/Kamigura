@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import li.mof.kamigura.InvertMode
+import li.mof.kamigura.InvertWhiteThresholdRange
 import li.mof.kamigura.PageBackground
 import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.KavitaSession
@@ -21,20 +22,25 @@ private const val ReaderSessionPreferenceCacheFileName = "reader_session_prefere
 
 internal data class ReaderSessionPreferences(
     val readingDirection: ReaderReadingDirection,
-    val invertMode: InvertMode
+    val invertMode: InvertMode,
+    val invertWhiteThreshold: Float? = null
 ) {
-    constructor(rightToLeft: Boolean, invertMode: InvertMode) : this(
+    constructor(rightToLeft: Boolean, invertMode: InvertMode, invertWhiteThreshold: Float? = null) : this(
         readingDirection = if (rightToLeft) {
             ReaderReadingDirection.RightToLeft
         } else {
             ReaderReadingDirection.LeftToRight
         },
-        invertMode = invertMode
+        invertMode = invertMode,
+        invertWhiteThreshold = invertWhiteThreshold
     )
 
     val rightToLeft: Boolean
         get() = readingDirection == ReaderReadingDirection.RightToLeft
 }
+
+internal fun resolveReaderInvertWhiteThreshold(globalThreshold: Float, seriesThreshold: Float?): Float =
+    seriesThreshold?.takeIf { it in InvertWhiteThresholdRange } ?: globalThreshold
 
 internal fun readerSessionPreferenceKey(
     session: KavitaSession,
@@ -60,7 +66,8 @@ internal object ReaderSessionPreferenceCache {
         val touchedAtMillis: Long,
         val novelWritingStyle: Int? = null,
         val novelFontSize: Int? = null,
-        val novelBackground: String? = null
+        val novelBackground: String? = null,
+        val invertWhiteThreshold: Float? = null
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -106,7 +113,12 @@ internal object ReaderSessionPreferenceCache {
                             ReaderReadingDirection.LeftToRight
                         }
                     entries[storedEntry.key] = Entry(
-                        preferences = mode?.let { ReaderSessionPreferences(direction, it) },
+                        preferences = mode?.let {
+                            ReaderSessionPreferences(
+                                direction, it,
+                                storedEntry.invertWhiteThreshold?.takeIf { value -> value in InvertWhiteThresholdRange }
+                            )
+                        },
                         touchedAtMillis = storedEntry.touchedAtMillis,
                         novelOverrides = novel
                     )
@@ -154,6 +166,7 @@ internal object ReaderSessionPreferenceCache {
                     key = key,
                     readingDirection = entry.preferences?.readingDirection?.name,
                     invertMode = entry.preferences?.invertMode?.name,
+                    invertWhiteThreshold = entry.preferences?.invertWhiteThreshold,
                     touchedAtMillis = entry.touchedAtMillis,
                     novelWritingStyle = entry.novelOverrides?.writingStyle,
                     novelFontSize = entry.novelOverrides?.fontSize,

@@ -236,10 +236,24 @@ fun ReaderScreen(
     ReaderFullscreenEffect(showStatusBar = showReaderMenu)
     ReaderKeepScreenOnEffect(settings.reader.common.keepScreenOn)
     var readingDirection by remember { mutableStateOf(settings.reader.image.readingDirection) }
-    // Per-book overrides survive a short close/reopen cycle in process memory. The server
-    // direction and global Reader setting remain authoritative after the cache expires.
+    // Per-series manual values use the shared 30-day cache. A missing threshold still
+    // follows Settings when direction or Invert has its own override.
     var invertMode by remember { mutableStateOf(settings.reader.image.invertMode) }
+    var invertWhiteThresholdOverride by remember { mutableStateOf<Float?>(null) }
+    val invertWhiteThreshold = resolveReaderInvertWhiteThreshold(
+        settings.reader.image.invertWhiteThreshold, invertWhiteThresholdOverride
+    )
     var sessionPreferenceKey by remember { mutableStateOf<String?>(null) }
+    fun persistSessionPreferences() {
+        sessionPreferenceKey?.let { key ->
+            ReaderSessionPreferenceCache.put(
+                key = key,
+                preferences = ReaderSessionPreferences(readingDirection, invertMode, invertWhiteThresholdOverride),
+                nowMillis = System.currentTimeMillis()
+            )
+            ReaderExitWriteScope.launch { ReaderSessionPreferenceCache.persist(ctx.cacheDir) }
+        }
+    }
     var zoomPan by remember { mutableStateOf(ReaderZoomPanState()) }
     var completingRead by remember { mutableStateOf(false) }
     var offlineChapter by remember { mutableStateOf<OfflineChapter?>(null) }
@@ -580,6 +594,7 @@ fun ReaderScreen(
             // global direction or invert mode while the reading-profile call times out.
             readingDirection = cachedPreferences.readingDirection
             invertMode = cachedPreferences.invertMode
+            invertWhiteThresholdOverride = cachedPreferences.invertWhiteThreshold
             ReaderExitWriteScope.launch {
                 ReaderSessionPreferenceCache.persist(ctx.cacheDir)
             }
@@ -998,7 +1013,7 @@ fun ReaderScreen(
             settings.reader.image.prefetchTurns,
             vertical,
             invertMode,
-            settings.reader.image.invertWhiteThreshold
+            invertWhiteThreshold
         ) {
             if (offlineChapter != null || pages <= 0) return@LaunchedEffect
             val targets = if (vertical) {
@@ -1028,7 +1043,7 @@ fun ReaderScreen(
                     context = ctx,
                     imageLoader = activeImageLoader,
                     models = targets.map { it.model }.distinct(),
-                    whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                    whiteThreshold = invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache
                 )
             }
@@ -1599,7 +1614,7 @@ fun ReaderScreen(
             offlineChapter,
             activeImageLoader,
             invertMode,
-            settings.reader.image.invertWhiteThreshold
+            invertWhiteThreshold
         ) {
             val targetPage = activeTransition?.targetPage ?: return@LaunchedEffect
             if (offlineChapter != null || pages <= 0) return@LaunchedEffect
@@ -1622,7 +1637,7 @@ fun ReaderScreen(
                     context = ctx,
                     imageLoader = activeImageLoader,
                     models = targets.map { it.model }.distinct(),
-                    whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                    whiteThreshold = invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache
                 )
             }
@@ -1686,7 +1701,7 @@ fun ReaderScreen(
                     pageModel = ::pageModel,
                     imageLoader = activeImageLoader,
                     invertMode = invertMode,
-                    whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                    whiteThreshold = invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
                     retryState = pageRetryState,
                     pageBackground = readerPageBackground,
@@ -1768,7 +1783,7 @@ fun ReaderScreen(
                             pageModel = ::pageModel,
                             imageLoader = activeImageLoader,
                             invertMode = invertMode,
-                            whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                            whiteThreshold = invertWhiteThreshold,
                             invertDecisionCache = invertDecisionCache,
                             retryState = pageRetryState,
                             pageBackground = curlBackPageColor,
@@ -1821,7 +1836,7 @@ fun ReaderScreen(
                                     pageModel = ::pageModel,
                                     imageLoader = activeImageLoader,
                                     invertMode = invertMode,
-                                    whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                                    whiteThreshold = invertWhiteThreshold,
                                     invertDecisionCache = invertDecisionCache,
                                     retryState = pageRetryState,
                                     pageBackground = curlBackPageColor,
@@ -1857,7 +1872,7 @@ fun ReaderScreen(
                                         pageModel = ::pageModel,
                                         imageLoader = activeImageLoader,
                                         invertMode = invertMode,
-                                        whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                                        whiteThreshold = invertWhiteThreshold,
                                         invertDecisionCache = invertDecisionCache,
                                         retryState = pageRetryState,
                                         pageBackground = curlBackPageColor,
@@ -1891,7 +1906,7 @@ fun ReaderScreen(
                             pageModel = ::pageModel,
                             imageLoader = activeImageLoader,
                             invertMode = invertMode,
-                            whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                            whiteThreshold = invertWhiteThreshold,
                             invertDecisionCache = invertDecisionCache,
                             retryState = pageRetryState,
                             pageBackground = curlBackPageColor,
@@ -1909,7 +1924,7 @@ fun ReaderScreen(
                     pageModel = ::pageModel,
                     imageLoader = activeImageLoader,
                     invertMode = invertMode,
-                    whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                    whiteThreshold = invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
                     retryState = pageRetryState,
                     pageBackground = readerPageBackground,
@@ -1996,7 +2011,7 @@ fun ReaderScreen(
                                             pageModel = ::pageModel,
                                             imageLoader = activeImageLoader,
                                             invertMode = invertMode,
-                                            whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                                            whiteThreshold = invertWhiteThreshold,
                                             invertDecisionCache = invertDecisionCache,
                                             retryState = pageRetryState,
                                             pageBackground = readerPageBackground,
@@ -2017,7 +2032,7 @@ fun ReaderScreen(
                     pageModel = ::pageModel,
                     imageLoader = activeImageLoader,
                     invertMode = invertMode,
-                    whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                    whiteThreshold = invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
                     retryState = pageRetryState,
                     pageBackground = readerPageBackground,
@@ -2039,7 +2054,7 @@ fun ReaderScreen(
                     pageModel = ::pageModel,
                     imageLoader = activeImageLoader,
                     invertMode = invertMode,
-                    whiteThreshold = settings.reader.image.invertWhiteThreshold,
+                    whiteThreshold = invertWhiteThreshold,
                     invertDecisionCache = invertDecisionCache,
                     retryState = pageRetryState,
                     pageBackground = readerPageBackground,
@@ -2247,32 +2262,19 @@ fun ReaderScreen(
                     // toggle flips the current reading session without writing either, so it
                     // never silently changes other books or fights the server value.
                     readingDirection = direction
-                    sessionPreferenceKey?.let { key ->
-                        ReaderSessionPreferenceCache.put(
-                            key = key,
-                            preferences = ReaderSessionPreferences(direction, invertMode),
-                            nowMillis = System.currentTimeMillis()
-                        )
-                        ReaderExitWriteScope.launch {
-                            ReaderSessionPreferenceCache.persist(ctx.cacheDir)
-                        }
-                    }
+                    persistSessionPreferences()
                 },
                 invertMode = invertMode,
                 onSetInvertMode = { mode ->
                     // Per-book session override only (see the invertMode declaration above);
                     // does not write global Reader Settings.
                     invertMode = mode
-                    sessionPreferenceKey?.let { key ->
-                        ReaderSessionPreferenceCache.put(
-                            key = key,
-                            preferences = ReaderSessionPreferences(readingDirection, mode),
-                            nowMillis = System.currentTimeMillis()
-                        )
-                        ReaderExitWriteScope.launch {
-                            ReaderSessionPreferenceCache.persist(ctx.cacheDir)
-                        }
-                    }
+                    persistSessionPreferences()
+                },
+                whiteThreshold = invertWhiteThreshold,
+                onSetWhiteThreshold = { threshold ->
+                    invertWhiteThresholdOverride = threshold
+                    persistSessionPreferences()
                 },
                 onNextSingle = {
                     requestSingleStep(ReaderTurnDirection.Next, page >= pages - 1)

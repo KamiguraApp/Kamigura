@@ -31,6 +31,7 @@ enum class NovelWritingStyle { Horizontal, Vertical }
 enum class NovelFontSlot { Mincho, Gothic }
 enum class NovelMargins(val dp: Int) { Narrow(12), Normal(20), Wide(32) }
 internal val NovelFontSizeRange = 50..250
+internal val InvertWhiteThresholdRange = 0.2f..0.9f
 internal val NovelLineSpacingRange = 100..160
 internal const val NovelLineSpacingSteps = 11
 

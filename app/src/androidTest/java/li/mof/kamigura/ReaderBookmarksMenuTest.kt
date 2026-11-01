@@ -126,6 +126,7 @@ class ReaderBookmarksMenuTest {
                             readingDirection = direction(), showSpreadShift = spread,
                             onBack = {}, onDismiss = onDismiss, onSetReadingDirection = {},
                             invertMode = InvertMode.Off, onSetInvertMode = {},
+                            whiteThreshold = .82f, onSetWhiteThreshold = {},
                             onNextSingle = {}, onPreviousSingle = {}, onJumpToPage = {}
                         )
                     }

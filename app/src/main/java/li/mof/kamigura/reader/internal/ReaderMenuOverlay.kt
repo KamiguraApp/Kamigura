@@ -27,6 +27,7 @@ import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -35,11 +36,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import li.mof.kamigura.InvertMode
+import li.mof.kamigura.InvertWhiteThresholdRange
 import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.ui.ValueBubbleSlider
 import kotlin.math.roundToInt
@@ -62,6 +65,8 @@ internal fun ReaderMenuOverlay(
     onSetReadingDirection: (ReaderReadingDirection) -> Unit,
     invertMode: InvertMode,
     onSetInvertMode: (InvertMode) -> Unit,
+    whiteThreshold: Float,
+    onSetWhiteThreshold: (Float) -> Unit,
     onNextSingle: () -> Unit,
     onPreviousSingle: () -> Unit,
     onJumpToPage: (Int) -> Unit
@@ -166,6 +171,28 @@ internal fun ReaderMenuOverlay(
                             }
                         ) { Text(mode.name) }
                     }
+                }
+            }
+
+            if (invertMode == InvertMode.Smart) {
+                var thresholdDraft by remember(whiteThreshold) { mutableFloatStateOf(whiteThreshold) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("White threshold", color = Color.White)
+                    ValueBubbleSlider(
+                        value = thresholdDraft,
+                        onValueChange = { thresholdDraft = it },
+                        onValueChangeFinished = {
+                            if (thresholdDraft != whiteThreshold) onSetWhiteThreshold(thresholdDraft)
+                        },
+                        valueRange = InvertWhiteThresholdRange,
+                        valueLabel = { "${(it * 100f).roundToInt()}%" },
+                        modifier = Modifier.weight(1f).semantics { contentDescription = "White threshold" }
+                    )
+                    Text("${(thresholdDraft * 100f).roundToInt()}%", color = Color.White)
                 }
             }
 

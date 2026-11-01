@@ -752,7 +752,7 @@ fun ReaderSettingsScreen(
                     onValueChangeFinished = {
                         scope.launch { settingsStore.setInvertWhiteThreshold(thresholdDraft) }
                     },
-                    valueRange = 0.2f..0.9f,
+                    valueRange = InvertWhiteThresholdRange,
                     valueLabel = { value -> "${(value * 100f).roundToInt()}%" }
                 )
             }
