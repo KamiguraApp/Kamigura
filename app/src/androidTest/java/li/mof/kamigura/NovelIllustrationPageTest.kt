@@ -76,9 +76,11 @@ class NovelIllustrationPageTest {
         compose.runOnIdle { square.value = true }
         compose.waitForIdle()
         for (vertical in listOf(false, true)) {
-            open("<div><img id='art' src='${image(400, 400)}'></div>", vertical)
+            // Still substantial, but small enough to grow inside a narrow phone viewport.
+            val sourceSize = 320
+            open("<div><img id='art' src='${image(sourceSize, sourceSize)}'></div>", vertical)
             assertSheet(1.0)
-            assertTrue(geometry().getDouble("width") > 400)
+            assertTrue(geometry().getDouble("width") > sourceSize)
             for ((html, expected) in listOf(
                 "<div><img id='small' src='${image(96, 64)}'></div>" to 96.0,
                 "<div><style>.book-content #small{width:60px;height:90px}</style><img id='small' src='$art'></div>" to 60.0,

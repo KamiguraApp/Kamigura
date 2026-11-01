@@ -300,6 +300,20 @@ internal class NovelPageView(context: Context) : WebView(context) {
         }
     }
 
+    fun illustrationAt(point: androidx.compose.ui.geometry.Offset, callback: (String?) -> Unit) {
+        val token = generation
+        val viewportWidth = width; val viewportHeight = height
+        evaluateJavascript("window.novelReader && window.novelReader.ready ? window.novelReader.illustrations() : []") { value ->
+            if (disposed || token != generation || viewportWidth != width || viewportHeight != height) {
+                callback(null); return@evaluateJavascript
+            }
+            callback(runCatching {
+                val images = JSONArray(value).toNovelIllustrations()
+                novelIllustrationAt(images, point, width, height)
+            }.getOrNull())
+        }
+    }
+
     fun dispose() { disposed = true; generation++; pendingReflow?.let(::removeCallbacks); stopLoading(); destroy() }
 }
 
@@ -320,3 +334,10 @@ private fun JSONObject.toNovelPosition(width: Int, height: Int): NovelPosition {
     return NovelPosition(getInt("screen"), getInt("count"), getBoolean("vertical"), getString("anchor"),
         optString("location").takeIf { it.isNotBlank() && it != "null" }, links, width, height)
 }
+
+private fun JSONArray.toNovelIllustrations(): List<NovelIllustration> = (0 until length()).mapNotNull { index -> runCatching {
+        val image = getJSONObject(index)
+        val bounds = listOf("left", "top", "right", "bottom").map { image.getDouble(it).toFloat() }
+        if (bounds.any { !it.isFinite() || it !in 0f..1f } || bounds[0] >= bounds[2] || bounds[1] >= bounds[3]) null
+        else NovelIllustration(Rect(bounds[0], bounds[1], bounds[2], bounds[3]), image.getString("url"))
+    }.getOrNull() }

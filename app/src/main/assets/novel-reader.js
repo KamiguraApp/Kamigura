@@ -235,6 +235,21 @@
         if (!rect) return 0;
         return Math.floor((vertical ? rect.top / height : rect.left / width) + 0.001);
     }
+    function illustrationRegions() {
+        return Array.from(root.querySelectorAll('img')).filter(image => {
+            const style = getComputedStyle(image);
+            return !image.closest('svg,.visually-hidden') && !image.matches('.gaiji') && image.complete &&
+                Math.min(image.naturalWidth, image.naturalHeight) >= 128 && style.visibility !== 'hidden' &&
+                style.display !== 'none' && Number(style.opacity) !== 0;
+        }).flatMap(image => {
+            const box = image.getBoundingClientRect();
+            if (box.width <= 0 || box.height <= 0 || Math.max(box.width, box.height) < 64 || box.right <= 0 || box.bottom <= 0 ||
+                box.left >= innerWidth || box.top >= innerHeight) return [];
+            return [{ url: image.currentSrc || image.src, left: Math.max(0, box.left) / innerWidth,
+                top: Math.max(0, box.top) / innerHeight, right: Math.min(innerWidth, box.right) / innerWidth,
+                bottom: Math.min(innerHeight, box.bottom) / innerHeight }];
+        });
+    }
     function state() {
         // Reflow may reveal an earlier page start; don't walk backward on each reflow.
         if (lastLocation == null) lastLocation = location();
@@ -406,7 +421,7 @@
         return state();
     }
     window.novelReader = {
-        ready: false, state, layout, setColors, bookmarkContext, contentsParts,
+        ready: false, state, layout, setColors, bookmarkContext, contentsParts, illustrations: illustrationRegions,
         reflow() { return layout(anchor(), false, lastLocation); },
         turn(delta) {
             const target = screen + delta;

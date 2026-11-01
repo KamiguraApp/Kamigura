@@ -236,6 +236,11 @@ private fun RowScope.PageImage(
         var loadedDrawable by remember(resolvedModel, imageLoader, attempt) {
             mutableStateOf<Drawable?>(null)
         }
+        var diskCacheKey by remember(resolvedModel, imageLoader, attempt) { mutableStateOf<String?>(null) }
+        val regionModel = when (model) {
+            is OfflinePage -> ReaderRegionModel.Offline(model)
+            else -> diskCacheKey?.let { ReaderRegionModel.Cached(imageLoader, it, attempt) }
+        }
         val shouldInvert by produceState<Boolean?>(
             initialValue = when (invertMode) {
                 InvertMode.Off -> false
@@ -306,6 +311,7 @@ private fun RowScope.PageImage(
                         colorFilter = if (shouldInvert == true) NegativeColorFilter else null,
                         onSuccess = { state ->
                             loadedDrawable = state.result.drawable
+                            diskCacheKey = state.result.diskCacheKey
                             if (canRetry) retryState?.onSuccess(page, attempt)
                         },
                         onError = { if (canRetry) retryState?.onFailure(page, attempt, requestNetworkGeneration) },
@@ -332,7 +338,11 @@ private fun RowScope.PageImage(
                                     else ReaderPageLoadingPlaceholder()
                                 }
                             } else {
-                                SubcomposeAsyncImageContent()
+                                ReaderZoomableImage(regionModel, alignment,
+                                    colorFilter = if (shouldInvert == true) NegativeColorFilter else null,
+                                    modifier = Modifier.fillMaxSize()) {
+                                    SubcomposeAsyncImageContent()
+                                }
                             }
                         }
                     )

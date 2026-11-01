@@ -65,6 +65,11 @@ import li.mof.kamigura.reader.internal.ReaderKeyEffect
 import li.mof.kamigura.reader.internal.ReaderTapLayer
 import li.mof.kamigura.reader.internal.ReaderBookmarkState
 import li.mof.kamigura.reader.internal.readerCanManageBookmarks
+import coil.ImageLoader
+import coil.imageLoader
+import li.mof.kamigura.reader.internal.ReaderIllustrationViewer
+import li.mof.kamigura.reader.internal.ReaderZoomPanState
+import li.mof.kamigura.reader.internal.withTransform
 import kotlin.coroutines.resume
 
 private val NovelPreferenceWriteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -82,7 +87,8 @@ internal fun NovelReaderScreen(
     chapterSwitching: Boolean, switchError: String?,
     onSwitchChapter: (ReaderChapterEntry, Boolean) -> Unit,
     offline: Boolean = false,
-    novelSettings: NovelSettings = NovelSettings()
+    novelSettings: NovelSettings = NovelSettings(),
+    imageLoader: ImageLoader = LocalContext.current.imageLoader
 ) {
     val context = LocalContext.current
     val initialOverrides = remember(preferenceKey) {
@@ -109,6 +115,10 @@ internal fun NovelReaderScreen(
     var reachedAnchor by rememberSaveable { mutableStateOf(initialProgress.bookScrollId) }
     var openLast by rememberSaveable { mutableStateOf(initialLastScreen) }
     var menu by remember { mutableStateOf(false) }
+    var illustration by rememberSaveable(chapterId) { mutableStateOf<String?>(null) }
+    var illustrationZoom by remember { mutableStateOf(ReaderZoomPanState()) }
+    var illustrationLookup by remember { mutableStateOf(false) }
+    var pendingIllustrationZoom by remember { mutableStateOf(ReaderZoomPanState()) }
     var contentsList by remember { mutableStateOf(false) }
     var contentsTab by rememberSaveable { mutableIntStateOf(0) }
     var currentContentsEntry by remember { mutableStateOf<Int?>(null) }
@@ -180,6 +190,7 @@ internal fun NovelReaderScreen(
         }
     }
     fun close() {
+        if (illustration != null) { illustration = null; return }
         if (closing) return
         closing = true
         queuedTurns = emptyList()
@@ -244,6 +255,7 @@ internal fun NovelReaderScreen(
         } else boundaryDirection = delta
     }
     fun turn(delta: Int) {
+        if (illustration != null) return
         if (menu || failure != null || chapterSwitching || closing) return
         if (loading || turning) { queuedTurns = queuedTurns + delta; return }
         boundaryDirection?.let {
@@ -343,25 +355,53 @@ internal fun NovelReaderScreen(
             if (error == null) { contentsList = false; menu = false }
         }
     }
-    BackHandler { when { contentsList && menu -> contentsList = false; menu -> menu = false; else -> close() } }
+    BackHandler { when { illustration != null -> illustration = null; contentsList && menu -> contentsList = false; menu -> menu = false; else -> close() } }
     ReaderKeyEffect(
         if (rightToLeft) ReaderReadingDirection.RightToLeft else ReaderReadingDirection.LeftToRight,
-        volumeKeys, isBlocked = { loading || turning || menu || dragging || chapterSwitching || closing || failure != null },
+        volumeKeys, isBlocked = { illustration != null || loading || turning || menu || dragging || chapterSwitching || closing || failure != null },
         onTurn = { turn(if (it == ReaderTurnDirection.Next) 1 else -1) }
     )
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(colors.background))) {
+        fun openIllustration(point: androidx.compose.ui.geometry.Offset) {
+            if (illustrationLookup || menu || loading || turning || chapterSwitching || closing || boundary != null || failure != null) return
+            val targetSpine = spine
+            val targetScreen = position?.screen
+            illustrationLookup = true
+            // Geometry is queried at the gesture: an image can finish after the last position report.
+            view.illustrationAt(point) { url ->
+                illustrationLookup = false
+                if (url != null && targetSpine == spine && targetScreen == position?.screen && !menu && !loading &&
+                    !turning && !closing && !chapterSwitching && failure == null && boundary == null && novelResourceAllowed(url, baseUrl, chapterId)) {
+                    queuedTurns = emptyList()
+                    illustrationZoom = pendingIllustrationZoom
+                    illustration = url
+                }
+            }
+        }
         AndroidView(factory = { view }, modifier = Modifier.fillMaxSize())
         previousFrame?.let { Image(it, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
         ReaderTapLayer(
             rightToLeft = rightToLeft,
             onNextSpread = { turn(1) }, onPreviousSpread = { turn(-1) },
             onNextSingle = { turn(1) }, onPreviousSingle = { turn(-1) },
-            onCenterTap = { if (boundary == null && !chapterSwitching && !closing) menu = !menu },
+            onCenterTap = { if (illustration == null && boundary == null && !chapterSwitching && !closing) menu = !menu },
+            onDoubleTap = { point -> pendingIllustrationZoom = ReaderZoomPanState(); openIllustration(point) },
+            onTransform = { scale, pan, focal ->
+                if (illustration != null) {
+                    illustrationZoom = illustrationZoom.withTransform(scale, pan, focal, 1f,
+                        constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
+                } else {
+                    if (!illustrationLookup) pendingIllustrationZoom = ReaderZoomPanState()
+                    pendingIllustrationZoom = pendingIllustrationZoom.withTransform(scale, pan, focal, 1f,
+                        constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat())
+                    openIllustration(focal)
+                }
+            },
             interceptTap = intercept@ { tap, fallback ->
                 // With the menu open, the centre closes it; side taps reach turn(), which ignores them.
                 if (menu) return@intercept fallback()
-                if (chapterSwitching || closing || dragging) return@intercept
+                if (illustration != null || chapterSwitching || closing || dragging) return@intercept
                 val snapshot = position
                 val link = if (!loading && !turning && failure == null && boundary == null && renderedSpine == spine &&
                     snapshot?.viewportWidthPx == view.width && snapshot.viewportHeightPx == view.height)
@@ -469,6 +509,10 @@ internal fun NovelReaderScreen(
                         }
                     }
                 })
+        }
+        illustration?.let { url ->
+            ReaderIllustrationViewer(url, imageLoader, Color(colors.background), Color(colors.text),
+                illustrationZoom, { illustrationZoom = it }, { illustration = null })
         }
     }
 }

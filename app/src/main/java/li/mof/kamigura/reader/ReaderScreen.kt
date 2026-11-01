@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -103,6 +104,8 @@ import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
 import li.mof.kamigura.reader.internal.loadReaderChapterPages
 import li.mof.kamigura.reader.novel.NovelReaderScreen
+import li.mof.kamigura.reader.internal.LocalReaderImageZoomMotion
+import li.mof.kamigura.reader.internal.ReaderImageZoomMotion
 import li.mof.kamigura.reader.internal.readerLoadErrorMessage
 import li.mof.kamigura.reader.internal.pageIsWide
 import li.mof.kamigura.reader.internal.preAnalyzeReaderPages
@@ -827,7 +830,8 @@ fun ReaderScreen(
             initialLastScreen = novelOpenLastScreen, chapterEntered = novelChapterEntered,
             chapterSwitching = chapterSwitching, switchError = error,
             onSwitchChapter = ::switchChapter,
-            onMenuChanged = { showReaderMenu = it }, onBack = onBack
+            onMenuChanged = { showReaderMenu = it }, onBack = onBack,
+            imageLoader = readerImageLoader ?: fallbackImageLoader
         ) }
         return
     }
@@ -1748,6 +1752,8 @@ fun ReaderScreen(
                     onMenuToggle = { showReaderMenu = !showReaderMenu }
                 )
             } else {
+            CompositionLocalProvider(LocalReaderImageZoomMotion provides
+                ReaderImageZoomMotion(totalZoomScale, zoomPan.offsetX, zoomPan.offsetY, activeTransition)) {
             // Keep PageCurl mounted whenever the curl mode is active (not just during a
             // turn): the neighbour pages it composes at rest are exactly the images the
             // next turn needs, so the gesture starts warm instead of kicking off image
@@ -2072,6 +2078,7 @@ fun ReaderScreen(
             }
         }
 
+        }
         if (!vertical && chapterBoundary == null) {
             key(page, rtl, nextPageTurnStep, previousPageTurnStep, showingFinalPage) {
                 ReaderTapLayer(
