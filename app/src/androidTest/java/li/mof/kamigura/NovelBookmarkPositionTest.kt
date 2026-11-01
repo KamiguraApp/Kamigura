@@ -10,6 +10,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import li.mof.kamigura.reader.novel.NovelBookmarkContext
 import li.mof.kamigura.reader.novel.NovelPageView
 import li.mof.kamigura.reader.novel.NovelPosition
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -39,9 +40,11 @@ class NovelBookmarkPositionTest {
             compose.runOnIdle { wide.value = landscape; view.setVertical(vertical); view.setFontSize(if (landscape) 125 else 100) }
             Thread.sleep(300)
             jump(view, items[0].bookScrollId)
-            assertTrue(position!!.screen > 0)
+            val jumped = position
+            assertTrue("vertical=$vertical landscape=$landscape position=$jumped", position!!.screen > 0)
             val result = context(view, items)
-            assertTrue(result.visible.containsAll(listOf(1, 2)))
+            assertTrue("vertical=$vertical landscape=$landscape jumped=$jumped current=$position context=$result",
+                result.visible.containsAll(listOf(1, 2)))
             assertFalse(3 in result.visible); assertFalse(4 in result.visible)
             assertTrue(result.anchor.matches(Regex("//body/p\\[\\d+\\]")))
             assertTrue(result.title.codePointCount(0, result.title.length) <= 20)
@@ -74,6 +77,41 @@ class NovelBookmarkPositionTest {
         assertTrue(complete.await(5, TimeUnit.SECONDS)); assertNotNull(error)
         assertEquals(count, reports); assertEquals(before, latest)
         compose.runOnIdle { view.dispose() }
+    }
+
+    @Test fun pendingResizeDoesNotUndoABookmarkJump() {
+        lateinit var view: NovelPageView
+        var position: NovelPosition? = null
+        val fragment = "<div>" + (1..80).joinToString("") {
+            "<p>Paragraph $it: original prose before <ruby>anchor<rt>reading</rt></ruby> and after it.</p>"
+        } + "</div>"
+        compose.setContent { AndroidView(factory = { NovelPageView(it).also { v ->
+            view = v; v.onPosition = { position = it }; v.open(fragment, "http://127.0.0.1", 1, null, false)
+        } }, modifier = Modifier.requiredSize(360.dp, 700.dp)) }
+        compose.waitUntil(20_000) { position != null }
+        for (vertical in listOf(false, true)) {
+            js(view, """
+                window.resizeJumpResult = null;
+                window.novelReader.setVertical($vertical);
+                window.novelReader.jump('//body/p[1]');
+                window.dispatchEvent(new Event('resize'));
+                window.novelReader.jump('//body/p[40]/ruby[1]');
+                setTimeout(() => { window.resizeJumpResult = window.novelReader.bookmarkContext(
+                    ['//body/p[40]/ruby[1]', '//body/p[40]/ruby[1]/text()[1]']); }, 200);
+            """.trimIndent())
+            var result = "null"
+            compose.waitUntil(5_000) { result = js(view, "window.resizeJumpResult"); result != "null" }
+            val visible = JSONObject(result).getJSONArray("visible")
+            assertEquals("vertical=$vertical result=$result", setOf(0, 1),
+                (0 until visible.length()).map { visible.getInt(it) }.toSet())
+        }
+        compose.runOnIdle { view.dispose() }
+    }
+
+    private fun js(view: NovelPageView, script: String): String {
+        val done = CountDownLatch(1); var result = ""
+        compose.runOnIdle { view.evaluateJavascript(script) { result = it; done.countDown() } }
+        assertTrue(done.await(5, TimeUnit.SECONDS)); return result
     }
 
     private fun context(view: NovelPageView, items: List<PersonalToCDto>): NovelBookmarkContext {

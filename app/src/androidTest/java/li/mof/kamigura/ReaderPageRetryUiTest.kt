@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -283,8 +284,22 @@ class ReaderPageRetryUiTest {
             open(server, "Vertical", 1)
             awaitRetry()
             val center = retryCenter()
+            val scroll = compose.onNode(hasScrollAction())
+            val before = scroll.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
             compose.onRoot().performTouchInput { swipe(center, Offset(center.x, 10f), 500) }
+            assertTrue("A drag starting on Retry must scroll the list",
+                scroll.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value() > before)
+            compose.onNodeWithContentDescription("Close menu").assertDoesNotExist()
             openMenu()
+            // A full-width portrait page is taller than a landscape tablet's viewport.
+            // Keep the page-change assertion, but allow enough real drags to cross it.
+            repeat(3) {
+                if (compose.onAllNodesWithText("2 / 6", substring = true).fetchSemanticsNodes().isNotEmpty()) {
+                    closeMenu()
+                    compose.onRoot().performTouchInput { swipeUp(durationMillis = 500) }
+                    openMenu()
+                }
+            }
             compose.onNodeWithText("2 / 6", substring = true).assertDoesNotExist()
             jump(4)
             closeMenu()
@@ -388,8 +403,13 @@ class ReaderPageRetryUiTest {
     }
 
     private fun closeMenu() = compose.onNodeWithContentDescription("Close menu").performClick()
-    private fun awaitRetry() = compose.waitUntil(15_000) {
-        compose.onAllNodesWithText("Retry", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+    private fun awaitRetry() {
+        compose.waitUntil(15_000) {
+            compose.onAllNodesWithText("Retry", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        val retry = compose.onAllNodesWithText("Retry", useUnmergedTree = true).onFirst()
+        if (!retry.isDisplayed()) retry.performScrollTo()
+        retry.assertIsDisplayed()
     }
     private fun awaitRecovered(inverted: Boolean = false) = compose.waitUntil(15_000) {
         val noRetry = compose.onAllNodesWithText("Retry", useUnmergedTree = true).fetchSemanticsNodes().isEmpty()
@@ -407,7 +427,8 @@ class ReaderPageRetryUiTest {
         }
     }
     private fun retryCenter(): Offset {
-        val bounds = compose.onAllNodesWithText("Retry", useUnmergedTree = true).fetchSemanticsNodes().first().boundsInRoot
+        val bounds = compose.onAllNodesWithText("Retry", useUnmergedTree = true).onFirst()
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         return bounds.center
     }
     private fun retryTouch() {

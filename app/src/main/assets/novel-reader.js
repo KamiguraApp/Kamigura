@@ -83,6 +83,7 @@
     }
     setColors(window.novelColors.background, window.novelColors.text);
     let screen = 0, count = 1, vertical = false, width = 1, height = 1;
+    let resizeTimer;
     let pagePadding = { left: 0, top: 0, right: 0, bottom: 0 };
     const textNodes = () => {
         const nodes = [], walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -313,6 +314,8 @@
         });
     }
     function layout(xpath, last = false, precise = null) {
+        // This layout consumes the current viewport; an older resize must not undo a later jump.
+        clearTimeout(resizeTimer);
         readerStyle(book, 'transform', 'none');
         readerStyle(book, 'column-width', '');
         readerStyle(book, 'column-count', '');
@@ -406,7 +409,6 @@
         Promise.all([document.fonts.ready, ...imageReady]),
         new Promise(resolve => setTimeout(resolve, 10000))
     ]).then(() => requestAnimationFrame(() => layout(window.novelInitialAnchor, window.novelOpenLast, window.novelInitialLocation)));
-    let resizeTimer;
     window.addEventListener('resize', () => {
         const xpath = anchor(), precise = lastLocation;
         clearTimeout(resizeTimer);
