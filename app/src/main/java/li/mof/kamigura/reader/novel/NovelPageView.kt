@@ -73,6 +73,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
     var onPosition: (NovelPosition) -> Unit = {}
     var onFailure: (String) -> Unit = {}
     private var generation = 0
+    private var illustrationQuery = 0
     private var disposed = false
     private var colors = novelReaderColors(li.mof.kamigura.PageBackground.Paper, false)
     private val fonts = NovelFontStore(context)
@@ -302,15 +303,26 @@ internal class NovelPageView(context: Context) : WebView(context) {
 
     fun illustrationAt(point: androidx.compose.ui.geometry.Offset, callback: (String?) -> Unit) {
         val token = generation
+        val query = ++illustrationQuery
         val viewportWidth = width; val viewportHeight = height
-        evaluateJavascript("window.novelReader && window.novelReader.ready ? window.novelReader.illustrations() : []") { value ->
-            if (disposed || token != generation || viewportWidth != width || viewportHeight != height) {
-                callback(null); return@evaluateJavascript
+        fun current() = !disposed && token == generation && query == illustrationQuery &&
+            viewportWidth == width && viewportHeight == height
+        fun poll(attempt: Int) {
+            if (!current()) { callback(null); return }
+            evaluateJavascript("window.novelIllustrationQuery && window.novelIllustrationQuery.id === $query ? window.novelIllustrationQuery.images : null") { value ->
+                if (!current()) { callback(null); return@evaluateJavascript }
+                if (value.startsWith("[")) callback(runCatching {
+                    novelIllustrationAt(JSONArray(value).toNovelIllustrations(), point, width, height)
+                }.getOrNull())
+                else if (attempt < 110) postDelayed({ poll(attempt + 1) }, 100)
+                else callback(null)
             }
-            callback(runCatching {
-                val images = JSONArray(value).toNovelIllustrations()
-                novelIllustrationAt(images, point, width, height)
-            }.getOrNull())
+        }
+        evaluateJavascript("window.novelIllustrationQuery = {id:$query}; " +
+            "Promise.resolve(window.novelReader && window.novelReader.ready ? window.novelReader.prepareIllustrations() : [])" +
+            ".then(images => { if (window.novelIllustrationQuery?.id === $query) window.novelIllustrationQuery.images = images; })" +
+            ".catch(() => { if (window.novelIllustrationQuery?.id === $query) window.novelIllustrationQuery.images = []; })") {
+            if (current()) poll(0) else callback(null)
         }
     }
 
@@ -339,5 +351,14 @@ private fun JSONArray.toNovelIllustrations(): List<NovelIllustration> = (0 until
         val image = getJSONObject(index)
         val bounds = listOf("left", "top", "right", "bottom").map { image.getDouble(it).toFloat() }
         if (bounds.any { !it.isFinite() || it !in 0f..1f } || bounds[0] >= bounds[2] || bounds[1] >= bounds[3]) null
-        else NovelIllustration(Rect(bounds[0], bounds[1], bounds[2], bounds[3]), image.getString("url"))
+        else {
+            val polygon = image.optJSONArray("points")
+            val points = if (polygon == null) emptyList() else (0 until polygon.length()).map { i ->
+                val pair = polygon.getJSONArray(i)
+                androidx.compose.ui.geometry.Offset(pair.getDouble(0).toFloat(), pair.getDouble(1).toFloat())
+            }.also { vertices ->
+                require(vertices.size in 3..64 && vertices.all { it.x.isFinite() && it.y.isFinite() && it.x in 0f..1f && it.y in 0f..1f })
+            }
+            NovelIllustration(Rect(bounds[0], bounds[1], bounds[2], bounds[3]), image.getString("url"), points)
+        }
     }.getOrNull() }

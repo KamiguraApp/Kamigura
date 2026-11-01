@@ -235,8 +235,100 @@
         if (!rect) return 0;
         return Math.floor((vertical ? rect.top / height : rect.left / width) + 0.001);
     }
+    const svgIllustrationSizes = new Map();
+    function svgIllustrationSize(image) {
+        const href = image.href?.baseVal || image.getAttribute('href') || image.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        if (!href) return null;
+        let url;
+        try { url = new URL(href, document.baseURI).href; } catch (_) { return null; }
+        if (!svgIllustrationSizes.has(url)) {
+            const entry = { url, width: 0, height: 0 };
+            entry.ready = new Promise(resolve => {
+                const probe = new Image();
+                const timer = setTimeout(finish, 10000);
+                function finish() {
+                    clearTimeout(timer);
+                    entry.width = probe.naturalWidth; entry.height = probe.naturalHeight;
+                    probe.onload = probe.onerror = null;
+                    probe.removeAttribute('src');
+                    resolve();
+                }
+                probe.onload = probe.onerror = finish;
+                probe.src = url;
+            });
+            svgIllustrationSizes.set(url, entry);
+        }
+        return svgIllustrationSizes.get(url);
+    }
+    function svgIllustrationVisible(image) {
+        if (image.closest('.gaiji,.visually-hidden')) return false;
+        const box = image.getBoundingClientRect();
+        if (box.width <= 0 || box.height <= 0 || Math.max(box.width, box.height) < 64 ||
+            box.right <= 0 || box.bottom <= 0 || box.left >= innerWidth || box.top >= innerHeight) return false;
+        for (let element = image; element && element !== book.parentElement; element = element.parentElement) {
+            const style = getComputedStyle(element);
+            if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0 ||
+                (style.clipPath && style.clipPath !== 'none') || (style.maskImage && style.maskImage !== 'none')) return false;
+        }
+        return true;
+    }
+    function clipIllustration(points, box) {
+        for (const [axis, edge, greater] of [['x', box.left, true], ['x', box.right, false],
+            ['y', box.top, true], ['y', box.bottom, false]]) {
+            const output = [];
+            for (let index = 0; index < points.length; index++) {
+                const a = points[index], b = points[(index + 1) % points.length];
+                const insideA = greater ? a[axis] >= edge : a[axis] <= edge;
+                const insideB = greater ? b[axis] >= edge : b[axis] <= edge;
+                if (insideA) output.push(a);
+                if (insideA !== insideB) {
+                    const fraction = (edge - a[axis]) / (b[axis] - a[axis]);
+                    const intersection = { x: a.x + (b.x - a.x) * fraction, y: a.y + (b.y - a.y) * fraction };
+                    intersection[axis] = edge;
+                    output.push(intersection);
+                }
+            }
+            points = output;
+        }
+        return points;
+    }
+    function svgIllustrationRegion(image) {
+        if (!svgIllustrationVisible(image)) return [];
+        const intrinsic = svgIllustrationSize(image), matrix = image.getScreenCTM();
+        if (!matrix || !intrinsic || Math.min(intrinsic.width, intrinsic.height) < 128) return [];
+        const x = image.x.baseVal.value, y = image.y.baseVal.value;
+        const w = image.width.baseVal.value, h = image.height.baseVal.value;
+        if (w <= 0 || h <= 0) return [];
+        const aspect = image.preserveAspectRatio.baseVal;
+        let painted = { left: x, top: y, right: x + w, bottom: y + h };
+        if (aspect.align !== 1) {
+            const scale = (aspect.meetOrSlice === 2 ? Math.max : Math.min)(w / intrinsic.width, h / intrinsic.height);
+            const align = aspect.align >= 2 && aspect.align <= 10 ? aspect.align - 2 : 4;
+            const left = x + (w - intrinsic.width * scale) * (align % 3) / 2;
+            const top = y + (h - intrinsic.height * scale) * Math.floor(align / 3) / 2;
+            painted = { left: Math.max(x, left), top: Math.max(y, top),
+                right: Math.min(x + w, left + intrinsic.width * scale), bottom: Math.min(y + h, top + intrinsic.height * scale) };
+        }
+        let points = [[painted.left, painted.top], [painted.right, painted.top],
+            [painted.right, painted.bottom], [painted.left, painted.bottom]].map(([x, y]) =>
+                ({ x: matrix.a * x + matrix.c * y + matrix.e, y: matrix.b * x + matrix.d * y + matrix.f }));
+        // SVG viewports can clip a smaller/transformed image independently of the book viewport.
+        for (let svg = image.ownerSVGElement; svg; svg = svg.ownerSVGElement) {
+            const style = getComputedStyle(svg);
+            if (style.overflow !== 'visible') points = clipIllustration(points, svg.getBoundingClientRect());
+        }
+        points = clipIllustration(points, { left: 0, top: 0, right: innerWidth, bottom: innerHeight });
+        if (points.length < 3) return [];
+        const left = Math.min(...points.map(p => p.x)), right = Math.max(...points.map(p => p.x));
+        const top = Math.min(...points.map(p => p.y)), bottom = Math.max(...points.map(p => p.y));
+        if (right <= left || bottom <= top || Math.max(right - left, bottom - top) < 64) return [];
+        const normalized = (value, span) => Math.max(0, Math.min(1, value / span));
+        return [{ url: intrinsic.url, left: normalized(left, innerWidth), top: normalized(top, innerHeight),
+            right: normalized(right, innerWidth), bottom: normalized(bottom, innerHeight),
+            points: points.map(p => [normalized(p.x, innerWidth), normalized(p.y, innerHeight)]) }];
+    }
     function illustrationRegions() {
-        return Array.from(root.querySelectorAll('img')).filter(image => {
+        const images = Array.from(root.querySelectorAll('img')).filter(image => {
             const style = getComputedStyle(image);
             return !image.closest('svg,.visually-hidden') && !image.matches('.gaiji') && image.complete &&
                 Math.min(image.naturalWidth, image.naturalHeight) >= 128 && style.visibility !== 'hidden' &&
@@ -249,6 +341,12 @@
                 top: Math.max(0, box.top) / innerHeight, right: Math.min(innerWidth, box.right) / innerWidth,
                 bottom: Math.min(innerHeight, box.bottom) / innerHeight }];
         });
+        return images.concat(Array.from(root.querySelectorAll('svg image')).flatMap(svgIllustrationRegion));
+    }
+    async function prepareIllustrations() {
+        await Promise.all(Array.from(root.querySelectorAll('svg image')).filter(svgIllustrationVisible)
+            .map(image => svgIllustrationSize(image)?.ready));
+        return illustrationRegions();
     }
     function state() {
         // Reflow may reveal an earlier page start; don't walk backward on each reflow.
@@ -421,7 +519,8 @@
         return state();
     }
     window.novelReader = {
-        ready: false, state, layout, setColors, bookmarkContext, contentsParts, illustrations: illustrationRegions,
+        ready: false, state, layout, setColors, bookmarkContext, contentsParts,
+        illustrations: illustrationRegions, prepareIllustrations,
         reflow() { return layout(anchor(), false, lastLocation); },
         turn(delta) {
             const target = screen + delta;
