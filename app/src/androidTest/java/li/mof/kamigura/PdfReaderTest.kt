@@ -458,7 +458,8 @@ internal class ReaderServer(
     bookPageResponse: ((Int, Int) -> Pair<Int, String>)? = null,
     bookFont: ByteArray? = null,
     imageBytes: ByteArray? = null,
-    downloadPayload: Pair<String, ByteArray>? = null
+    downloadPayload: Pair<String, ByteArray>? = null,
+    imageDimensions: Pair<Int, Int> = 600 to 900
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -469,7 +470,7 @@ internal class ReaderServer(
     val chapterRequested = CountDownLatch(1)
     val releaseChapter = CountDownLatch(if (holdChapter) 1 else 0)
     private val image = imageBytes ?: ByteArrayOutputStream().also { output ->
-        val bitmap = Bitmap.createBitmap(600, 900, Bitmap.Config.ARGB_8888)
+        val bitmap = Bitmap.createBitmap(imageDimensions.first, imageDimensions.second, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
         val pen = Paint().apply { color = Color.BLACK; strokeWidth = 5f; textSize = 60f }
@@ -545,7 +546,7 @@ internal class ReaderServer(
                                 chapterRequested.countDown()
                                 releaseChapter.await(45, TimeUnit.SECONDS)
                                 val dimensions = (0..5).joinToString(",") {
-                                    """{"pageNumber":$it,"width":600,"height":900}"""
+                                    """{"pageNumber":$it,"width":${imageDimensions.first},"height":${imageDimensions.second}}"""
                                 }
                                 """{"chapterId":${uri.getQueryParameter("chapterId") ?: 1},"pages":$spineCount,"pageDimensions":[$dimensions]}"""
                             }

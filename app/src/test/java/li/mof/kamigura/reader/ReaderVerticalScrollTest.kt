@@ -7,10 +7,34 @@ import li.mof.kamigura.reader.internal.readerVerticalPageAspectRatio
 import li.mof.kamigura.reader.internal.readerVerticalPrefetchPageIndicesAround
 import li.mof.kamigura.reader.internal.readerVerticalPrefetchSize
 import li.mof.kamigura.reader.internal.readerVerticalPosition
+import li.mof.kamigura.reader.internal.readerVerticalRetryOffset
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ReaderVerticalScrollTest {
+    @Test
+    fun retryFollowsTheVisiblePartOfAnOversizedPage() {
+        assertEquals(-1120, readerVerticalRetryOffset(0, 3840, 0, 1600))
+        assertEquals(0, readerVerticalRetryOffset(-1120, 3840, 0, 1600))
+        assertEquals(1120, readerVerticalRetryOffset(-2240, 3840, 0, 1600))
+        assertEquals(-1720, readerVerticalRetryOffset(1200, 3840, 0, 1600))
+        assertEquals(1800, readerVerticalRetryOffset(-3600, 3840, 0, 1600))
+    }
+
+    @Test
+    fun fullyVisiblePagesKeepTheirCenteredRetry() {
+        assertEquals(0, readerVerticalRetryOffset(200, 500, 0, 1600))
+        assertEquals(0, readerVerticalRetryOffset(0, 1600, 0, 1600))
+    }
+
+    @Test
+    fun partiallyVisibleShortPagesAndPaddedViewportsKeepRetryInView() {
+        assertEquals(-150, readerVerticalRetryOffset(1400, 500, 0, 1600))
+        assertEquals(-1020, readerVerticalRetryOffset(0, 3840, 100, 1700))
+        assertEquals(0, readerVerticalRetryOffset(2000, 500, 0, 1600))
+        assertEquals(0, readerVerticalRetryOffset(0, 0, 0, 1600))
+    }
+
     @Test
     fun currentPageIsTheOneWithTheLargestVisibleArea() {
         assertEquals(

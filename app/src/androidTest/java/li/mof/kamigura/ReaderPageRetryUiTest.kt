@@ -72,6 +72,75 @@ class ReaderPageRetryUiTest {
     fun verticalRetryKeepsDisabledButtonWhileLoading() = heldRetry("Vertical", succeeds = true)
 
     @Test
+    fun verticalRetryStaysVisibleAcrossPageOffsets() = visibleVerticalRetry(900, held = false)
+
+    @Test
+    fun verticalTallRetryStaysDisabledAcrossPageOffsetsAndPreservesProgress() = visibleVerticalRetry(3000, held = true)
+
+    private fun visibleVerticalRetry(imageHeight: Int, held: Boolean) = withSettings(PageTurnMode.Curl) {
+        val failing = AtomicBoolean(true)
+        val holding = AtomicBoolean(false)
+        val release = CountDownLatch(1)
+        ReaderServer(1, imageDimensions = 600 to imageHeight,
+            failPage = { it == 1 && failing.get() },
+            imageResponseGate = { if (it == 1 && holding.get()) release else null }
+        ).use { server ->
+            try {
+                open(server, "Vertical", 1, incognito = !held)
+                compose.waitUntil(15_000) { compose.onAllNodesWithText("Retry").fetchSemanticsNodes().isNotEmpty() }
+                val scroll = compose.onNode(hasScrollAction())
+                val viewport = scroll.fetchSemanticsNode().boundsInRoot
+                val travel = (viewport.width * imageHeight / 600f - viewport.height).coerceAtLeast(0f)
+                fun scrollValue() = scroll.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+                fun assertVisible() {
+                    val bounds = compose.onNodeWithText("Retry").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                    assertTrue("Retry must remain inside the visible viewport", bounds.center.y in viewport.top..viewport.bottom)
+                    compose.onNodeWithContentDescription("Close menu").assertDoesNotExist()
+                }
+                scroll.performScrollToIndex(2)
+                assertVisible()
+                val initialRequests = imageRequests(server, 1)
+                if (held) {
+                    compose.waitUntil(6_000) { server.progressWrites.lastOrNull() == (1 to 1) }
+                    holding.set(true)
+                    retryTouch()
+                    compose.waitUntil(5_000) { imageRequests(server, 1) > initialRequests }
+                }
+                for ((index, offset) in listOf(-viewport.height / 4, 0f, travel / 2, travel).distinct().withIndex()) {
+                    scroll.performScrollToIndex(2)
+                    scroll.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, offset) }
+                    assertVisible()
+                    if (held) {
+                        compose.onNodeWithText("Retry").assertIsNotEnabled()
+                        val before = scrollValue()
+                        retryTouch()
+                        assertEquals(before, scrollValue(), 0f)
+                        assertEquals(initialRequests + 1, imageRequests(server, 1))
+                    }
+                    val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                    context.getExternalFilesDir(null)!!.resolve("vertical-retry-$imageHeight-${screenshot.width}x${screenshot.height}-$index.png")
+                        .outputStream().use { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                    screenshot.recycle()
+                }
+                val beforeDrag = scrollValue()
+                val center = retryCenter()
+                compose.onRoot().performTouchInput { swipe(center, center - Offset(0f, viewport.height * .2f), 500) }
+                assertTrue("A drag starting on Retry must scroll", scrollValue() > beforeDrag)
+                assertVisible()
+                compose.onNodeWithContentDescription("Close menu").assertDoesNotExist()
+                if (held) {
+                    val before = scrollValue()
+                    failing.set(false)
+                    release.countDown()
+                    awaitRecovered()
+                    assertEquals(before, scrollValue(), 0f)
+                    assertEquals(1 to 1, server.progressWrites.lastOrNull())
+                }
+            } finally { release.countDown() }
+        }
+    }
+
+    @Test
     fun failedRetryReturnsToEnabledButtonWithoutLoadingDots() = heldRetry("LTR", succeeds = false)
 
     private fun heldRetry(direction: String, succeeds: Boolean) = withSettings(PageTurnMode.Slide) {
@@ -373,14 +442,14 @@ class ReaderPageRetryUiTest {
         }
     }
 
-    private fun open(server: ReaderServer, direction: String, page: Int): androidx.compose.runtime.MutableState<Boolean> {
+    private fun open(server: ReaderServer, direction: String, page: Int, incognito: Boolean = true): androidx.compose.runtime.MutableState<Boolean> {
         val session = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
         val visible = mutableStateOf(true)
         readerVisible = visible
         compose.setContent {
             MaterialTheme {
                 if (visible.value) ReaderScreen(session, AppSettingsStore(context), 1, 1, 1, 1,
-                    incognito = true, onBack = { visible.value = false })
+                    incognito = incognito, onBack = { visible.value = false })
             }
         }
         compose.waitUntil(10_000) { imageRequests(server, 0) > 0 }

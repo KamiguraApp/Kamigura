@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -16,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import coil.ImageLoader
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -34,6 +36,18 @@ internal data class ReaderVerticalVisibleItem(
     val offset: Int,
     val size: Int
 )
+
+internal fun readerVerticalRetryOffset(
+    itemOffset: Int,
+    itemSize: Int,
+    viewportStart: Int,
+    viewportEnd: Int
+): Int {
+    val start = maxOf(itemOffset, viewportStart)
+    val end = minOf(itemOffset + itemSize, viewportEnd)
+    if (itemSize <= 0 || end <= start) return 0
+    return start + (end - start) / 2 - itemOffset - itemSize / 2
+}
 
 internal fun readerVerticalPosition(
     visibleItems: List<ReaderVerticalVisibleItem>,
@@ -171,6 +185,14 @@ internal fun ReaderVerticalScroll(
                     invertDecisionCache = invertDecisionCache,
                     retryState = retryState,
                     interactiveRetry = true,
+                    retryButtonModifier = Modifier.offset {
+                        // Read during placement: scrolling moves Retry, not the image request/layout.
+                        val layout = listState.layoutInfo
+                        val item = layout.visibleItemsInfo.firstOrNull { it.key == "page-$page" }
+                        IntOffset(0, item?.let {
+                            readerVerticalRetryOffset(it.offset, it.size, layout.viewportStartOffset, layout.viewportEndOffset)
+                        } ?: 0)
+                    },
                     pageBackground = pageBackground,
                     modifier = Modifier.fillMaxSize()
                 )

@@ -101,7 +101,8 @@ internal fun ReaderPageView(
     interactiveRetry: Boolean = false,
     pageBackground: Color = Color(0xFF111111),
     singlePageAlignmentOverride: Alignment? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    retryButtonModifier: Modifier = Modifier
 ) {
     val layout = readerPageLayout(
         page = cursor,
@@ -117,6 +118,7 @@ internal fun ReaderPageView(
                     page = cursor,
                     retryState = retryState,
                     interactiveRetry = interactiveRetry,
+                    retryButtonModifier = retryButtonModifier,
                     model = pageModel(cursor),
                     imageLoader = imageLoader,
                     label = "Page $cursor",
@@ -133,6 +135,7 @@ internal fun ReaderPageView(
                     page = spread.leftPage,
                     retryState = retryState,
                     interactiveRetry = interactiveRetry,
+                    retryButtonModifier = retryButtonModifier,
                     model = pageModel(spread.leftPage),
                     imageLoader = imageLoader,
                     label = "Left ${spread.leftPage}",
@@ -148,6 +151,7 @@ internal fun ReaderPageView(
                     page = spread.rightPage,
                     retryState = retryState,
                     interactiveRetry = interactiveRetry,
+                    retryButtonModifier = retryButtonModifier,
                     model = pageModel(spread.rightPage),
                     imageLoader = imageLoader,
                     label = "Right ${spread.rightPage}",
@@ -167,6 +171,7 @@ private fun RowScope.PageImage(
     page: Int,
     retryState: ReaderPageRetryState?,
     interactiveRetry: Boolean,
+    retryButtonModifier: Modifier,
     model: Any?,
     imageLoader: ImageLoader,
     label: String,
@@ -298,7 +303,8 @@ private fun RowScope.PageImage(
                 if (canRetry && retryState?.failed(page) == true) {
                     ReaderPageRetryButton(
                         pageBackground = pageBackground,
-                        onClick = retryClick
+                        onClick = retryClick,
+                        modifier = retryButtonModifier
                     )
                 } else key(attempt) {
                     SubcomposeAsyncImage(
@@ -317,7 +323,7 @@ private fun RowScope.PageImage(
                         onError = { if (canRetry) retryState?.onFailure(page, attempt, requestNetworkGeneration) },
                         loading = {
                             PagePlaceholderContainer {
-                                if (requestIsRetry) ReaderPageRetryButton(pageBackground, retryClick, busy = true)
+                                if (requestIsRetry) ReaderPageRetryButton(pageBackground, retryClick, busy = true, modifier = retryButtonModifier)
                                 else ReaderPageLoadingPlaceholder()
                             }
                         },
@@ -326,7 +332,8 @@ private fun RowScope.PageImage(
                                 if (canRetry) {
                                     ReaderPageRetryButton(
                                         pageBackground = pageBackground,
-                                        onClick = retryClick
+                                        onClick = retryClick,
+                                        modifier = retryButtonModifier
                                     )
                                 } else ReaderPageUnavailablePlaceholder()
                             }
@@ -334,7 +341,7 @@ private fun RowScope.PageImage(
                         success = {
                             if (invertMode == InvertMode.Smart && shouldInvert == null) {
                                 PagePlaceholderContainer {
-                                    if (requestIsRetry) ReaderPageRetryButton(pageBackground, retryClick, busy = true)
+                                    if (requestIsRetry) ReaderPageRetryButton(pageBackground, retryClick, busy = true, modifier = retryButtonModifier)
                                     else ReaderPageLoadingPlaceholder()
                                 }
                             } else {
@@ -356,14 +363,15 @@ private fun RowScope.PageImage(
 private fun ReaderPageRetryButton(
     pageBackground: Color,
     onClick: (() -> Unit)? = null,
-    busy: Boolean = false
+    busy: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
     val foreground = (if (pageBackground.red + pageBackground.green + pageBackground.blue > 1.5f) {
         Color(0xFF202020)
     } else Color.White).let { if (busy) it.copy(alpha = 0.45f) else it }
     val border = BorderStroke(1.5.dp, foreground)
     val shape = RoundedCornerShape(8.dp)
-    val modifier = Modifier.size(ReaderRetryWidth, ReaderRetryHeight).semantics {
+    val buttonModifier = modifier.size(ReaderRetryWidth, ReaderRetryHeight).semantics {
         if (busy) stateDescription = "Retrying"
     }
     val content: @Composable () -> Unit = {
@@ -374,7 +382,7 @@ private fun ReaderPageRetryButton(
     }
     if (onClick != null) {
         OutlinedButton(
-            onClick = onClick, modifier = modifier, shape = shape, border = border,
+            onClick = onClick, modifier = buttonModifier, shape = shape, border = border,
             enabled = !busy,
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = foreground, containerColor = pageBackground,
@@ -382,7 +390,7 @@ private fun ReaderPageRetryButton(
             )
         ) { content() }
     } else {
-        Surface(modifier = modifier, shape = shape, color = pageBackground, contentColor = foreground, border = border) {
+        Surface(modifier = buttonModifier, shape = shape, color = pageBackground, contentColor = foreground, border = border) {
             Box(contentAlignment = Alignment.Center) { content() }
         }
     }
