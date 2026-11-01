@@ -2,7 +2,6 @@ package li.mof.kamigura.download
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
-import java.io.StringReader
 import java.net.URI
 import java.util.zip.ZipFile
 import javax.xml.parsers.SAXParserFactory
@@ -37,7 +36,7 @@ internal fun offlineEpubImageEntries(zip: ZipFile): List<String> {
         val item = byId[reference.attributes["idref"]] ?: unsupportedEpub()
         if (item.attributes["media-type"] != "application/xhtml+xml") unsupportedEpub()
         val pagePath = resolveEpubEntry(opfPath, item.attributes["href"].orEmpty())
-        val document = readEpubXml(zip, pagePath)
+        val document = readEpubXml(zip, pagePath, allowHtmlDoctype = true)
         if (document.name != "html") unsupportedEpub()
         val body = document.children.singleOrNull { it.name == "body" } ?: unsupportedEpub()
         val images = mutableListOf<String>()
@@ -76,7 +75,7 @@ private data class EpubXmlNode(
     val text: StringBuilder = StringBuilder()
 )
 
-private fun readEpubXml(zip: ZipFile, path: String): EpubXmlNode {
+private fun readEpubXml(zip: ZipFile, path: String, allowHtmlDoctype: Boolean = false): EpubXmlNode {
     val entry = zip.getEntry(path) ?: unsupportedEpub()
     if (entry.isDirectory) unsupportedEpub()
     val bytes = zip.getInputStream(entry).use { input ->
@@ -92,13 +91,19 @@ private fun readEpubXml(zip: ZipFile, path: String): EpubXmlNode {
     }
     var root: EpubXmlNode? = null
     val stack = mutableListOf<EpubXmlNode>()
+    var doctypeSeen = false
     val handler = object : DefaultHandler2() {
         override fun startDTD(name: String?, publicId: String?, systemId: String?) {
-            // This subset never needs DTDs; reject them before entity expansion or external I/O.
-            unsupportedEpub()
+            // SAX omits the internal-subset flag; Android's reader cannot register DeclHandler.
+            // Check the original prolog before the parser can consume any DTD declarations.
+            if (!allowHtmlDoctype || doctypeSeen || name != "html" || publicId != null || systemId != null ||
+                !hasBareHtmlDoctype(bytes)) unsupportedEpub()
+            doctypeSeen = true
         }
 
-        override fun resolveEntity(publicId: String?, systemId: String?): InputSource = InputSource(StringReader(""))
+        override fun resolveEntity(publicId: String?, systemId: String?): InputSource = unsupportedEpub()
+        override fun resolveEntity(name: String?, publicId: String?, baseURI: String?, systemId: String?): InputSource = unsupportedEpub()
+        override fun skippedEntity(name: String?) { unsupportedEpub() }
 
         override fun startElement(uri: String, localName: String, qName: String, attributes: Attributes) {
             if (stack.size >= 64 || !attributes.getValue("http://www.w3.org/XML/1998/namespace", "base").isNullOrBlank()) {
@@ -138,6 +143,46 @@ private fun readEpubXml(zip: ZipFile, path: String): EpubXmlNode {
     }
     return root ?: unsupportedEpub()
 }
+
+private fun hasBareHtmlDoctype(bytes: ByteArray): Boolean {
+    fun byte(index: Int) = bytes.getOrNull(index)?.toInt()?.and(0xff)
+    val charset = when {
+        (byte(0) == 0xfe && byte(1) == 0xff) || (byte(0) == 0 && byte(1) == 0x3c) -> Charsets.UTF_16BE
+        (byte(0) == 0xff && byte(1) == 0xfe) || (byte(0) == 0x3c && byte(1) == 0) -> Charsets.UTF_16LE
+        else -> Charsets.UTF_8
+    }
+    val text = bytes.toString(charset).removePrefix("\uFEFF")
+    // Do not let a different declared encoding make this check and SAX see different prologs.
+    if (text.startsWith("<?xml") && text.getOrNull(5)?.let { it in XmlWhitespace } == true) {
+        val end = text.indexOf("?>")
+        if (end < 0) return false
+        val encoding = XmlEncoding.find(text.substring(0, end))?.groupValues?.get(2)
+        if (encoding != null && !encoding.equals(charset.name(), ignoreCase = true) &&
+            !(charset != Charsets.UTF_8 && encoding.equals("UTF-16", ignoreCase = true))) return false
+    }
+    var offset = 0
+    while (offset < text.length) {
+        when {
+            text[offset] in XmlWhitespace -> offset++
+            text.startsWith("<!--", offset) -> {
+                val end = text.indexOf("-->", offset + 4)
+                if (end < 0) return false
+                offset = end + 3
+            }
+            text.startsWith("<?", offset) -> {
+                val end = text.indexOf("?>", offset + 2)
+                if (end < 0) return false
+                offset = end + 2
+            }
+            else -> return BareHtmlDoctype.matchAt(text, offset) != null
+        }
+    }
+    return false
+}
+
+private const val XmlWhitespace = " \t\r\n"
+private val XmlEncoding = Regex("""\bencoding\s*=\s*(['"])(.*?)\1""")
+private val BareHtmlDoctype = Regex("<!DOCTYPE[ \\t\\r\\n]+html[ \\t\\r\\n]*>")
 
 private fun collectEpubImages(node: EpubXmlNode, images: MutableList<String>, inSvg: Boolean = false) {
     val svg = inSvg || node.name == "svg"
