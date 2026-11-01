@@ -94,6 +94,7 @@
         return nodes;
     };
     const rects = node => {
+        if (node.nodeType === Node.ELEMENT_NODE && node.matches('img,svg')) return Array.from(node.getClientRects());
         const range = document.createRange();
         range.selectNodeContents(node);
         return Array.from(range.getClientRects()).filter(r => r.width > 0 && r.height > 0);
@@ -243,6 +244,48 @@
     const imageStyles = new WeakMap();
     const imageSizeProperties = ['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
         'object-fit', 'break-inside'];
+    let illustrationOverrides = [];
+    function restoreIllustrationLayout() {
+        for (const { element, property, value, priority } of illustrationOverrides) readerStyle(element, property, value, priority);
+        illustrationOverrides = [];
+    }
+    function fitIllustrationPage(availableWidth, availableHeight) {
+        if (textNodes().some(node => !node.parentElement.closest('svg')) || root.querySelector('video,audio,canvas,iframe')) return;
+        const images = Array.from(root.querySelectorAll('img,svg')).filter(image => !image.parentElement.closest('svg'));
+        const spacers = images.filter(image => image.matches('img:not(.gaiji)') && image.naturalWidth === 1 && image.naturalHeight === 1);
+        const artwork = images.filter(image => !spacers.includes(image));
+        if (artwork.length !== 1 || artwork[0].matches('img.gaiji')) return;
+        const image = artwork[0], box = image.viewBox?.baseVal, bounds = image.getBoundingClientRect();
+        const naturalWidth = image.naturalWidth || box?.width || image.width?.baseVal?.value || 0;
+        const naturalHeight = image.naturalHeight || box?.height || image.height?.baseVal?.value || 0;
+        // Only substantial artwork is a sheet; icons and authored miniature images keep their layout.
+        if (Math.min(naturalWidth, naturalHeight) < 320 || Math.max(bounds.width, bounds.height) <= 128) return;
+        const scale = Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight);
+        const fittedWidth = naturalWidth * scale, fittedHeight = naturalHeight * scale;
+        function override(element, property, value) {
+            illustrationOverrides.push({ element, property, value: element.style.getPropertyValue(property),
+                priority: element.style.getPropertyPriority(property) });
+            readerStyle(element, property, value);
+        }
+        const ancestors = new Set([root]);
+        for (let parent = image.parentElement; parent && parent !== root; parent = parent.parentElement) ancestors.add(parent);
+        for (const element of root.querySelectorAll('*')) {
+            if (element === image || image.contains(element) || element.matches('style,script')) continue;
+            if (!ancestors.has(element)) override(element, 'display', 'none');
+            else if (!element.matches('a')) override(element, 'display', 'contents');
+            else {
+                for (const [property, value] of Object.entries({ display: 'flex', width: fittedWidth + 'px', height: fittedHeight + 'px',
+                    'max-width': 'none', 'max-height': 'none', margin: '0', padding: '0', border: '0', position: 'static', float: 'none' })) override(element, property, value);
+            }
+        }
+        // Keep every node and XPath in place, but remove spacer/wrapper boxes from this one sheet's flow.
+        for (const [property, value] of Object.entries({ display: 'flex', 'align-items': 'center', 'justify-content': 'center',
+            width: availableWidth + 'px', height: availableHeight + 'px', 'writing-mode': 'horizontal-tb',
+            margin: '0', padding: '0', border: '0', 'min-width': '0', 'min-height': '0', 'max-width': 'none', 'max-height': 'none',
+            'box-sizing': 'border-box', position: 'static', float: 'none' })) override(root, property, value);
+        for (const [property, value] of Object.entries({ display: 'block', width: fittedWidth + 'px', height: fittedHeight + 'px',
+            'min-width': '0', 'min-height': '0', margin: '0', padding: '0', border: '0', position: 'static', float: 'none' })) override(image, property, value);
+    }
     function fitImages() {
         const style = getComputedStyle(book);
         const availableWidth = Math.max(1, book.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
@@ -277,6 +320,7 @@
                 readerStyle(image, 'height', fittedWidth / ratio + 'px');
             }
         }
+        fitIllustrationPage(availableWidth, availableHeight);
     }
     function applySpacing() {
         for (const saved of spacingOverrides) {
@@ -316,6 +360,7 @@
     function layout(xpath, last = false, precise = null) {
         // This layout consumes the current viewport; an older resize must not undo a later jump.
         clearTimeout(resizeTimer);
+        restoreIllustrationLayout();
         readerStyle(book, 'transform', 'none');
         readerStyle(book, 'column-width', '');
         readerStyle(book, 'column-count', '');
