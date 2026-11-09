@@ -254,8 +254,9 @@ class OfflineImageEpubDownloadTest {
     }
 }
 
-private fun epubFixture(novel: Boolean = false, brokenImage: Boolean = false, epub: Boolean = true,
-    doctype: String? = null, bodyScript: Boolean = false, encoding: Charset = Charsets.UTF_8): ByteArray {
+internal fun epubFixture(novel: Boolean = false, brokenImage: Boolean = false, epub: Boolean = true,
+    doctype: String? = null, bodyScript: Boolean = false, encoding: Charset = Charsets.UTF_8,
+    pageTransform: (Int, String) -> String = { _, body -> body }): ByteArray {
     fun image(color: Int) = ByteArrayOutputStream().also { output ->
         val bitmap = Bitmap.createBitmap(if (doctype != null) 1440 else 100, if (doctype != null) 2048 else 150, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(color)
@@ -283,7 +284,7 @@ private fun epubFixture(novel: Boolean = false, brokenImage: Boolean = false, ep
             } else listOf("<svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink'><image xlink:href='cover.png'/></svg>",
                 if (novel) "<p>Novel prose</p>" else "<img src='z.png'/>", "<img src='a.png'/>")
             pages.forEachIndexed { index, body ->
-                entry("OPS/page$index.xhtml", "${doctype.orEmpty()}<html xmlns='http://www.w3.org/1999/xhtml'><head><title>Metadata</title>${if (doctype != null) "<script src='../../js/kobo.js'/>" else ""}</head><body>$body</body></html>".toByteArray(encoding))
+                entry("OPS/page$index.xhtml", "${doctype.orEmpty()}<html xmlns='http://www.w3.org/1999/xhtml'><head><title>Metadata</title>${if (doctype != null) "<script src='../../js/kobo.js'/>" else ""}</head><body>${pageTransform(index, body)}</body></html>".toByteArray(encoding))
             }
             entry("OPS/cover.png", if (doctype != null) image(Color.RED) else white)
             entry("OPS/z.png", if (brokenImage) "broken".toByteArray() else if (doctype != null) image(Color.GREEN) else white)
@@ -292,7 +293,7 @@ private fun epubFixture(novel: Boolean = false, brokenImage: Boolean = false, ep
     }.toByteArray()
 }
 
-private class EpubDownloadServer(@Volatile var body: ByteArray) : AutoCloseable {
+internal class EpubDownloadServer(@Volatile var body: ByteArray = byteArrayOf(), private val archive: java.io.File? = null) : AutoCloseable {
     val requestPaths = CopyOnWriteArrayList<String>()
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -310,7 +311,9 @@ private class EpubDownloadServer(@Volatile var body: ByteArray) : AutoCloseable 
                         val bytes = body
                         runCatching {
                             it.getOutputStream().write(("HTTP/1.1 200 OK\r\nContent-Type: application/epub+zip\r\n" +
-                                "Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n").toByteArray() + bytes)
+                                "Content-Length: ${archive?.length() ?: bytes.size}\r\nConnection: close\r\n\r\n").toByteArray())
+                            if (archive != null) archive.inputStream().use { input -> input.copyTo(it.getOutputStream()) }
+                            else it.getOutputStream().write(bytes)
                         }
                     }
                 }

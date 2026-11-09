@@ -32,16 +32,23 @@ internal fun offlineEpubImageEntries(zip: ZipFile): List<String> {
     val spine = opf.children.singleOrNull { it.name == "spine" } ?: unsupportedEpub()
     val references = spine.children.filter { it.name == "itemref" }
     if (references.isEmpty()) unsupportedEpub()
-    return references.map { reference ->
+    val pagePaths = references.map { reference ->
         val item = byId[reference.attributes["idref"]] ?: unsupportedEpub()
         if (item.attributes["media-type"] != "application/xhtml+xml") unsupportedEpub()
-        val pagePath = resolveEpubEntry(opfPath, item.attributes["href"].orEmpty())
+        resolveEpubEntry(opfPath, item.attributes["href"].orEmpty())
+    }
+    return pagePaths.map { pagePath ->
         val document = readEpubXml(zip, pagePath, allowHtmlDoctype = true)
         if (document.name != "html") unsupportedEpub()
         val body = document.children.singleOrNull { it.name == "body" } ?: unsupportedEpub()
         val images = mutableListOf<String>()
-        collectEpubImages(body, images)
+        val hotspots = mutableListOf<String>()
+        collectEpubImages(body, images, hotspots)
         if (images.size != 1) unsupportedEpub()
+        if (hotspots.isNotEmpty()) {
+            hotspots.forEach { if (resolveEpubEntry(pagePath, it) !in pagePaths) unsupportedEpub() }
+            validateHotspotStyles(zip, pagePath, document)
+        }
         val imagePath = resolveEpubEntry(pagePath, images.single())
         val image = zip.getEntry(imagePath) ?: unsupportedEpub()
         if (image.isDirectory) unsupportedEpub()
@@ -72,13 +79,14 @@ private data class EpubXmlNode(
     val namespace: String,
     val attributes: Map<String, String>,
     val children: MutableList<EpubXmlNode> = mutableListOf(),
-    val text: StringBuilder = StringBuilder()
+    val text: StringBuilder = StringBuilder(),
+    var hasStylesheetInstruction: Boolean = false
 )
 
-private fun readEpubXml(zip: ZipFile, path: String, allowHtmlDoctype: Boolean = false): EpubXmlNode {
+private fun readEpubEntry(zip: ZipFile, path: String): ByteArray {
     val entry = zip.getEntry(path) ?: unsupportedEpub()
     if (entry.isDirectory) unsupportedEpub()
-    val bytes = zip.getInputStream(entry).use { input ->
+    return zip.getInputStream(entry).use { input ->
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(8192)
         while (true) {
@@ -89,9 +97,14 @@ private fun readEpubXml(zip: ZipFile, path: String, allowHtmlDoctype: Boolean = 
         }
         output.toByteArray()
     }
+}
+
+private fun readEpubXml(zip: ZipFile, path: String, allowHtmlDoctype: Boolean = false): EpubXmlNode {
+    val bytes = readEpubEntry(zip, path)
     var root: EpubXmlNode? = null
     val stack = mutableListOf<EpubXmlNode>()
     var doctypeSeen = false
+    var hasStylesheetInstruction = false
     val handler = object : DefaultHandler2() {
         override fun startDTD(name: String?, publicId: String?, systemId: String?) {
             // SAX omits the internal-subset flag; Android's reader cannot register DeclHandler.
@@ -104,6 +117,9 @@ private fun readEpubXml(zip: ZipFile, path: String, allowHtmlDoctype: Boolean = 
         override fun resolveEntity(publicId: String?, systemId: String?): InputSource = unsupportedEpub()
         override fun resolveEntity(name: String?, publicId: String?, baseURI: String?, systemId: String?): InputSource = unsupportedEpub()
         override fun skippedEntity(name: String?) { unsupportedEpub() }
+        override fun processingInstruction(target: String, data: String?) {
+            if (target.equals("xml-stylesheet", ignoreCase = true)) hasStylesheetInstruction = true
+        }
 
         override fun startElement(uri: String, localName: String, qName: String, attributes: Attributes) {
             if (stack.size >= 64 || !attributes.getValue("http://www.w3.org/XML/1998/namespace", "base").isNullOrBlank()) {
@@ -141,7 +157,7 @@ private fun readEpubXml(zip: ZipFile, path: String, allowHtmlDoctype: Boolean = 
     } catch (_: SAXException) {
         unsupportedEpub()
     }
-    return root ?: unsupportedEpub()
+    return (root ?: unsupportedEpub()).also { it.hasStylesheetInstruction = hasStylesheetInstruction }
 }
 
 private fun hasBareHtmlDoctype(bytes: ByteArray): Boolean {
@@ -184,8 +200,12 @@ private const val XmlWhitespace = " \t\r\n"
 private val XmlEncoding = Regex("""\bencoding\s*=\s*(['"])(.*?)\1""")
 private val BareHtmlDoctype = Regex("<!DOCTYPE[ \\t\\r\\n]+html[ \\t\\r\\n]*>")
 
-private fun collectEpubImages(node: EpubXmlNode, images: MutableList<String>, inSvg: Boolean = false) {
+private fun collectEpubImages(node: EpubXmlNode, images: MutableList<String>, hotspots: MutableList<String>, inSvg: Boolean = false) {
     val svg = inSvg || node.name == "svg"
+    if (svg && node.name == "a") {
+        collectEpubHotspot(node, hotspots)
+        return
+    }
     if (svg && node.name !in setOf("svg", "g", "image", "title", "desc")) unsupportedEpub()
     if (node.name in setOf("script", "iframe", "object", "embed", "canvas", "math", "video", "audio", "form")) {
         unsupportedEpub()
@@ -205,7 +225,73 @@ private fun collectEpubImages(node: EpubXmlNode, images: MutableList<String>, in
             images += (node.attributes["href"] ?: node.attributes["xlink:href"]).orEmpty()
         }
     }
-    node.children.forEach { collectEpubImages(it, images, svg) }
+    node.children.forEach { collectEpubImages(it, images, hotspots, svg) }
 }
+
+private fun collectEpubHotspot(link: EpubXmlNode, targets: MutableList<String>) {
+    if (link.namespace != SvgNamespace || link.attributes.keys.any { it !in setOf("href", "xlink:href", "target") } ||
+        link.text.any { !it.isWhitespace() } || link.children.isEmpty()) unsupportedEpub()
+    val references = listOfNotNull(link.attributes["href"], link.attributes["xlink:href"])
+    if (references.isEmpty()) unsupportedEpub()
+    link.children.forEach { rect ->
+        if (rect.name != "rect" || rect.namespace != SvgNamespace || rect.children.isNotEmpty() ||
+            rect.text.any { !it.isWhitespace() } || rect.attributes.keys.any { it !in HotspotRectAttributes } ||
+            !ZeroHotspotOpacity.matches(rect.attributes["fill-opacity"].orEmpty()) ||
+            rect.attributes["stroke"]?.let { it != "none" } == true ||
+            rect.attributes["fill"]?.let { it != "none" } == true) unsupportedEpub()
+    }
+    targets += references
+}
+
+private fun validateHotspotStyles(zip: ZipFile, pagePath: String, node: EpubXmlNode) {
+    // Only layout-only CSS is understood here. Unknown selectors/properties fail closed:
+    // presentation attributes alone cannot prove transparency when CSS/inheritance can paint.
+    if (node.hasStylesheetInstruction) unsupportedEpub()
+    node.attributes["style"]?.let(::validateHotspotDeclarations)
+    if (node.namespace == SvgNamespace && node.name in setOf("svg", "g") &&
+        node.attributes.keys.any { it !in HotspotSvgAttributes }) unsupportedEpub()
+    if (node.name == "style") {
+        if (node.children.isNotEmpty()) unsupportedEpub()
+        validateHotspotCss(node.text.toString())
+    }
+    if (node.name == "link" && node.attributes["rel"].orEmpty().split(Regex("\\s+"))
+            .any { it.equals("stylesheet", ignoreCase = true) }) {
+        val path = resolveEpubEntry(pagePath, node.attributes["href"].orEmpty())
+        validateHotspotCss(readEpubEntry(zip, path).toString(Charsets.UTF_8))
+    }
+    node.children.forEach { validateHotspotStyles(zip, pagePath, it) }
+}
+
+private fun validateHotspotCss(value: String) {
+    val css = HotspotCssComment.replace(value, "").removePrefix("\uFEFF").trim()
+    var offset = HotspotCssCharset.matchAt(css, 0)?.range?.last?.plus(1) ?: 0
+    while (offset < css.length) {
+        if (css[offset].isWhitespace()) { offset++; continue }
+        val rule = HotspotCssRule.matchAt(css, offset) ?: unsupportedEpub()
+        validateHotspotDeclarations(rule.groupValues[1])
+        offset = rule.range.last + 1
+    }
+}
+
+private fun validateHotspotDeclarations(value: String) {
+    value.split(';').forEach { declaration ->
+        if (declaration.isBlank()) return@forEach
+        val property = declaration.substringBefore(':').trim().lowercase()
+        val content = declaration.substringAfter(':', "").trim()
+        when (property) {
+            "margin", "padding", "font-size" -> if (content != "0") unsupportedEpub()
+            "user-select", "-webkit-user-select" -> if (content != "none") unsupportedEpub()
+            else -> unsupportedEpub()
+        }
+    }
+}
+
+private const val SvgNamespace = "http://www.w3.org/2000/svg"
+private val HotspotRectAttributes = setOf("x", "y", "width", "height", "fill-opacity", "stroke", "fill")
+private val HotspotSvgAttributes = setOf("version", "width", "height", "viewBox", "preserveAspectRatio", "x", "y", "id", "class", "style")
+private val ZeroHotspotOpacity = Regex("0(?:\\.0+)?")
+private val HotspotCssComment = Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL)
+private val HotspotCssCharset = Regex("@charset\\s+[\"']UTF-8[\"']\\s*;", RegexOption.IGNORE_CASE)
+private val HotspotCssRule = Regex("(?:html|body|svg|\\.main)(?:\\s*,\\s*(?:html|body|svg|\\.main))*\\s*\\{([^{}]*)\\}")
 
 private const val MaxEpubXmlBytes = 2 * 1024 * 1024

@@ -10,6 +10,80 @@ import org.junit.Test
 
 class OfflineImageEpubTest {
     @Test
+    fun transparentSvgContentsHotspotsKeepOneImagePerSpine() {
+        val links = (0 until 16).joinToString("") {
+            "<a xlink:href='next.xhtml' target='_top'><rect fill-opacity='0.0' x='$it' y='188' width='114' height='126'/></a>"
+        }
+        withEpub(listOf("page.xhtml" to hotspotSvg(links), "next.xhtml" to "<img src='image.jpg'/>"), listOf("image.jpg"),
+            prefix = "<!DOCTYPE html>", head = "<link rel='stylesheet' href='style/book.css'/><script src='../../js/kobo.js'/>",
+            extraEntries = mapOf("style/book.css" to "@charset \"UTF-8\"; html, body { margin:0; padding:0; font-size:0; -webkit-user-select:none; } svg { margin:0; padding:0; }")) {
+            assertEquals(listOf("OPS/image.jpg", "OPS/image.jpg"), offlineEpubImageEntries(it))
+        }
+    }
+
+    @Test
+    fun visibleOrUnknownSvgLinkContentIsNeverDiscarded() {
+        for (content in listOf(
+            "<rect width='20' height='20'/>", "<rect fill-opacity='0.1'/>", "<rect fill-opacity='1e-999'/>",
+            "<rect fill-opacity='0' stroke='red'/>", "<rect fill-opacity='0' stroke-width='1'/>",
+            "<rect fill-opacity='0' style='fill-opacity:1'/>", "<rect fill-opacity='0' filter='url(#paint)'/>",
+            "<rect fill-opacity='0'><animate attributeName='fill-opacity' to='1'/></rect>",
+            "<text>Visible</text>", "<image xlink:href='image.jpg'/>",
+            "<g><rect fill-opacity='0'/></g>")) {
+            assertUnsupported(listOf("page.xhtml" to hotspotSvg("<a xlink:href='page.xhtml'>$content</a>")))
+        }
+        assertUnsupported(listOf("page.xhtml" to hotspotSvg("<a xlink:href='page.xhtml' style='stroke:red'><rect fill-opacity='0'/></a>")))
+        assertUnsupported(listOf("page.xhtml" to "<svg xmlns='http://www.w3.org/2000/svg'><a href='page.xhtml'><image href='image.jpg'/></a></svg>"))
+    }
+
+    @Test
+    fun inheritedOrCssPaintingCannotMakeAnInvisibleHotspotVisible() {
+        val link = "<a xlink:href='page.xhtml'><rect fill-opacity='0.0'/></a>"
+        for (body in listOf(hotspotSvg(link, "stroke='red'"), hotspotSvg(link, "style='stroke:red'"),
+            hotspotSvg("<g stroke='red'>$link</g>"))) assertUnsupported(listOf("page.xhtml" to body))
+        for (css in listOf("svg {stroke:red}", "rect {fill-opacity:1}", "* {stroke:red}",
+            "@import 'https://example.com/paint.css';", "svg {filter:url(https://example.com/filter)}",
+            "@media all {rect {stroke:red}}")) {
+            for (head in listOf("<style>$css</style>", "<link rel='stylesheet' href='style.css'/>")) {
+                withEpub(listOf("page.xhtml" to hotspotSvg(link)), listOf("image.jpg"), head = head,
+                    extraEntries = mapOf("style.css" to css)) { expectUnsupported { offlineEpubImageEntries(it) } }
+            }
+        }
+        withEpub(listOf("page.xhtml" to hotspotSvg(link)), listOf("image.jpg"),
+            prefix = "<?xml-stylesheet type='text/css' href='paint.css'?><!DOCTYPE html>",
+            extraEntries = mapOf("paint.css" to "rect {stroke:red}")) {
+            expectUnsupported { offlineEpubImageEntries(it) }
+        }
+    }
+
+    @Test
+    fun hotspotLinksAndStylesheetsMustStayInsideTheArchive() {
+        for (href in listOf("https://example.com/page.xhtml", "//example.com/page.xhtml", "file:///outside.xhtml",
+            "javascript:run()", "/page.xhtml", "../../outside.xhtml", "%2e%2e/%2e%2e/outside.xhtml",
+            "page.xhtml?x=1", "missing.xhtml", "image.jpg")) {
+            assertUnsupported(listOf("page.xhtml" to hotspotSvg("<a xlink:href='$href'><rect fill-opacity='0'/></a>")))
+        }
+        assertUnsupported(listOf("page.xhtml" to hotspotSvg("<a href='page.xhtml' xlink:href='https://example.com/outside'><rect fill-opacity='0'/></a>")))
+        for (href in listOf("https://example.com/style.css", "../../outside.css", "missing.css")) {
+            withEpub(listOf("page.xhtml" to hotspotSvg("<a href='page.xhtml'><rect fill-opacity='0'/></a>")),
+                listOf("image.jpg"), head = "<link rel='stylesheet' href='$href'/>") {
+                expectUnsupported { offlineEpubImageEntries(it) }
+            }
+        }
+    }
+
+    @Test
+    fun hotspotStyleRestrictionsDoNotChangePagesWithoutLinks() {
+        withEpub(listOf("page.xhtml" to "<img src='image.jpg'/>"), listOf("image.jpg"),
+            head = "<style>svg {stroke:red}</style><link rel='stylesheet' href='missing.css'/>") {
+            assertEquals(listOf("OPS/image.jpg"), offlineEpubImageEntries(it))
+        }
+    }
+
+    private fun hotspotSvg(content: String, attributes: String = "") =
+        "<div class='main'><svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' viewBox='0 0 1350 1920' $attributes><image width='1350' height='1920' xlink:href='image.jpg'/>$content</svg></div>"
+
+    @Test
     fun bareHtmlDoctypeWithCommercialSvgAndHeadScriptKeepsEverySpineItem() {
         val page = "<div><svg xmlns='http://www.w3.org/2000/svg' xmlns:xlink='http://www.w3.org/1999/xlink' viewBox='0 0 1440 2048'><image width='1440' height='2048' xlink:href='../images/z.jpg'/></svg></div>"
         for (count in listOf(2, 185, 199)) {
@@ -198,6 +272,7 @@ class OfflineImageEpubTest {
         transformOpf: (String) -> String = { it },
         head: String = "<title>Ignored metadata</title><style>body { color: black; }</style>",
         encoding: Charset = Charsets.UTF_8,
+        extraEntries: Map<String, String> = emptyMap(),
         block: (ZipFile) -> Unit
     ) {
         val file = Files.createTempFile("image-epub", ".epub").toFile()
@@ -218,6 +293,7 @@ class OfflineImageEpubTest {
                     entry("OPS/$path", "$prefix<html xmlns='http://www.w3.org/1999/xhtml'><head>$head</head><body>$body</body></html>", encoding)
                 }
                 images.forEach { entry("OPS/$it", "image") }
+                extraEntries.forEach { (path, content) -> entry("OPS/$path", content) }
             }
             ZipFile(file).use(block)
         } finally {
