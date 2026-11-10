@@ -23,6 +23,8 @@ import li.mof.kamigura.cache.KavitaImageKeyer
 import li.mof.kamigura.cache.ReaderPageCacheDirectory
 import li.mof.kamigura.cache.imageCacheBudget
 import li.mof.kamigura.cache.imageCacheScope
+import li.mof.kamigura.reader.internal.ReaderImageRequestInterceptor
+import li.mof.kamigura.reader.internal.readerImageCallFactory
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import retrofit2.create
@@ -87,7 +89,7 @@ class KavitaClient(
                 .build()
         }
 
-        // Client used by Coil for cover/page images. Only a connect timeout: a large page
+        // Coil keeps its default idle read timeout, but no whole-call cap: a large page
         // on a slow link may legitimately take a while to download, so it must NOT inherit
         // the API whole-call cap or reading images would fail mid-download.
         val imageOkHttp = OkHttpClient.Builder()
@@ -174,7 +176,7 @@ class KavitaClient(
         val budget = imageCacheBudget(context)
         val cacheScope = imageCacheScope(session, store.activeProfile()?.id)
         return ImageLoader.Builder(context)
-            .callFactory(pdfExtractionCallFactory(okHttp))
+            .callFactory(readerImageCallFactory(pdfExtractionCallFactory(okHttp)))
             .memoryCache {
                 MemoryCache.Builder(context)
                     .maxSizePercent(budget.readerMemoryPercent)
@@ -189,6 +191,7 @@ class KavitaClient(
             .components {
                 add(KavitaImageDiskCacheKeyInterceptor(cacheScope))
                 add(KavitaImageKeyer(cacheScope))
+                add(ReaderImageRequestInterceptor())
             }
             .build()
     }

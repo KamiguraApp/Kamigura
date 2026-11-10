@@ -1670,7 +1670,7 @@ fun ReaderScreen(
                 if (layout.singlePage) listOf(page) else listOf(spreadPages.leftPage, spreadPages.rightPage),
                 pageRetryState::hasRetryPlaceholder, viewportWidthPx, viewportHeightPx,
                 with(density) { ReaderRetryWidth.toPx() }, with(density) { ReaderRetryHeight.toPx() },
-                retrying = pageRetryState::retrying
+                retrying = pageRetryState::retrying, canCancel = pageRetryState::canCancel
             )
         } else emptyList()
         Box(
@@ -2098,7 +2098,7 @@ fun ReaderScreen(
                 onCenterTap = { showReaderMenu = !showReaderMenu },
                 turnVisualDistancePx = turnVisualDistancePx,
                 retryTargets = retryTargets,
-                onRetryPage = { pageRetryState.retry(it) },
+                onRetryPage = { pageRetryState.activate(it) },
                 zoomPanEnabled = zoomPanEnabled,
                 panOffsetX = zoomPan.offsetX,
                 panOffsetY = zoomPan.offsetY,

@@ -9,6 +9,59 @@ import org.junit.Test
 
 class ReaderPageRetryTest {
     @Test
+    fun longLoadingCanBeCancelledWithoutMakingADuplicateRequest() {
+        var clock = 0L
+        val state = ReaderPageRetryState { clock }
+        assertEquals(5000L, state.loadingDelayRemaining(2, 0))
+        clock = 5000
+        assertEquals(0L, state.loadingDelayRemaining(2, 0))
+        state.allowCancellation(2, 0)
+        assertTrue(state.canCancel(2))
+        assertTrue(state.hasRetryPlaceholder(2))
+        assertTrue(state.activate(2))
+        assertTrue(state.failed(2))
+        assertEquals(1, state.attempt(2))
+        state.onSuccess(2, 0)
+        state.onFailure(2, 0)
+        assertTrue(state.failed(2))
+        assertTrue(state.activate(2))
+        assertTrue(state.retrying(2))
+        assertEquals(2, state.attempt(2))
+        assertEquals(5000L, state.loadingDelayRemaining(2, 2))
+    }
+
+    @Test
+    fun reconnectionDoesNotRestartTransferOrResetTheContinuousBusyClock() {
+        var clock = 0L
+        val state = ReaderPageRetryState { clock }
+        state.loadingDelayRemaining(1, 0)
+        clock = 4000
+        state.onNetworkRestored()
+        assertEquals(0, state.attempt(1))
+        state.onFailure(1, 0, 0)
+        assertEquals(1, state.attempt(1))
+        assertEquals(1000L, state.loadingDelayRemaining(1, 1))
+        repeat(5) { state.onNetworkRestored() }
+        assertEquals(1, state.attempt(1))
+        clock = 5000
+        state.allowCancellation(1, 1)
+        val target = readerPageRetryTargets(listOf(1), state::hasRetryPlaceholder, 1080f, 600f, 112f, 48f,
+            retrying = state::retrying, canCancel = state::canCancel).single()
+        assertTrue(target.enabled)
+        assertTrue(target.cancelsLoad)
+    }
+
+    @Test
+    fun lateLoadingTimersCannotResurrectControlsAfterSuccess() {
+        val state = ReaderPageRetryState()
+        state.loadingDelayRemaining(1, 0)
+        state.onSuccess(1, 0)
+        state.allowCancellation(1, 0)
+        assertFalse(state.canCancel(1))
+        assertFalse(state.hasRetryPlaceholder(1))
+    }
+
+    @Test
     fun retryIsPageLocalAndCannotBeStartedTwiceWhileLoading() {
         val state = ReaderPageRetryState()
         state.onFailure(2, 0)

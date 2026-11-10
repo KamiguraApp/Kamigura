@@ -72,6 +72,38 @@ class ReaderPageRetryUiTest {
     fun verticalRetryKeepsDisabledButtonWhileLoading() = heldRetry("Vertical", succeeds = true)
 
     @Test
+    fun longRetryCanBeCancelledAndRetriedWithoutOpeningTheMenu() = longRetry("LTR")
+
+    @Test
+    fun verticalLongRetryCanBeCancelledAndRetriedWithoutOpeningTheMenu() = longRetry("Vertical")
+
+    private fun longRetry(direction: String) = withSettings(PageTurnMode.Curl) {
+        val failing = AtomicBoolean(true)
+        val holding = AtomicBoolean(false)
+        val release = CountDownLatch(1)
+        ReaderServer(1, failPage = { it == 1 && failing.get() },
+            imageResponseGate = { if (it == 1 && holding.get()) release else null }).use { server ->
+            try {
+                open(server, direction, 1)
+                awaitRetry()
+                holding.set(true)
+                retryTouch()
+                compose.waitUntil(8_000) { compose.onAllNodesWithText("Cancel", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithText("Loading", useUnmergedTree = true).assertIsDisplayed()
+                val cancel = if (direction == "Vertical") compose.onNodeWithText("Cancel")
+                    else compose.onNodeWithContentDescription("Cancel page 2")
+                cancel.assertIsEnabled().performClick()
+                compose.onNodeWithText("Retry", useUnmergedTree = true).assertIsDisplayed()
+                compose.onNodeWithContentDescription("Close menu").assertDoesNotExist()
+                holding.set(false); failing.set(false); release.countDown()
+                retryTouch()
+                awaitRecovered()
+                compose.onNodeWithContentDescription("Close menu").assertDoesNotExist()
+            } finally { release.countDown() }
+        }
+    }
+
+    @Test
     fun verticalRetryStaysVisibleAcrossPageOffsets() = visibleVerticalRetry(900, held = false)
 
     @Test

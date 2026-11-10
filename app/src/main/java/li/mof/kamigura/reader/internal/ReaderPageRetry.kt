@@ -21,9 +21,13 @@ internal val ReaderRetryHeight = 48.dp
 
 private enum class ReaderPageRetryStatus { Failed, Retrying }
 
-internal class ReaderPageRetryState {
+internal const val ReaderLoadingCancelDelayMillis = 5_000L
+
+internal class ReaderPageRetryState(private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
     private val attempts = mutableStateMapOf<Int, Int>()
     private val statuses = mutableStateMapOf<Int, ReaderPageRetryStatus>()
+    private val loadingStarted = mutableMapOf<Int, Long>()
+    private val cancellationAvailable = mutableStateMapOf<Int, Boolean>()
     private var visiblePages = emptySet<Int>()
     var networkGeneration: Int = 0
         private set
@@ -31,42 +35,67 @@ internal class ReaderPageRetryState {
     fun attempt(page: Int): Int = attempts[page] ?: 0
     fun failed(page: Int): Boolean = statuses[page] == ReaderPageRetryStatus.Failed
     fun retrying(page: Int): Boolean = statuses[page] == ReaderPageRetryStatus.Retrying
-    fun hasRetryPlaceholder(page: Int): Boolean = statuses.containsKey(page)
+    fun hasRetryPlaceholder(page: Int): Boolean = statuses.containsKey(page) || canCancel(page)
     fun needsFreshRequest(page: Int): Boolean = retrying(page)
+    fun canCancel(page: Int): Boolean = !failed(page) && cancellationAvailable[page] == true
+
+    fun loadingDelayRemaining(page: Int, attempt: Int): Long {
+        if (attempt != attempt(page)) return ReaderLoadingCancelDelayMillis
+        val start = loadingStarted.getOrPut(page) { now() }
+        return (ReaderLoadingCancelDelayMillis - (now() - start)).coerceAtLeast(0)
+    }
+
+    fun allowCancellation(page: Int, attempt: Int) {
+        if (attempt == attempt(page) && !failed(page) && page in loadingStarted) cancellationAvailable[page] = true
+    }
+
+    fun activate(page: Int): Boolean = if (canCancel(page)) {
+        attempts[page] = attempt(page) + 1
+        statuses[page] = ReaderPageRetryStatus.Failed
+        cancellationAvailable.remove(page)
+        loadingStarted.remove(page)
+        true
+    } else retry(page)
 
     fun onFailure(page: Int, attempt: Int, requestNetworkGeneration: Int = networkGeneration) {
         // Curl may retain multiple copies. Ignore callbacks from requests superseded by Retry.
         if (attempt == attempt(page)) {
             statuses[page] = ReaderPageRetryStatus.Failed
             // A request started before reconnection can finish failing just after it.
-            if (requestNetworkGeneration < networkGeneration) retry(page)
+            if (requestNetworkGeneration < networkGeneration) retry(page, automatic = true)
         }
     }
 
     fun onSuccess(page: Int, attempt: Int) {
         if (attempt != attempt(page)) return
         statuses.remove(page)
+        cancellationAvailable.remove(page)
+        loadingStarted.remove(page)
     }
 
-    fun retry(page: Int): Boolean {
+    fun retry(page: Int, automatic: Boolean = false): Boolean {
         if (!failed(page)) return false
         statuses[page] = ReaderPageRetryStatus.Retrying
         attempts[page] = attempt(page) + 1
+        if (!automatic) {
+            loadingStarted[page] = now()
+            cancellationAvailable.remove(page)
+        }
         return true
     }
 
     fun updateVisiblePages(pages: Set<Int>) {
-        (pages - visiblePages).forEach(::retry)
+        (pages - visiblePages).forEach { retry(it, automatic = true) }
         visiblePages = pages
     }
 
     fun onNetworkRestored() {
         networkGeneration++
-        statuses.keys.toList().forEach(::retry)
+        statuses.keys.toList().forEach { retry(it, automatic = true) }
     }
 }
 
-internal data class ReaderPageRetryTarget(val page: Int, val bounds: Rect, val enabled: Boolean = true)
+internal data class ReaderPageRetryTarget(val page: Int, val bounds: Rect, val enabled: Boolean = true, val cancelsLoad: Boolean = false)
 
 internal fun readerPageRetryTargets(
     pagesInPhysicalOrder: List<Int>,
@@ -75,7 +104,8 @@ internal fun readerPageRetryTargets(
     viewportHeight: Float,
     buttonWidth: Float,
     buttonHeight: Float,
-    retrying: (Int) -> Boolean = { false }
+    retrying: (Int) -> Boolean = { false },
+    canCancel: (Int) -> Boolean = { false }
 ): List<ReaderPageRetryTarget> {
     if (pagesInPhysicalOrder.isEmpty()) return emptyList()
     val slotWidth = viewportWidth / pagesInPhysicalOrder.size
@@ -88,7 +118,7 @@ internal fun readerPageRetryTargets(
         ReaderPageRetryTarget(page, Rect(
             centerX - width / 2f, centerY - height / 2f,
             centerX + width / 2f, centerY + height / 2f
-        ), enabled = !retrying(page))
+        ), enabled = !retrying(page) || canCancel(page), cancelsLoad = canCancel(page))
     }
 }
 

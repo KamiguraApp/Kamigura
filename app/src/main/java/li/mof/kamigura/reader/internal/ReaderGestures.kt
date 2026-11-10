@@ -146,9 +146,10 @@ internal fun ReaderTapLayer(
                 .size(with(density) { target.bounds.width.toDp() }, with(density) { target.bounds.height.toDp() })
                 .semantics {
                     role = Role.Button
-                    contentDescription = "Retry page ${target.page + 1}"
+                    val action = if (target.cancelsLoad) "Cancel" else "Retry"
+                    contentDescription = "$action page ${target.page + 1}"
                     if (target.enabled) {
-                        onClick("Retry") { onRetryPage(target.page); true }
+                        onClick(action) { onRetryPage(target.page); true }
                     } else {
                         disabled()
                         stateDescription = "Retrying"

@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -17,12 +18,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BrokenImage
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -49,17 +52,22 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import li.mof.kamigura.FileDimensionDto
 import li.mof.kamigura.InvertMode
-import li.mof.kamigura.KamiguraLog
 import li.mof.kamigura.download.OfflinePage
 import li.mof.kamigura.download.decodeOfflinePage
 import kotlin.math.max
 import kotlin.math.min
+import coil.request.ErrorResult
+import java.util.concurrent.TimeoutException
 
 private const val SmartInvertSampleSize = 64
 private const val SmartInvertColorThreshold = 0.1f
@@ -116,6 +124,7 @@ internal fun ReaderPageView(
             key(cursor) {
                 PageImage(
                     page = cursor,
+                    smartFailureFallback = { readerSmartInvertFallback(cursor, pageCount, pageModel, whiteThreshold, invertDecisionCache) },
                     retryState = retryState,
                     interactiveRetry = interactiveRetry,
                     retryButtonModifier = retryButtonModifier,
@@ -133,6 +142,7 @@ internal fun ReaderPageView(
             key(spread.leftPage) {
                 PageImage(
                     page = spread.leftPage,
+                    smartFailureFallback = { readerSmartInvertFallback(spread.leftPage, pageCount, pageModel, whiteThreshold, invertDecisionCache) },
                     retryState = retryState,
                     interactiveRetry = interactiveRetry,
                     retryButtonModifier = retryButtonModifier,
@@ -149,6 +159,7 @@ internal fun ReaderPageView(
             key(spread.rightPage) {
                 PageImage(
                     page = spread.rightPage,
+                    smartFailureFallback = { readerSmartInvertFallback(spread.rightPage, pageCount, pageModel, whiteThreshold, invertDecisionCache) },
                     retryState = retryState,
                     interactiveRetry = interactiveRetry,
                     retryButtonModifier = retryButtonModifier,
@@ -169,6 +180,7 @@ internal fun ReaderPageView(
 @Composable
 private fun RowScope.PageImage(
     page: Int,
+    smartFailureFallback: () -> Boolean,
     retryState: ReaderPageRetryState?,
     interactiveRetry: Boolean,
     retryButtonModifier: Modifier,
@@ -214,7 +226,7 @@ private fun RowScope.PageImage(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (t: Throwable) {
-                    KamiguraLog.w("Reader offline page decode failed.", t)
+                    logReaderImageFailure("Reader offline page decode failed.", t, model)
                     PageModelState.Unavailable
                 }
                 else -> PageModelState.Ready(model)
@@ -233,10 +245,11 @@ private fun RowScope.PageImage(
                     .diskCachePolicy(CachePolicy.WRITE_ONLY)
                     .networkCachePolicy(CachePolicy.ENABLED)
                     .addHeader("Cache-Control", "no-cache")
+                    .setParameter(ReaderRetryAttemptParameter, attempt, memoryCacheKey = null)
                     .build()
             }
         }
-        val cacheKey = resolvedModel?.let { ReaderInvertCacheKey(it, whiteThreshold) }
+        val cacheKey = model?.let { ReaderInvertCacheKey(it, whiteThreshold) }
         val cachedInvertDecision = cacheKey?.let(invertDecisionCache::get)
         var loadedDrawable by remember(resolvedModel, imageLoader, attempt) {
             mutableStateOf<Drawable?>(null)
@@ -267,34 +280,38 @@ private fun RowScope.PageImage(
                     if (loadedModel == null || drawable == null) {
                         null
                     } else {
-                        val key = ReaderInvertCacheKey(loadedModel, whiteThreshold)
+                        val key = cacheKey ?: ReaderInvertCacheKey(loadedModel, whiteThreshold)
                         cachedInvertDecision ?: try {
-                            try {
-                                analyzeShouldInvert(drawable, whiteThreshold)
-                            } catch (t: Throwable) {
-                                KamiguraLog.w(
-                                    "Reader Smart Invert drawable analysis failed; retrying from cache.",
-                                    t
-                                )
-                                analyzeShouldInvert(
-                                    ctx,
-                                    imageLoader,
-                                    loadedModel,
-                                    whiteThreshold
-                                )
-                            }.also { invertDecisionCache[key] = it }
+                            val decision = withTimeoutOrNull(2_000) {
+                                try {
+                                    withContext(Dispatchers.Default) { analyzeShouldInvert(drawable, whiteThreshold) }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (t: Throwable) {
+                                    logReaderImageFailure("Reader Smart Invert drawable analysis failed; trying cache.", t, loadedModel)
+                                    analyzeShouldInvert(ctx, imageLoader, loadedModel, whiteThreshold)
+                                }
+                            }
+                            if (decision != null) {
+                                invertDecisionCache[key] = decision
+                                decision
+                            } else {
+                                logReaderImageFailure("Reader Smart Invert analysis failed; using chapter fallback.",
+                                    TimeoutException("Smart analysis exceeded 2000 ms"), loadedModel)
+                                smartFailureFallback()
+                            }
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (t: Throwable) {
-                            KamiguraLog.w("Reader Smart Invert analysis failed.", t)
-                            null
+                            logReaderImageFailure("Reader Smart Invert analysis failed; using chapter fallback.", t, loadedModel)
+                            smartFailureFallback()
                         }
                     }
                 }
             }
         }
 
-        val retryClick: (() -> Unit)? = if (canRetry && interactiveRetry) ({ retryState?.retry(page); Unit }) else null
+        val retryClick: (() -> Unit)? = if (canRetry && interactiveRetry) ({ retryState?.activate(page); Unit }) else null
         when (pageModelState) {
             PageModelState.Loading -> ReaderPageLoadingPlaceholder()
             PageModelState.Unavailable -> ReaderPageUnavailablePlaceholder()
@@ -320,11 +337,14 @@ private fun RowScope.PageImage(
                             diskCacheKey = state.result.diskCacheKey
                             if (canRetry) retryState?.onSuccess(page, attempt)
                         },
-                        onError = { if (canRetry) retryState?.onFailure(page, attempt, requestNetworkGeneration) },
+                        onError = {
+                            logReaderImageFailure("Reader page request failed.", it.result.throwable, resolvedModel)
+                            if (canRetry) retryState?.onFailure(page, attempt, requestNetworkGeneration)
+                        },
                         loading = {
                             PagePlaceholderContainer {
-                                if (requestIsRetry) ReaderPageRetryButton(pageBackground, retryClick, busy = true, modifier = retryButtonModifier)
-                                else ReaderPageLoadingPlaceholder()
+                                ReaderPageRequestPlaceholder(page, attempt, if (canRetry) retryState else null,
+                                    requestIsRetry, pageBackground, retryClick, retryButtonModifier)
                             }
                         },
                         error = {
@@ -364,7 +384,8 @@ private fun ReaderPageRetryButton(
     pageBackground: Color,
     onClick: (() -> Unit)? = null,
     busy: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cancelsLoad: Boolean = false
 ) {
     val foreground = (if (pageBackground.red + pageBackground.green + pageBackground.blue > 1.5f) {
         Color(0xFF202020)
@@ -372,12 +393,12 @@ private fun ReaderPageRetryButton(
     val border = BorderStroke(1.5.dp, foreground)
     val shape = RoundedCornerShape(8.dp)
     val buttonModifier = modifier.size(ReaderRetryWidth, ReaderRetryHeight).semantics {
-        if (busy) stateDescription = "Retrying"
+        if (cancelsLoad) stateDescription = "Loading" else if (busy) stateDescription = "Retrying"
     }
     val content: @Composable () -> Unit = {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
-            Text("Retry")
+            Icon(if (cancelsLoad) Icons.Outlined.Close else Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
+            Text(if (cancelsLoad) "Cancel" else "Retry")
         }
     }
     if (onClick != null) {
@@ -394,6 +415,31 @@ private fun ReaderPageRetryButton(
             Box(contentAlignment = Alignment.Center) { content() }
         }
     }
+}
+
+@Composable
+private fun ReaderPageRequestPlaceholder(
+    page: Int,
+    attempt: Int,
+    retryState: ReaderPageRetryState?,
+    requestIsRetry: Boolean,
+    background: Color,
+    onClick: (() -> Unit)?,
+    modifier: Modifier
+) {
+    LaunchedEffect(retryState, page, attempt) {
+        retryState?.let {
+            delay(it.loadingDelayRemaining(page, attempt))
+            it.allowCancellation(page, attempt)
+        }
+    }
+    if (retryState?.canCancel(page) == true) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            ReaderPageRetryButton(background, onClick, cancelsLoad = true)
+            Text("Loading", color = Color.Gray, modifier = Modifier.align(Alignment.TopCenter).offset(y = (-24).dp))
+        }
+    } else if (requestIsRetry) ReaderPageRetryButton(background, onClick, busy = true, modifier = modifier)
+    else ReaderPageLoadingPlaceholder()
 }
 
 @Composable
@@ -444,11 +490,12 @@ internal suspend fun prefetchReaderPages(
                     .networkCachePolicy(CachePolicy.ENABLED)
                     .build()
                 try {
-                    imageLoader.execute(request)
+                    val result = imageLoader.execute(request)
+                    if (result is ErrorResult) logReaderImageFailure("Reader prefetch failed.", result.throwable, target.model)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (t: Throwable) {
-                    KamiguraLog.w("Reader prefetch failed.", t)
+                    logReaderImageFailure("Reader prefetch failed.", t, target.model)
                     // Prefetch is opportunistic; the visible page reports its own error.
                 }
             }
@@ -481,7 +528,7 @@ internal suspend fun preAnalyzeReaderPages(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (t: Throwable) {
-                        KamiguraLog.w("Reader Smart Invert pre-analysis failed.", t)
+                        logReaderImageFailure("Reader Smart Invert cache pre-analysis failed.", t, model)
                         // Visible rendering retries the analysis if pre-analysis fails.
                     }
                 }
@@ -505,10 +552,12 @@ private suspend fun analyzeShouldInvert(
         .data(model)
         .size(SmartInvertSampleSize)
         .allowHardware(false)
+        .networkCachePolicy(CachePolicy.DISABLED)
         .build()
     val result = imageLoader.execute(request)
     if (result !is SuccessResult) {
-        error("Smart Invert sample image could not be loaded.")
+        if (result is ErrorResult) throw result.throwable
+        error("Smart Invert sample image could not be loaded from cache.")
     }
     return analyzeShouldInvert(result.drawable, whiteThreshold)
 }
