@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
@@ -109,10 +110,10 @@ class OfflineLinkedContentsEpubTest {
                         .performSemanticsAction(SemanticsActions.SetProgress) { it(page.toFloat()) }
                     compose.onNodeWithText("${page + 1} / $pages", substring = true).assertIsDisplayed()
                     compose.onNodeWithContentDescription("Close menu").performClick()
-                    val bounds = compose.onRoot().fetchSemanticsNode().boundsInRoot
-                    check(bounds.height > bounds.width) { "Run the offline image comparison on a portrait surface" }
+                    compose.waitUntil(15_000) { pageImages(page).fetchSemanticsNodes().isNotEmpty() }
+                    val bounds = pageImages(page).onFirst().fetchSemanticsNode().boundsInRoot
                     val expected = decodeOfflinePage(chapter.pages[page], bounds.width.toInt(), bounds.height.toInt())!!
-                    try { compose.waitUntil(15_000) { imageMatches(expected) } } finally { expected.recycle() }
+                    try { compose.waitUntil(15_000) { imageMatches(expected, page) } } finally { expected.recycle() }
                     val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
                     context.getExternalFilesDir(null)!!.resolve("linked-contents-$label-$kind.png").outputStream().use {
                         screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)
@@ -135,12 +136,23 @@ class OfflineLinkedContentsEpubTest {
         }
     }
 
-    private fun imageMatches(expected: Bitmap): Boolean {
+    private fun pageImages(page: Int) = compose.onAllNodes(
+        hasContentDescription("Page $page") or hasContentDescription("Left $page") or hasContentDescription("Right $page")
+    )
+
+    private fun imageMatches(expected: Bitmap, page: Int): Boolean {
         if (compose.onAllNodesWithText("...").fetchSemanticsNodes().isNotEmpty() ||
             compose.onAllNodesWithContentDescription("Page unavailable").fetchSemanticsNodes().isNotEmpty()) return false
-        val pixels = compose.onRoot().captureToImage().toPixelMap()
+        val image = pageImages(page).onFirst()
+        val descriptions = image.fetchSemanticsNode().config[SemanticsProperties.ContentDescription]
+        val pixels = image.captureToImage().toPixelMap()
         val scale = min(pixels.width.toFloat() / expected.width, pixels.height.toFloat() / expected.height)
-        val left = (pixels.width - expected.width * scale) / 2
+        // Spread sheets align to the binding, while single pages are centered.
+        val left = when {
+            "Left $page" in descriptions -> pixels.width - expected.width * scale
+            "Right $page" in descriptions -> 0f
+            else -> (pixels.width - expected.width * scale) / 2
+        }
         val top = (pixels.height - expected.height * scale) / 2
         var matches = 0
         for (y in 1..24) for (x in 1..24) {
