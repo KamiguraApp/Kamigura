@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.dp
 import li.mof.kamigura.InvertMode
 import li.mof.kamigura.InvertWhiteThresholdRange
 import li.mof.kamigura.ReaderReadingDirection
+import li.mof.kamigura.reader.novel.NovelContentsButton
 import li.mof.kamigura.ui.ValueBubbleSlider
 import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
@@ -72,7 +73,8 @@ internal fun ReaderMenuOverlay(
     onPreviousSingle: () -> Unit,
     onJumpToPage: (Int) -> Unit,
     jumpBackPage: Int? = null,
-    onJumpBack: () -> Unit = {}
+    onJumpBack: () -> Unit = {},
+    onOpenContents: (() -> Unit)? = null
 ) {
     val rightToLeft = readingDirection == ReaderReadingDirection.RightToLeft
     val safePageCount = pages.coerceAtLeast(1)
@@ -98,6 +100,7 @@ internal fun ReaderMenuOverlay(
     ) {
         ReaderMenuHeader(
             seriesName, "$chapterName | ${page + 1} / $pages", onBack, onDismiss,
+            contents = { onOpenContents?.let { NovelContentsButton(it) } },
             bookmark = { bookmarkState?.let { ReaderBookmarkButton(currentPage, it, onBookmark) } },
             feedback = bookmarkState?.error ?: bookmarkState?.message,
             feedbackIsError = bookmarkState?.error != null,

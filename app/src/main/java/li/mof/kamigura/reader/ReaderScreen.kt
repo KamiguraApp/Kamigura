@@ -8,6 +8,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -40,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
@@ -107,6 +109,9 @@ import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
 import li.mof.kamigura.reader.internal.loadReaderChapterPages
 import li.mof.kamigura.reader.novel.NovelReaderScreen
+import li.mof.kamigura.reader.novel.NovelContents
+import li.mof.kamigura.reader.novel.NovelContentsScreen
+import li.mof.kamigura.reader.novel.currentNovelContentsEntry
 import li.mof.kamigura.reader.internal.LocalReaderImageZoomMotion
 import li.mof.kamigura.reader.internal.ReaderImageZoomMotion
 import li.mof.kamigura.reader.internal.readerLoadErrorMessage
@@ -916,6 +921,14 @@ fun ReaderScreen(
     LaunchedEffect(bookmarks, showReaderMenu) {
         if (showReaderMenu) bookmarks?.refresh()
     }
+    val imageContents = remember(api, currentChapterId, pages, offlineChapter, epubPageImages != null) {
+        api?.takeIf { offlineChapter == null && epubPageImages != null && pages > 0 }
+            ?.let { NovelContents(it, currentChapterId, pages) }
+    }
+    LaunchedEffect(imageContents, showReaderMenu) {
+        if (showReaderMenu && imageContents?.state?.loaded == false) imageContents.refresh()
+    }
+    var showImageContents by remember(imageContents, showReaderMenu) { mutableStateOf(false) }
 
     val client = remember { KavitaClient(ctx, sessionStore) }
     val activeImageLoader = readerImageLoader ?: fallbackImageLoader
@@ -2343,7 +2356,25 @@ fun ReaderScreen(
             )
         }
 
-        if (showReaderMenu && chapterBoundary == null) {
+        if (showReaderMenu && chapterBoundary == null && showImageContents && imageContents != null) {
+            BackHandler { showImageContents = false }
+            val lastVisiblePage = readerVisiblePageIndices(page, pages, portrait || vertical, pageDimensions)
+                .lastOrNull() ?: page
+            NovelContentsScreen(
+                seriesName = seriesName,
+                contents = imageContents.state,
+                currentEntry = currentNovelContentsEntry(imageContents.state.entries, lastVisiblePage, reachedParts = null),
+                enabled = !chapterSwitching,
+                onBack = { showImageContents = false },
+                onDismiss = { showReaderMenu = false },
+                onRefresh = { scope.launch { imageContents.refresh() } },
+                onOpenContents = {
+                    jumpToImagePage(it.page)
+                    showReaderMenu = false
+                },
+                modifier = Modifier.pointerInput(Unit) { detectTapGestures {} }
+            )
+        } else if (showReaderMenu && chapterBoundary == null) {
             val location = ReaderJumpLocation(page)
             val returnTarget = jumpBack.target(location)?.takeIf {
                 it.page in 0 until pages && (vertical || pagedJumpLanding(it.page) != page)
@@ -2396,7 +2427,10 @@ fun ReaderScreen(
                 },
                 onJumpToPage = { jumpToImagePage(it) },
                 jumpBackPage = returnTarget?.page,
-                onJumpBack = { returnTarget?.let { jumpToImagePage(it.page, location) } }
+                onJumpBack = { returnTarget?.let { jumpToImagePage(it.page, location) } },
+                onOpenContents = if ((imageContents?.state?.entries?.size ?: 0) >= 2) {
+                    { showImageContents = true }
+                } else null
             )
         }
 

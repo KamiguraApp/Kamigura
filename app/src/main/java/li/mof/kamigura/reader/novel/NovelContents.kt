@@ -27,10 +27,11 @@ internal fun flattenNovelContents(items: List<BookChapterItemDto>, pages: Int): 
     append(items, 0)
 }
 
-internal fun currentNovelContentsEntry(entries: List<NovelContentsEntry>, page: Int, reachedParts: Set<String>): Int? =
+// Image readers have page-level positions only, so a null set includes every part on the page.
+internal fun currentNovelContentsEntry(entries: List<NovelContentsEntry>, page: Int, reachedParts: Set<String>?): Int? =
     entries.indices.lastOrNull { index ->
         val entry = entries[index]
-        entry.page < page || entry.page == page && (entry.part.isBlank() || entry.part in reachedParts)
+        entry.page < page || entry.page == page && (reachedParts == null || entry.part.isBlank() || entry.part in reachedParts)
     }
 
 internal data class NovelContentsState(

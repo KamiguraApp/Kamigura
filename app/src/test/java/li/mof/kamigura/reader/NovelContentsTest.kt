@@ -39,6 +39,7 @@ class NovelContentsTest {
         assertEquals(1, currentNovelContentsEntry(flat, 1, setOf("a")))
         assertEquals(2, currentNovelContentsEntry(flat, 1, setOf("a", "b")))
         assertEquals(2, currentNovelContentsEntry(flat, 2, emptySet()))
+        assertEquals(2, currentNovelContentsEntry(flat, 1, reachedParts = null))
     }
 
     @Test fun invalidParentStillKeepsValidChildrenAndEmptyTreesRemainEmpty() {

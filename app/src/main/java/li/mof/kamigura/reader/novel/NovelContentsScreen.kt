@@ -57,23 +57,24 @@ internal fun NovelContentsButton(onClick: () -> Unit) =
 internal fun NovelContentsScreen(
     seriesName: String,
     contents: NovelContentsState,
-    bookmarks: NovelBookmarkState?,
-    tab: Int,
+    bookmarks: NovelBookmarkState? = null,
+    tab: Int = 0,
     currentEntry: Int?,
     enabled: Boolean,
-    feedback: String?,
+    feedback: String? = null,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
     onRefresh: () -> Unit,
-    onTab: (Int) -> Unit,
+    onTab: (Int) -> Unit = {},
     onOpenContents: (NovelContentsEntry) -> Unit,
-    onOpenBookmark: (PersonalToCDto) -> Unit,
-    onRemove: (PersonalToCDto) -> Unit
+    onOpenBookmark: (PersonalToCDto) -> Unit = {},
+    onRemove: (PersonalToCDto) -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     val selectedTab = if (bookmarks == null) 0 else tab
     val state = bookmarks ?: NovelBookmarkState()
     val contentsTab = selectedTab == 0
-    Column(Modifier.fillMaxSize().background(Color(0xFF111412)).navigationBarsPadding()) {
+    Column(modifier.fillMaxSize().background(Color(0xFF111412)).navigationBarsPadding()) {
         ReaderMenuHeader(seriesName, "Contents", onBack, onDismiss, backLabel = "Back to reader menu",
             bookmark = { BookmarkIcon(if (contentsTab) "Refresh contents" else "Refresh bookmarks",
                 Icons.Filled.Refresh, if (contentsTab) !contents.loading else !state.busy, onRefresh) },

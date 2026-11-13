@@ -107,6 +107,7 @@ class OfflineLinkedContentsEpubTest {
                 for ((kind, page) in listOf("contents" to contents, "last" to pages - 1)) {
                     compose.onRoot().performTouchInput { click(Offset(width / 2f, height * .2f)) }
                     compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isNotEmpty() }
+                    compose.onNodeWithContentDescription("Contents").assertDoesNotExist()
                     compose.onNodeWithText("LTR").performClick()
                     compose.onNodeWithText("Off", useUnmergedTree = true).performClick()
                     compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
