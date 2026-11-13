@@ -5,6 +5,13 @@ import java.io.ByteArrayOutputStream
 import java.net.URI
 import java.util.zip.ZipFile
 import javax.xml.parsers.SAXParserFactory
+import li.mof.kamigura.reader.internal.EpubSvgNamespace
+import li.mof.kamigura.reader.internal.EpubXlinkNamespace
+import li.mof.kamigura.reader.internal.epubHotspotReferences
+import li.mof.kamigura.reader.internal.hasLayoutOnlyEpubSvgAttributes
+import li.mof.kamigura.reader.internal.isLayoutOnlyEpubCss
+import li.mof.kamigura.reader.internal.isLayoutOnlyEpubStyle
+import li.mof.kamigura.reader.internal.isTransparentEpubHotspotRect
 import org.xml.sax.Attributes
 import org.xml.sax.InputSource
 import org.xml.sax.SAXException
@@ -128,7 +135,7 @@ private fun readEpubXml(zip: ZipFile, path: String, allowHtmlDoctype: Boolean = 
             val values = (0 until attributes.length).associate {
                 attributes.getQName(it) to attributes.getValue(it)
             }.toMutableMap()
-            attributes.getValue("http://www.w3.org/1999/xlink", "href")?.let { values["xlink:href"] = it }
+            attributes.getValue(EpubXlinkNamespace, "href")?.let { values["xlink:href"] = it }
             val node = EpubXmlNode(localName, uri, values)
             if (stack.isEmpty()) root = node else stack.last().children += node
             stack += node
@@ -221,7 +228,7 @@ private fun collectEpubImages(node: EpubXmlNode, images: MutableList<String>, ho
             images += node.attributes["src"].orEmpty()
         }
         "image" -> {
-            if (!svg || node.namespace != "http://www.w3.org/2000/svg") unsupportedEpub()
+            if (!svg || node.namespace != EpubSvgNamespace) unsupportedEpub()
             images += (node.attributes["href"] ?: node.attributes["xlink:href"]).orEmpty()
         }
     }
@@ -229,16 +236,12 @@ private fun collectEpubImages(node: EpubXmlNode, images: MutableList<String>, ho
 }
 
 private fun collectEpubHotspot(link: EpubXmlNode, targets: MutableList<String>) {
-    if (link.namespace != SvgNamespace || link.attributes.keys.any { it !in setOf("href", "xlink:href", "target") } ||
-        link.text.any { !it.isWhitespace() } || link.children.isEmpty()) unsupportedEpub()
-    val references = listOfNotNull(link.attributes["href"], link.attributes["xlink:href"])
-    if (references.isEmpty()) unsupportedEpub()
+    if (link.namespace != EpubSvgNamespace || link.text.any { !it.isWhitespace() } ||
+        link.children.isEmpty()) unsupportedEpub()
+    val references = epubHotspotReferences(link.attributes) ?: unsupportedEpub()
     link.children.forEach { rect ->
-        if (rect.name != "rect" || rect.namespace != SvgNamespace || rect.children.isNotEmpty() ||
-            rect.text.any { !it.isWhitespace() } || rect.attributes.keys.any { it !in HotspotRectAttributes } ||
-            !ZeroHotspotOpacity.matches(rect.attributes["fill-opacity"].orEmpty()) ||
-            rect.attributes["stroke"]?.let { it != "none" } == true ||
-            rect.attributes["fill"]?.let { it != "none" } == true) unsupportedEpub()
+        if (rect.name != "rect" || rect.namespace != EpubSvgNamespace || rect.children.isNotEmpty() ||
+            rect.text.any { !it.isWhitespace() } || !isTransparentEpubHotspotRect(rect.attributes)) unsupportedEpub()
     }
     targets += references
 }
@@ -247,51 +250,18 @@ private fun validateHotspotStyles(zip: ZipFile, pagePath: String, node: EpubXmlN
     // Only layout-only CSS is understood here. Unknown selectors/properties fail closed:
     // presentation attributes alone cannot prove transparency when CSS/inheritance can paint.
     if (node.hasStylesheetInstruction) unsupportedEpub()
-    node.attributes["style"]?.let(::validateHotspotDeclarations)
-    if (node.namespace == SvgNamespace && node.name in setOf("svg", "g") &&
-        node.attributes.keys.any { it !in HotspotSvgAttributes }) unsupportedEpub()
+    if (node.attributes["style"]?.let { !isLayoutOnlyEpubStyle(it) } == true) unsupportedEpub()
+    if (node.namespace == EpubSvgNamespace && node.name in setOf("svg", "g") &&
+        !hasLayoutOnlyEpubSvgAttributes(node.attributes)) unsupportedEpub()
     if (node.name == "style") {
-        if (node.children.isNotEmpty()) unsupportedEpub()
-        validateHotspotCss(node.text.toString())
+        if (node.children.isNotEmpty() || !isLayoutOnlyEpubCss(node.text.toString())) unsupportedEpub()
     }
     if (node.name == "link" && node.attributes["rel"].orEmpty().split(Regex("\\s+"))
             .any { it.equals("stylesheet", ignoreCase = true) }) {
         val path = resolveEpubEntry(pagePath, node.attributes["href"].orEmpty())
-        validateHotspotCss(readEpubEntry(zip, path).toString(Charsets.UTF_8))
+        if (!isLayoutOnlyEpubCss(readEpubEntry(zip, path).toString(Charsets.UTF_8))) unsupportedEpub()
     }
     node.children.forEach { validateHotspotStyles(zip, pagePath, it) }
 }
-
-private fun validateHotspotCss(value: String) {
-    val css = HotspotCssComment.replace(value, "").removePrefix("\uFEFF").trim()
-    var offset = HotspotCssCharset.matchAt(css, 0)?.range?.last?.plus(1) ?: 0
-    while (offset < css.length) {
-        if (css[offset].isWhitespace()) { offset++; continue }
-        val rule = HotspotCssRule.matchAt(css, offset) ?: unsupportedEpub()
-        validateHotspotDeclarations(rule.groupValues[1])
-        offset = rule.range.last + 1
-    }
-}
-
-private fun validateHotspotDeclarations(value: String) {
-    value.split(';').forEach { declaration ->
-        if (declaration.isBlank()) return@forEach
-        val property = declaration.substringBefore(':').trim().lowercase()
-        val content = declaration.substringAfter(':', "").trim()
-        when (property) {
-            "margin", "padding", "font-size" -> if (content != "0") unsupportedEpub()
-            "user-select", "-webkit-user-select" -> if (content != "none") unsupportedEpub()
-            else -> unsupportedEpub()
-        }
-    }
-}
-
-private const val SvgNamespace = "http://www.w3.org/2000/svg"
-private val HotspotRectAttributes = setOf("x", "y", "width", "height", "fill-opacity", "stroke", "fill")
-private val HotspotSvgAttributes = setOf("version", "width", "height", "viewBox", "preserveAspectRatio", "x", "y", "id", "class", "style")
-private val ZeroHotspotOpacity = Regex("0(?:\\.0+)?")
-private val HotspotCssComment = Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL)
-private val HotspotCssCharset = Regex("@charset\\s+[\"']UTF-8[\"']\\s*;", RegexOption.IGNORE_CASE)
-private val HotspotCssRule = Regex("(?:html|body|svg|\\.main)(?:\\s*,\\s*(?:html|body|svg|\\.main))*\\s*\\{([^{}]*)\\}")
 
 private const val MaxEpubXmlBytes = 2 * 1024 * 1024

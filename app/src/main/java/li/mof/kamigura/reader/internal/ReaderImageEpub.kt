@@ -32,6 +32,7 @@ internal fun parseEpubImagePage(html: String): EpubImagePageContent {
     var unsupported = false
     val ignoredTextStarts = mutableMapOf<String, Int>()
     var svgDepth = 0
+    var hasSvgLink = false
     var inspectingAttributes = false
     val text = Html.fromHtml(
         html,
@@ -51,6 +52,10 @@ internal fun parseEpubImagePage(html: String): EpubImagePageContent {
                                     ?: attributes.getValue("xlink:href")
                                     ?: attributes.getValue("http://www.w3.org/1999/xlink", "href")).orEmpty()
                                 "g", "title", "desc" -> Unit
+                                "a" -> {
+                                    hasSvgLink = true
+                                    unsupported = true
+                                }
                                 else -> unsupported = true
                             }
                             if (!attributes.getValue("transform").isNullOrBlank() ||
@@ -76,6 +81,7 @@ internal fun parseEpubImagePage(html: String): EpubImagePageContent {
             }
         }
     ).toString()
+    if (hasSvgLink && isKavitaEpubHotspotPage(html)) return EpubImagePageContent(images, text)
     return EpubImagePageContent(images, text, unsupported || ignoredTextStarts.isNotEmpty() || svgDepth != 0)
 }
 
