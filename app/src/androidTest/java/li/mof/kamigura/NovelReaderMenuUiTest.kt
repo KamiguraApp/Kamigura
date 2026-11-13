@@ -52,10 +52,14 @@ class NovelReaderMenuUiTest {
         assertSubtitleFits(subtitle)
     }
 
-    @Test fun narrowHeaderEllipsizesTitleWithoutCrowdingJumpBackOrBookmark() {
+    @Test fun narrowHeaderEllipsizesTitleWithoutCrowdingJumpBackOrBookmark() = jumpBackHeader(320, 700)
+
+    @Test fun wideHeaderKeepsJumpBackAndBookmarkAligned() = jumpBackHeader(1100, 800)
+
+    private fun jumpBackHeader(width: Int, height: Int) {
         val target = mutableStateOf<Int?>(null)
         var returns = 0
-        show(320, 700, withBookmarks = true, jumpBackPage = { target.value }, onJumpBack = { returns++ },
+        show(width, height, withBookmarks = true, jumpBackPage = { target.value }, onJumpBack = { returns++ },
             bookmarkMessage = "Bookmark saved")
         val pageSlider = slider("EPUB page navigation").fetchSemanticsNode().boundsInRoot
         val bookmark = compose.onNodeWithContentDescription("Bookmark page 16").assertIsDisplayed()
@@ -68,6 +72,14 @@ class NovelReaderMenuUiTest {
         val jumpBounds = jump.fetchSemanticsNode().boundsInRoot
         val contents = compose.onNodeWithContentDescription("Contents").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertEquals(48f, jumpBounds.width)
+        assertEquals(bookmarkBounds.top, jumpBounds.top)
+        assertEquals(bookmarkBounds.bottom, jumpBounds.bottom)
+        val jumpLabel = compose.onNodeWithText("p. 20").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val bookmarkLabel = compose.onNodeWithText("p. 16").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(jumpBounds.center.y < jumpLabel.center.y)
+        assertEquals(jumpBounds.center.x, jumpLabel.center.x, 1f)
+        assertEquals(bookmarkLabel.top, jumpLabel.top)
+        assertEquals(bookmarkLabel.bottom, jumpLabel.bottom)
         assertTrue(contents.right <= jumpBounds.left)
         assertTrue(jumpBounds.right <= bookmarkBounds.left)
         assertTrue(bookmarkBounds.right <= closeBounds.left)
@@ -78,7 +90,7 @@ class NovelReaderMenuUiTest {
         val layouts = mutableListOf<TextLayoutResult>()
         compose.onNodeWithText("A long novel series title that must not crowd either icon")
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertTrue(layouts.single().isLineEllipsized(0))
+        assertEquals(width == 320, layouts.single().isLineEllipsized(0))
         jump.performClick()
         compose.runOnIdle { assertEquals(1, returns) }
     }

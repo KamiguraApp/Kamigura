@@ -25,11 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ReaderBookmarkButton(page: Int, state: ReaderBookmarkState, onClick: () -> Unit) {
     val saved = page in state.pages
@@ -40,6 +40,41 @@ internal fun ReaderBookmarkButton(page: Int, state: ReaderBookmarkState, onClick
         saved -> "Remove bookmark from page ${page + 1}"
         else -> "Bookmark page ${page + 1}"
     }
+    ReaderPageActionButton(page, description, onClick, enabled = !state.busy, status = when {
+        !state.loaded -> "Bookmark status unavailable"
+        saved -> "Bookmarked"
+        else -> "Not bookmarked"
+    }) {
+        if (state.busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                color = Color.White,
+                strokeWidth = 2.dp
+            )
+        } else {
+            Icon(
+                imageVector = when {
+                    !state.loaded -> Icons.Filled.Refresh
+                    saved -> Icons.Filled.Bookmark
+                    else -> Icons.Outlined.BookmarkBorder
+                },
+                contentDescription = null,
+                tint = Color.White
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun ReaderPageActionButton(
+    page: Int,
+    description: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    status: String? = null,
+    icon: @Composable () -> Unit
+) {
     TooltipBox(
         positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
         tooltip = { PlainTooltip { Text(description) } },
@@ -51,40 +86,20 @@ internal fun ReaderBookmarkButton(page: Int, state: ReaderBookmarkState, onClick
         ) {
             IconButton(
                 onClick = onClick,
-                enabled = !state.busy,
+                enabled = enabled,
                 modifier = Modifier.size(48.dp).semantics {
                     contentDescription = description
-                    stateDescription = when {
-                        !state.loaded -> "Bookmark status unavailable"
-                        saved -> "Bookmarked"
-                        else -> "Not bookmarked"
-                    }
-                }
-            ) {
-                if (state.busy) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Icon(
-                        imageVector = when {
-                            !state.loaded -> Icons.Filled.Refresh
-                            saved -> Icons.Filled.Bookmark
-                            else -> Icons.Outlined.BookmarkBorder
-                        },
-                        contentDescription = null,
-                        tint = Color.White
-                    )
-                }
-            }
+                    if (status != null) stateDescription = status
+                },
+                content = icon
+            )
             Text(
                 text = "p. ${page + 1}",
                 color = Color.White.copy(alpha = 0.72f),
                 style = MaterialTheme.typography.labelSmall,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { hideFromAccessibility() }
             )
         }
     }

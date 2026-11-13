@@ -1,10 +1,12 @@
 package li.mof.kamigura
 
+import android.graphics.Bitmap
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -44,10 +46,18 @@ class ReaderJumpBackUiTest {
             val bookmark = compose.onNodeWithContentDescription("Bookmark page 1")
                 .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             assertTrue(returnButton.right <= bookmark.left)
-            assertTrue(returnButton.center.y in bookmark.top..bookmark.bottom)
+            assertEquals(bookmark.top, returnButton.top)
+            assertEquals(bookmark.bottom, returnButton.bottom)
             assertTrue(bookmark.right <= close.left)
             assertEquals(close, closeButton().fetchSemanticsNode().boundsInRoot)
             assertEquals(controls, bottomControls())
+            val label = compose.onNodeWithText("p. $furthest").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val root = compose.onRoot().captureToImage().asAndroidBitmap()
+            val header = Bitmap.createBitmap(root, 0, 0, root.width,
+                (label.bottom + returnButton.height / 4).toInt())
+            context.cacheDir.resolve("jump-back-header.png").outputStream().use {
+                assertTrue(header.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
             jump(1); back(furthest).assertIsDisplayed()
             jump(11); assertNoBack()
             jump(0); back(furthest).performClick()
