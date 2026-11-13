@@ -10,7 +10,8 @@ internal data class ReaderChapterEntry(
     val chapterId: Int,
     val volumeId: Int,
     val volumeName: String?,
-    val chapterName: String?
+    val chapterName: String?,
+    val finished: Boolean = false
 ) {
     val displayName: String
         get() = listOfNotNull(volumeName, chapterName).joinToString(" / ").ifBlank { "Chapter" }
@@ -57,5 +58,6 @@ private fun VolumeDto.readerEntry(chapter: ChapterDto): ReaderChapterEntry =
         chapterId = chapter.id,
         volumeId = chapter.volumeId ?: id,
         volumeName = displayName(),
-        chapterName = chapter.displayTitle()
+        chapterName = chapter.displayTitle(),
+        finished = chapter.pages?.let { it > 0 && (chapter.pagesRead ?: 0) >= it } == true
     )

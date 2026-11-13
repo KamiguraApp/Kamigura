@@ -55,7 +55,9 @@ internal fun NovelReaderMenu(
     bookmarkState: ReaderBookmarkState? = null,
     onBookmark: () -> Unit = {},
     onOpenContents: () -> Unit = {},
-    showContents: Boolean = bookmarkState != null
+    showContents: Boolean = bookmarkState != null,
+    jumpBackPage: Int? = null,
+    onJumpBack: () -> Unit = {}
 ) {
     val count = pages.coerceAtLeast(1)
     val currentPage = page.coerceIn(0, count - 1)
@@ -72,14 +74,12 @@ internal fun NovelReaderMenu(
     Column(Modifier.fillMaxSize()) {
         ReaderMenuHeader(seriesName, "$chapterName | Page ${currentPage + 1} / $count \u2022 Screen ${screen + 1} / $screens",
             onBack, onDismiss, backLabel = "Back to series",
-            bookmark = {
-                if (showContents) NovelContentsButton(onOpenContents)
-                bookmarkState?.let {
-                ReaderBookmarkButton(currentPage, it, onBookmark)
-            } },
+            contents = { if (showContents) NovelContentsButton(onOpenContents) },
+            bookmark = { bookmarkState?.let { ReaderBookmarkButton(currentPage, it, onBookmark) } },
             feedback = bookmarkState?.error ?: bookmarkState?.message,
             feedbackIsError = bookmarkState?.error != null,
-            compactSubtitle = "Page ${currentPage + 1} / $count \u2022 Screen ${screen + 1} / $screens")
+            compactSubtitle = "Page ${currentPage + 1} / $count \u2022 Screen ${screen + 1} / $screens",
+            jumpBackPage = jumpBackPage.takeIf { enabled }, onJumpBack = onJumpBack)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000))
                 .verticalScroll(rememberScrollState()).navigationBarsPadding().padding(12.dp),

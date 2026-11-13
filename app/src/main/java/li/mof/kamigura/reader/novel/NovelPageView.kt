@@ -180,19 +180,20 @@ internal class NovelPageView(context: Context) : WebView(context) {
         }
     }
 
-    private fun report(value: String) {
+    private fun report(value: String, onLanded: (NovelPosition) -> Unit = {}) {
         runCatching {
             val json = JSONObject(value)
             json.toNovelPosition(width, height)
-        }.onSuccess(onPosition).onFailure { onFailure("Could not read the EPUB position.") }
+        }.onSuccess { position -> onPosition(position); onLanded(position) }
+            .onFailure { onFailure("Could not read the EPUB position.") }
     }
 
-    fun turn(delta: Int, onBoundary: (Int) -> Unit) {
+    fun turn(delta: Int, onLanded: (NovelPosition) -> Unit = {}, onBoundary: (Int) -> Unit) {
         val token = generation
         evaluateJavascript("window.novelReader.turn($delta)") { value ->
             if (disposed || token != generation) return@evaluateJavascript
             val result = runCatching { JSONObject(value) }.getOrNull() ?: return@evaluateJavascript
-            if (result.has("boundary")) onBoundary(result.getInt("boundary")) else report(value)
+            if (result.has("boundary")) onBoundary(result.getInt("boundary")) else report(value, onLanded)
         }
     }
 
@@ -275,6 +276,13 @@ internal class NovelPageView(context: Context) : WebView(context) {
                 result.has("error") -> callback(result.getString("error"))
                 else -> { report(value); callback(null) }
             }
+        }
+    }
+
+    fun restoreReadingPosition(anchor: String?, location: String?, last: Boolean, onLanded: (NovelPosition) -> Unit) {
+        val token = generation
+        evaluateJavascript("window.novelReader.layout(${JSONObject.quote(anchor.orEmpty())}, $last, ${JSONObject.quote(location.orEmpty())})") { value ->
+            if (!disposed && token == generation) report(value, onLanded)
         }
     }
 

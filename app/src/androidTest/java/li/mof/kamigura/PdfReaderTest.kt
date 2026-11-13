@@ -459,7 +459,9 @@ internal class ReaderServer(
     bookFont: ByteArray? = null,
     imageBytes: ByteArray? = null,
     downloadPayload: Pair<String, ByteArray>? = null,
-    imageDimensions: Pair<Int, Int> = 600 to 900
+    imageDimensions: Pair<Int, Int> = 600 to 900,
+    private val initialImageProgress: Int = 0,
+    private val chapterFinished: () -> Boolean = { false }
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -526,14 +528,18 @@ internal class ReaderServer(
                         val custom = personal ?: contents ?: book
                         val json = custom?.second ?: when (uri.path) {
                             "/api/Series/1" -> """{"id":1,"name":"Test book","format":$format}"""
-                            "/api/Series/volumes" -> if (neighbor)
+                            "/api/Series/volumes" -> if (chapterFinished())
+                                """[{"id":1,"chapters":[{"id":1,"title":"First","pages":$spineCount,"pagesRead":$spineCount}]}]"""
+                            else if (neighbor)
                                 """[{"id":1,"chapters":[{"id":1,"title":"First"},{"id":2,"title":"Second"}]}]""" else "[]"
                             "/api/reading-profile/1/1" -> readingProfile
                             "/api/Reader/get-progress" -> {
                                 val bookSaved = bookProgressWrites.lastOrNull() ?: bookProgress
                                 val chapter = uri.getQueryParameter("chapterId")?.toInt() ?: 1
-                                val page = progressWrites.lastOrNull { it.first == chapter }?.second ?: 0
-                                if (bookSaved != null) Json.encodeToString(bookSaved) else
+                                val page = if (chapterFinished()) spineCount
+                                    else progressWrites.lastOrNull { it.first == chapter }?.second ?: initialImageProgress
+                                if (bookSaved != null) Json.encodeToString(if (chapterFinished())
+                                    bookSaved.copy(pageNum = spineCount) else bookSaved) else
                                     """{"libraryId":1,"seriesId":1,"volumeId":1,"chapterId":$chapter,"pageNum":$page}"""
                             }
                             "/api/Reader/chapter-bookmarks" -> "[]"

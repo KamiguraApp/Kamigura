@@ -54,7 +54,8 @@ internal object ReaderSessionPreferenceCache {
     private data class Entry(
         val preferences: ReaderSessionPreferences?,
         val touchedAtMillis: Long,
-        val novelOverrides: NovelReaderOverrides? = null
+        val novelOverrides: NovelReaderOverrides? = null,
+        val jumpBack: ReaderJumpBackRecord? = null
     )
 
     @Serializable
@@ -67,7 +68,8 @@ internal object ReaderSessionPreferenceCache {
         val novelWritingStyle: Int? = null,
         val novelFontSize: Int? = null,
         val novelBackground: String? = null,
-        val invertWhiteThreshold: Float? = null
+        val invertWhiteThreshold: Float? = null,
+        val jumpBack: ReaderJumpBackRecord? = null
     )
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -104,7 +106,7 @@ internal object ReaderSessionPreferenceCache {
                         storedEntry.novelFontSize?.takeIf { it in 1..1000 },
                         storedEntry.novelBackground?.let { runCatching { PageBackground.valueOf(it) }.getOrNull() }
                     ).takeIf { it.writingStyle != null || it.fontSize != null || it.background != null }
-                    if (mode == null && novel == null) return@forEach
+                    if (mode == null && novel == null && storedEntry.jumpBack == null) return@forEach
                     val direction = storedEntry.readingDirection
                         ?.let { runCatching { ReaderReadingDirection.valueOf(it) }.getOrNull() }
                         ?: if (storedEntry.rightToLeft != false) {
@@ -120,7 +122,8 @@ internal object ReaderSessionPreferenceCache {
                             )
                         },
                         touchedAtMillis = storedEntry.touchedAtMillis,
-                        novelOverrides = novel
+                        novelOverrides = novel,
+                        jumpBack = storedEntry.jumpBack
                     )
                 }
                 loadedDirectoryPath = directoryPath
@@ -159,6 +162,21 @@ internal object ReaderSessionPreferenceCache {
         trimToMaximumSize()
     }
 
+    @Synchronized
+    fun getJumpBack(key: String, nowMillis: Long): ReaderJumpBackRecord? {
+        removeExpired(nowMillis)
+        val entry = entries[key] ?: return null
+        entries[key] = entry.copy(touchedAtMillis = nowMillis)
+        return entry.jumpBack
+    }
+
+    @Synchronized
+    fun putJumpBack(key: String, record: ReaderJumpBackRecord, nowMillis: Long) {
+        removeExpired(nowMillis)
+        entries[key] = Entry(null, nowMillis, jumpBack = record)
+        trimToMaximumSize()
+    }
+
     suspend fun persist(directory: File) = diskMutex.withLock {
         val snapshot = synchronized(this) {
             entries.map { (key, entry) ->
@@ -170,7 +188,8 @@ internal object ReaderSessionPreferenceCache {
                     touchedAtMillis = entry.touchedAtMillis,
                     novelWritingStyle = entry.novelOverrides?.writingStyle,
                     novelFontSize = entry.novelOverrides?.fontSize,
-                    novelBackground = entry.novelOverrides?.background?.name
+                    novelBackground = entry.novelOverrides?.background?.name,
+                    jumpBack = entry.jumpBack
                 )
             }
         }

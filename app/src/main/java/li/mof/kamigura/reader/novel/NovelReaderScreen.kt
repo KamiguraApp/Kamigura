@@ -54,6 +54,10 @@ import li.mof.kamigura.NovelSettings
 import li.mof.kamigura.PersonalToCDto
 import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.UserReadingProfileDto
+import li.mof.kamigura.reader.ReaderJumpBackState
+import li.mof.kamigura.reader.ReaderJumpLocation
+import li.mof.kamigura.reader.ReaderJumpOpening
+import li.mof.kamigura.reader.ReaderJumpTextPosition
 import li.mof.kamigura.reader.ReaderSessionPreferenceCache
 import li.mof.kamigura.reader.ReaderTurnDirection
 import li.mof.kamigura.reader.shouldCommitReaderTurn
@@ -71,8 +75,23 @@ import li.mof.kamigura.reader.internal.ReaderIllustrationViewer
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.withTransform
 import kotlin.coroutines.resume
+import org.json.JSONObject
 
 private val NovelPreferenceWriteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+private sealed interface NovelJumpLanding {
+    data object Turn : NovelJumpLanding
+    data object Jump : NovelJumpLanding
+    data class Return(val from: ReaderJumpLocation) : NovelJumpLanding
+}
+
+private fun NovelPosition.jumpLocation(spine: Int): ReaderJumpLocation {
+    val precise = location?.let { value -> runCatching {
+        val json = JSONObject(value)
+        ReaderJumpTextPosition(json.getInt("text"), json.getInt("offset"))
+    }.getOrNull() }
+    return ReaderJumpLocation(spine, screen, anchor, precise, lastScreen = screen == count - 1 && screen > 0)
+}
 
 @Composable
 internal fun NovelReaderScreen(
@@ -88,7 +107,9 @@ internal fun NovelReaderScreen(
     onSwitchChapter: (ReaderChapterEntry, Boolean) -> Unit,
     offline: Boolean = false,
     novelSettings: NovelSettings = NovelSettings(),
-    imageLoader: ImageLoader = LocalContext.current.imageLoader
+    imageLoader: ImageLoader = LocalContext.current.imageLoader,
+    jumpBack: ReaderJumpBackState = remember { ReaderJumpBackState() },
+    jumpOpening: ReaderJumpOpening = ReaderJumpOpening.Resume
 ) {
     val context = LocalContext.current
     val initialOverrides = remember(preferenceKey) {
@@ -130,6 +151,8 @@ internal fun NovelReaderScreen(
     var previousFrame by remember { mutableStateOf<ImageBitmap?>(null) }
     var failure by remember { mutableStateOf<String?>(null) }
     var position by remember { mutableStateOf<NovelPosition?>(null) }
+    var historyOpened by rememberSaveable { mutableStateOf(false) }
+    var pendingLanding by remember { mutableStateOf<NovelJumpLanding?>(null) }
     val rightToLeft = (position?.vertical ?: preferences.vertical) || preferences.readingDirection == 1
     var reachedSpine by rememberSaveable { mutableIntStateOf(spine) }
     var hasReachedPage by rememberSaveable { mutableStateOf(false) }
@@ -204,13 +227,15 @@ internal fun NovelReaderScreen(
         if (loading || failure != null || boundaryDirection != null || chapterSwitching) finishClose(reachedAnchor)
         else view.position { latest -> finishClose(latest?.anchor ?: reachedAnchor) }
     }
-    fun loadSpine(target: Int, last: Boolean = false, anchor: String? = null) {
+    fun loadSpine(target: Int, last: Boolean = false, anchor: String? = null,
+                  precise: String? = null, navigation: NovelJumpLanding? = null) {
         if (!loading && renderedSpine >= 0) previousFrame = view.captureFrame()?.asImageBitmap()
         renderedSpine = -1
         view.beginSectionLoad()
         spine = target
         savedAnchor = anchor
-        savedLocation = null
+        savedLocation = precise
+        pendingLanding = navigation
         openLast = last
         loading = true
         turning = false
@@ -230,7 +255,10 @@ internal fun NovelReaderScreen(
                 turning = false
                 bookmarkPositionError = error
                 if (error != null && !menu) Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-                if (error == null) { contentsList = false; menu = false }
+                if (error == null) {
+                    position?.let { jumpBack.jumped(it.jumpLocation(reachedSpine)) }
+                    contentsList = false; menu = false
+                }
             }
         }
     }
@@ -240,10 +268,11 @@ internal fun NovelReaderScreen(
     fun sectionBoundary(delta: Int) {
         if (closing) return
         val target = spine + delta
-        if (target in 0 until spineCount) { loadSpine(target, delta < 0); return }
+        if (target in 0 until spineCount) { loadSpine(target, delta < 0, navigation = NovelJumpLanding.Turn); return }
         turning = false
         menu = false
         queuedTurns = emptyList()
+        if (delta > 0) jumpBack.reset()
         writer.finishAsync(if (delta > 0) progress(reachedAnchor) else null) {
             if (delta > 0) api.markChapterRead(MarkChapterReadDto(seriesId, chapterId, false))
             else api.markChaptersUnread(MarkVolumesReadDto(seriesId = seriesId, chapterIds = listOf(chapterId)))
@@ -264,7 +293,9 @@ internal fun NovelReaderScreen(
         }
         turning = true
         moved = true
-        view.turn(delta, ::sectionBoundary)
+        view.turn(delta, onLanded = { current ->
+            if (renderedSpine == spine && !closing) jumpBack.turned(current.jumpLocation(spine))
+        }, onBoundary = ::sectionBoundary)
     }
     LaunchedEffect(loading, turning, dragging, queuedTurns, menu, failure, chapterSwitching, closing, boundaryDirection, pendingBookmarkAnchor) {
         if (menu || failure != null || closing || boundaryDirection != null) queuedTurns = emptyList()
@@ -286,6 +317,18 @@ internal fun NovelReaderScreen(
             loading = false
             previousFrame = null
             turning = false
+            val location = current.jumpLocation(reachedSpine)
+            if (!historyOpened) {
+                jumpBack.opened(location, jumpOpening)
+                historyOpened = true
+            }
+            when (val landing = pendingLanding) {
+                NovelJumpLanding.Turn -> jumpBack.turned(location)
+                NovelJumpLanding.Jump -> jumpBack.jumped(location)
+                is NovelJumpLanding.Return -> jumpBack.returned(landing.from, location)
+                null -> Unit
+            }
+            pendingLanding = null
             if (moved && boundaryDirection == null) writer.submit(progress(current.anchor))
         }
     })
@@ -352,7 +395,10 @@ internal fun NovelReaderScreen(
             turning = false
             bookmarkPositionError = error
             if (error != null && !menu) Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
-            if (error == null) { contentsList = false; menu = false }
+            if (error == null) {
+                position?.let { jumpBack.jumped(it.jumpLocation(reachedSpine)) }
+                contentsList = false; menu = false
+            }
         }
     }
     BackHandler { when { illustration != null -> illustration = null; contentsList && menu -> contentsList = false; menu -> menu = false; else -> close() } }
@@ -468,6 +514,11 @@ internal fun NovelReaderScreen(
                 onOpenBookmark = { openLocation(it.pageNumber, it.bookScrollId) },
                 onRemove = { scope.launch { bookmarks?.remove(it) } })
         } else if (menu) {
+            val currentLocation = position?.takeIf { !loading && !turning && failure == null }
+                ?.jumpLocation(reachedSpine)
+            val returnTarget = currentLocation?.let(jumpBack::target)?.takeIf {
+                it.page in 0 until spineCount && (it.page != spine || it.anchor != null || it.textPosition != null)
+            }
             val bookmarkState = bookmarks?.state?.let { state -> ReaderBookmarkState(
                 pages = if (bookmarkContext?.visible?.isNotEmpty() == true) setOf(spine) else emptySet(),
                 loaded = state.loaded && bookmarkContext != null,
@@ -482,7 +533,26 @@ internal fun NovelReaderScreen(
                 onBack = ::close, onDismiss = { menu = false },
                 onWritingStyle = { writingStyle = it; persistOverrides(style = it); view.setVertical(it == 1) },
                 onFontSize = { fontSizeOverride = it; persistOverrides(font = it) },
-                onJumpToPage = { loadSpine(it) },
+                onJumpToPage = { loadSpine(it, navigation = NovelJumpLanding.Jump) },
+                jumpBackPage = returnTarget?.page,
+                onJumpBack = {
+                    if (returnTarget != null && currentLocation != null) {
+                        val precise = returnTarget.textPosition?.let { "{\"text\":${it.text},\"offset\":${it.offset}}" }
+                        val last = precise == null && returnTarget.lastScreen
+                        if (returnTarget.page == spine) {
+                            turning = true
+                            moved = true
+                            view.restoreReadingPosition(returnTarget.anchor, precise, last) { landed ->
+                                if (renderedSpine == spine && !closing) {
+                                    jumpBack.returned(currentLocation, landed.jumpLocation(spine))
+                                }
+                            }
+                        } else {
+                            loadSpine(returnTarget.page, last = last, anchor = returnTarget.anchor, precise = precise,
+                                navigation = NovelJumpLanding.Return(currentLocation))
+                        }
+                    }
+                },
                 onBackground = { backgroundOverride = it.name; persistOverrides(background = it) },
                 bookmarkState = bookmarkState,
                 onOpenContents = { bookmarkPositionError = null; contentsList = true },

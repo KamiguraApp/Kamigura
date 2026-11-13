@@ -127,6 +127,7 @@ import li.mof.kamigura.reader.internal.toPageDimensionMap
 import li.mof.kamigura.reader.internal.withDoubleTapZoom
 import li.mof.kamigura.reader.internal.withTransform
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -247,6 +248,28 @@ fun ReaderScreen(
         settings.reader.image.invertWhiteThreshold, invertWhiteThresholdOverride
     )
     var sessionPreferenceKey by remember { mutableStateOf<String?>(null) }
+    var jumpBack by remember { mutableStateOf(ReaderJumpBackState()) }
+    var jumpOpening by remember { mutableStateOf(ReaderJumpOpening.Resume) }
+    fun openJumpHistory(chapter: Int, landingPage: Int, opening: ReaderJumpOpening, finished: Boolean, novel: Boolean) {
+        val key = sessionPreferenceKey?.takeUnless { incognito }?.let { "$it:chapter:$chapter:jump-back" }
+        val stored = key?.let { ReaderSessionPreferenceCache.getJumpBack(it, System.currentTimeMillis()) }
+        if (stored != null) ReaderExitWriteScope.launch { ReaderSessionPreferenceCache.persist(ctx.cacheDir) }
+        jumpBack = ReaderJumpBackState(stored) { record ->
+            if (key != null) {
+                ReaderSessionPreferenceCache.putJumpBack(key, record, System.currentTimeMillis())
+                ReaderExitWriteScope.launch { ReaderSessionPreferenceCache.persist(ctx.cacheDir) }
+            }
+        }
+        jumpOpening = opening
+        if (finished && opening != ReaderJumpOpening.Restore) jumpBack.reset()
+        if (!novel) jumpBack.opened(ReaderJumpLocation(landingPage), opening)
+    }
+    fun landImageTurn(target: Int, spreadShift: Boolean = false) {
+        if (page != target) {
+            page = target
+            if (spreadShift) jumpBack.shifted() else jumpBack.turned(ReaderJumpLocation(target))
+        }
+    }
     fun persistSessionPreferences() {
         sessionPreferenceKey?.let { key ->
             ReaderSessionPreferenceCache.put(
@@ -387,6 +410,7 @@ fun ReaderScreen(
     fun completeChapter(exitAfter: Boolean = true) {
         if (completingRead || pages <= 0) return
         completingRead = true
+        jumpBack.reset()
         showReaderMenu = false
         val completedChapterId = currentChapterId
         val completedVolumeId = currentVolumeId
@@ -485,12 +509,6 @@ fun ReaderScreen(
             }
         }
     }
-    fun jumpToPage(targetPage: Int) {
-        val nextPage = clampPage(targetPage)
-        if (nextPage != page) {
-            page = nextPage
-        }
-    }
     fun switchChapter(target: ReaderChapterEntry, openAtLastPage: Boolean) {
         if (chapterSwitching || target.chapterId == currentChapterId) return
         val loadedSession = session ?: return
@@ -553,6 +571,9 @@ fun ReaderScreen(
                 pages = loadedPageCount
                 pageDimensions = loadedDimensions
                 page = landingPage
+                openJumpHistory(target.chapterId, landingPage, ReaderJumpOpening.Resume,
+                    local?.record?.markReadPending == true ||
+                        (local?.record?.progressPending != true && target.finished), loadedNovel)
                 openedPage = landingPage
                 hasMoved = true
                 lastSyncedPage = -1
@@ -576,6 +597,11 @@ fun ReaderScreen(
 
     LaunchedEffect(Unit) {
         val restoredPage = page.takeIf { it >= 0 }
+        val opening = when {
+            restoredPage != null -> ReaderJumpOpening.Restore
+            initialPage != null -> ReaderJumpOpening.Jump
+            else -> ReaderJumpOpening.Resume
+        }
         if (lastSyncedPage >= 0) lastRemoteProgressPages[currentChapterId] = lastSyncedPage
         // Seed the session invert override from the persisted global value. `.first()` on the
         // store flow yields the real DataStore value (not the collectAsState default), so this
@@ -621,6 +647,7 @@ fun ReaderScreen(
             pageDimensions = local.dimensions
             page = (restoredPage ?: initialPage ?: local.record.localPage)
                 .coerceIn(0, (pages - 1).coerceAtLeast(0))
+            openJumpHistory(currentChapterId, page, opening, local.record.markReadPending, novel = false)
             if (openedPage < 0) openedPage = page
             if (restoredPage == null && !local.record.progressPending) {
                 lastRemoteProgressPages[currentChapterId] = page
@@ -637,6 +664,8 @@ fun ReaderScreen(
             readerImageLoader = client.buildReaderImageLoader(okHttp, loadedSession)
             runCatching { offlineRepository.syncPending(loadedSession, loadedApi) }
                 .onFailure { KamiguraLog.w("Could not sync pending offline progress from Reader.", it) }
+            var finishedOnServer = false
+            var loadedNovelProgress: ProgressDto? = null
             if (local == null) {
                 val series = loadedApi.series(seriesId)
                 readerSeries = series
@@ -689,12 +718,17 @@ fun ReaderScreen(
                     loadedApi.getProgress(currentChapterId)
                 } else ProgressDto(libraryId, seriesId, currentVolumeId, currentChapterId, restoredPage ?: initialPage ?: 0)
                 val savedPage = restoredPage ?: initialPage ?: progress.pageNum
+                finishedOnServer = pageCount > 0 && progress.pageNum >= pageCount
                 if (loaded.novelEpub) {
-                    novelProgress = if (restoredPage == null && initialPage != null) {
+                    loadedNovelProgress = if (restoredPage == null && initialPage != null) {
                         progress.copy(pageNum = initialPage, bookScrollId = null)
                     } else progress
                 }
                 page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
+                loadedNovelProgress?.let { progress ->
+                    openJumpHistory(currentChapterId, page, opening, finishedOnServer, novel = true)
+                    novelProgress = progress
+                }
                 if (openedPage < 0) openedPage = page
                 if (restoredPage == null) {
                     lastRemoteProgressPages[currentChapterId] = page
@@ -711,6 +745,7 @@ fun ReaderScreen(
                     .getOrNull()
                 val landingPage = initialPage ?: savedPage
                 if (landingPage != null) {
+                    finishedOnServer = savedPage != null && pages > 0 && savedPage >= pages
                     page = landingPage.coerceIn(0, pages - 1)
                     lastRemoteProgressPages[currentChapterId] = page
                     lastSyncedPage = page
@@ -718,6 +753,14 @@ fun ReaderScreen(
                 }
             }
             chapterMetadataJob.join()
+            val finished = finishedOnServer || currentChapter.finished
+            if (local == null && loadedNovelProgress == null) {
+                openJumpHistory(currentChapterId, page, opening, finished, novel = false)
+            } else if (local?.record?.progressPending == false && opening != ReaderJumpOpening.Restore &&
+                !hasMoved && page == openedPage && finished
+            ) {
+                jumpBack.reset()
+            }
             readerReady = true
             verticalRestoreNonce++
         } catch (cancelled: CancellationException) {
@@ -830,6 +873,7 @@ fun ReaderScreen(
             initialLastScreen = novelOpenLastScreen, chapterEntered = novelChapterEntered,
             chapterSwitching = chapterSwitching, switchError = error,
             onSwitchChapter = ::switchChapter,
+            jumpBack = jumpBack, jumpOpening = jumpOpening,
             onMenuChanged = { showReaderMenu = it }, onBack = onBack,
             imageLoader = readerImageLoader ?: fallbackImageLoader
         ) }
@@ -875,6 +919,34 @@ fun ReaderScreen(
         val viewportHeightPx = with(density) { maxHeight.toPx() }
         val viewportHeight = maxHeight
         val verticalListState = rememberLazyListState()
+        var verticalJumpJob by remember(currentChapterId) { mutableStateOf<Job?>(null) }
+        fun jumpToImagePage(targetPage: Int, returnFrom: ReaderJumpLocation? = null) {
+            val target = clampPage(targetPage)
+            val origin = page
+            if (target == origin && !vertical) return
+            val history = jumpBack
+            fun land(at: Int) {
+                page = at
+                val location = ReaderJumpLocation(at)
+                if (returnFrom != null) history.returned(returnFrom, location)
+                else if (target != origin || at != origin) history.jumped(location)
+            }
+            if (!vertical) land(target)
+            else {
+                verticalJumpJob?.cancel()
+                verticalJumpJob = scope.launch(start = CoroutineStart.LAZY) {
+                    verticalListState.scrollToItem(target + 1)
+                    if (history !== jumpBack || readingDirection != ReaderReadingDirection.Vertical) return@launch
+                    val info = verticalListState.layoutInfo
+                    val visible = readerVerticalPosition(
+                        info.visibleItemsInfo.map { ReaderVerticalVisibleItem(it.index, it.offset, it.size) },
+                        info.viewportStartOffset, info.viewportEndOffset, pages
+                    )
+                    land((visible as? ReaderVerticalPosition.Page)?.index ?: target)
+                }
+                verticalJumpJob?.start()
+            }
+        }
         var verticalBoundariesEnabled by remember(
             currentChapterId,
             readingDirection,
@@ -1268,7 +1340,7 @@ fun ReaderScreen(
                     PageCurlTurnDirection.Backward -> curlState.prev(tapPosition = curlTapPosition)
                 }
                 rememberZoomTurnLanding(direction)
-                page = target
+                landImageTurn(target)
                 if (spreadCurl) {
                     curlState.snapTo(ReaderSpreadCurlVisualCurrent)
                 }
@@ -1295,7 +1367,7 @@ fun ReaderScreen(
             if (!settings.reader.image.pageTransitionAnimation) {
                 if (commit) {
                     rememberZoomTurnLanding(transition.direction)
-                    page = transition.targetPage
+                    landImageTurn(transition.targetPage, transition.spreadShift)
                 }
                 activeTransition = null
                 transitionProgress = 0f
@@ -1317,7 +1389,7 @@ fun ReaderScreen(
                 }
                 if (commit) {
                     rememberZoomTurnLanding(transition.direction)
-                    page = transition.targetPage
+                    landImageTurn(transition.targetPage, transition.spreadShift)
                     withFrameNanos { }
                 }
                 activeTransition = null
@@ -1326,9 +1398,10 @@ fun ReaderScreen(
             }
         }
 
-        fun requestSlideTurn(direction: ReaderTurnDirection, step: Int, completeWhenPastEnd: Boolean) {
+        fun requestSlideTurn(direction: ReaderTurnDirection, step: Int, completeWhenPastEnd: Boolean,
+                             spreadShift: Boolean = false) {
             if (transitionSettling || activeTransition != null) {
-                queuedTurn = PendingReaderTurn(direction, step, completeWhenPastEnd, slideOnly = true)
+                queuedTurn = PendingReaderTurn(direction, step, completeWhenPastEnd, slideOnly = true, spreadShift = spreadShift)
                 return
             }
             val target = turnTarget(direction, step, completeWhenPastEnd)
@@ -1340,14 +1413,15 @@ fun ReaderScreen(
                 if (zoomPan.userScale > 1f + ReaderZoomEpsilon) {
                     pendingZoomLandingDirection = direction
                 }
-                page = target
+                landImageTurn(target, spreadShift)
                 return
             }
             activeTransition = ReaderPageTransition(
                 outgoingPage = page,
                 targetPage = target,
                 direction = direction,
-                distanceFraction = readerSlideDistanceFraction(step, portrait, layout.singlePage)
+                distanceFraction = readerSlideDistanceFraction(step, portrait, layout.singlePage),
+                spreadShift = spreadShift
             )
             transitionProgress = 0f
             settleTransition(commit = true, completeWhenPastEnd = completeWhenPastEnd)
@@ -1385,7 +1459,7 @@ fun ReaderScreen(
         // modes: in Curl mode it draws over the still-mounted PageCurl, so there is no
         // unmount/remount churn (the original cause of the image thrash).
         fun requestSingleStep(direction: ReaderTurnDirection, completeWhenPastEnd: Boolean) {
-            requestSlideTurn(direction, 1, completeWhenPastEnd)
+            requestSlideTurn(direction, 1, completeWhenPastEnd, spreadShift = !portrait && !layout.singlePage)
         }
 
         ReaderKeyEffect(
@@ -1437,7 +1511,7 @@ fun ReaderScreen(
             if (activeTransition == null && !transitionSettling && pending != null) {
                 queuedTurn = null
                 if (pending.slideOnly) {
-                    requestSlideTurn(pending.direction, pending.step, pending.completeWhenPastEnd)
+                    requestSlideTurn(pending.direction, pending.step, pending.completeWhenPastEnd, pending.spreadShift)
                 } else {
                     requestTurn(pending.direction, pending.step, pending.completeWhenPastEnd)
                 }
@@ -1565,7 +1639,7 @@ fun ReaderScreen(
                     curlState.settleTurn(commit)
                     if (commit) {
                         rememberZoomTurnLanding(curlDirection)
-                        target?.let { page = it }
+                        target?.let { landImageTurn(it) }
                     }
                     if (spreadCurl) {
                         curlState.snapTo(ReaderSpreadCurlVisualCurrent)
@@ -1719,11 +1793,14 @@ fun ReaderScreen(
                     chapterSwitching = chapterSwitching,
                     boundaryHasError = error != null,
                     onCurrentPageChanged = { currentPage ->
-                        if (page != currentPage) page = currentPage
+                        if (page != currentPage) {
+                            if (verticalBoundariesEnabled && verticalJumpJob?.isActive != true) landImageTurn(currentPage)
+                            else page = currentPage
+                        }
                         if (completingRead) completingRead = false
                     },
                     onBoundaryReached = { direction ->
-                        if (verticalBoundariesEnabled && !completingRead) {
+                        if (verticalBoundariesEnabled && verticalJumpJob?.isActive != true && !completingRead) {
                             when (direction) {
                                 ReaderTurnDirection.Next -> {
                                     if (neighbors.next == null) completeChapter()
@@ -2244,6 +2321,7 @@ fun ReaderScreen(
         }
 
         if (showReaderMenu && chapterBoundary == null) {
+            val location = ReaderJumpLocation(page)
             ReaderMenuOverlay(
                 seriesName = seriesName,
                 chapterName = currentChapter.displayName,
@@ -2268,6 +2346,7 @@ fun ReaderScreen(
                     // Settings; a per-series direction lives on the Kavita server. This
                     // toggle flips the current reading session without writing either, so it
                     // never silently changes other books or fights the server value.
+                    if (direction != readingDirection) verticalJumpJob?.cancel()
                     readingDirection = direction
                     persistSessionPreferences()
                 },
@@ -2289,12 +2368,9 @@ fun ReaderScreen(
                 onPreviousSingle = {
                     requestSingleStep(ReaderTurnDirection.Previous, false)
                 },
-                onJumpToPage = { targetPage ->
-                    jumpToPage(targetPage)
-                    if (vertical) {
-                        scope.launch { verticalListState.scrollToItem(targetPage + 1) }
-                    }
-                }
+                onJumpToPage = { jumpToImagePage(it) },
+                jumpBackPage = jumpBack.target(location)?.page?.takeIf { it in 0 until pages },
+                onJumpBack = { jumpBack.target(location)?.let { jumpToImagePage(it.page, location) } }
             )
         }
 

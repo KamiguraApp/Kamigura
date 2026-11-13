@@ -52,6 +52,37 @@ class NovelReaderMenuUiTest {
         assertSubtitleFits(subtitle)
     }
 
+    @Test fun narrowHeaderEllipsizesTitleWithoutCrowdingJumpBackOrBookmark() {
+        val target = mutableStateOf<Int?>(null)
+        var returns = 0
+        show(320, 700, withBookmarks = true, jumpBackPage = { target.value }, onJumpBack = { returns++ },
+            bookmarkMessage = "Bookmark saved")
+        val pageSlider = slider("EPUB page navigation").fetchSemanticsNode().boundsInRoot
+        val bookmark = compose.onNodeWithContentDescription("Bookmark page 16").assertIsDisplayed()
+        val close = compose.onNodeWithContentDescription("Close menu").assertIsDisplayed()
+        val bookmarkBounds = bookmark.fetchSemanticsNode().boundsInRoot
+        val closeBounds = close.fetchSemanticsNode().boundsInRoot
+        compose.runOnIdle { target.value = 19 }
+
+        val jump = compose.onNodeWithContentDescription("Back to p. 20").assertIsDisplayed().assertHasClickAction()
+        val jumpBounds = jump.fetchSemanticsNode().boundsInRoot
+        val contents = compose.onNodeWithContentDescription("Contents").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertEquals(48f, jumpBounds.width)
+        assertTrue(contents.right <= jumpBounds.left)
+        assertTrue(jumpBounds.right <= bookmarkBounds.left)
+        assertTrue(bookmarkBounds.right <= closeBounds.left)
+        assertEquals(bookmarkBounds, bookmark.fetchSemanticsNode().boundsInRoot)
+        assertEquals(closeBounds, close.fetchSemanticsNode().boundsInRoot)
+        assertEquals(pageSlider, slider("EPUB page navigation").fetchSemanticsNode().boundsInRoot)
+        compose.onNodeWithText("Bookmark saved").assertIsDisplayed()
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("A long novel series title that must not crowd either icon")
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertTrue(layouts.single().isLineEllipsized(0))
+        jump.performClick()
+        compose.runOnIdle { assertEquals(1, returns) }
+    }
+
     private fun assertSubtitleFits(node: SemanticsNodeInteraction) {
         val layouts = mutableListOf<TextLayoutResult>()
         node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
@@ -149,7 +180,8 @@ class NovelReaderMenuUiTest {
     private fun show(width: Int, height: Int, page: () -> Int = { 15 }, pages: Int = 21, enabled: Boolean = true,
         preferences: () -> NovelReaderPreferences = { NovelReaderPreferences(writingStyle = 1) },
         onStyle: (Int) -> Unit = {}, onFont: (Int) -> Unit = {}, onJump: (Int) -> Unit = {},
-        onBackground: (PageBackground) -> Unit = {}, withBookmarks: Boolean = false) {
+        onBackground: (PageBackground) -> Unit = {}, withBookmarks: Boolean = false,
+        jumpBackPage: () -> Int? = { null }, onJumpBack: () -> Unit = {}, bookmarkMessage: String? = null) {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 MaterialTheme {
@@ -157,7 +189,8 @@ class NovelReaderMenuUiTest {
                         NovelReaderMenu("A long novel series title that must not crowd either icon",
                             "Volume 33", page(), pages, NovelPosition(10, 23, true, "//body/p[57]"),
                             preferences(), enabled, {}, {}, onStyle, onFont, onJump, onBackground,
-                            bookmarkState = if (withBookmarks) ReaderBookmarkState(loaded = true) else null)
+                            bookmarkState = if (withBookmarks) ReaderBookmarkState(loaded = true, message = bookmarkMessage) else null,
+                            jumpBackPage = jumpBackPage(), onJumpBack = onJumpBack)
                     }
                 }
             }

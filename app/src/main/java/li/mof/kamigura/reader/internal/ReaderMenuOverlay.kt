@@ -9,11 +9,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonGroupDefaults
@@ -22,8 +24,14 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -69,7 +78,9 @@ internal fun ReaderMenuOverlay(
     onSetWhiteThreshold: (Float) -> Unit,
     onNextSingle: () -> Unit,
     onPreviousSingle: () -> Unit,
-    onJumpToPage: (Int) -> Unit
+    onJumpToPage: (Int) -> Unit,
+    jumpBackPage: Int? = null,
+    onJumpBack: () -> Unit = {}
 ) {
     val rightToLeft = readingDirection == ReaderReadingDirection.RightToLeft
     val safePageCount = pages.coerceAtLeast(1)
@@ -97,7 +108,9 @@ internal fun ReaderMenuOverlay(
             seriesName, "$chapterName | ${page + 1} / $pages", onBack, onDismiss,
             bookmark = { bookmarkState?.let { ReaderBookmarkButton(currentPage, it, onBookmark) } },
             feedback = bookmarkState?.error ?: bookmarkState?.message,
-            feedbackIsError = bookmarkState?.error != null
+            feedbackIsError = bookmarkState?.error != null,
+            jumpBackPage = jumpBackPage,
+            onJumpBack = onJumpBack
         )
 
         Spacer(Modifier.weight(1f))
@@ -265,6 +278,33 @@ internal fun ReaderMenuOverlay(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderJumpBackButton(page: Int, compact: Boolean, onClick: () -> Unit) {
+    val label = "Back to p. ${page + 1}"
+    val accessibleLabel = Modifier.semantics { contentDescription = label }
+    if (compact) {
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+            tooltip = { PlainTooltip { Text(label) } },
+            state = rememberTooltipState()
+        ) {
+            IconButton(onClick = onClick, modifier = accessibleLabel.size(48.dp)) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = Color.White,
+                        modifier = Modifier.size(20.dp))
+                    Text("p. ${page + 1}", color = Color.White, style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.clearAndSetSemantics {})
+                }
+            }
+        }
+    } else {
+        TextButton(onClick = onClick, modifier = accessibleLabel) {
+            Text(label, color = Color.White, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
+        }
+    }
+}
+
 @Composable
 internal fun ReaderMenuHeader(
     seriesName: String,
@@ -275,8 +315,12 @@ internal fun ReaderMenuHeader(
     bookmark: @Composable () -> Unit = {},
     feedback: String? = null,
     feedbackIsError: Boolean = false,
-    compactSubtitle: String? = null
-) {
+    compactSubtitle: String? = null,
+    contents: @Composable () -> Unit = {},
+    jumpBackPage: Int? = null,
+    onJumpBack: () -> Unit = {}
+) = BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val compactJumpBack = maxWidth < 480.dp
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -324,6 +368,8 @@ internal fun ReaderMenuHeader(
                     }
                 }
             }
+            contents()
+            if (jumpBackPage != null) ReaderJumpBackButton(jumpBackPage, compactJumpBack, onJumpBack)
             bookmark()
             IconButton(onClick = onDismiss) {
                 Icon(

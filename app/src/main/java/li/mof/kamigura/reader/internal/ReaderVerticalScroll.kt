@@ -12,6 +12,8 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -110,6 +112,8 @@ internal fun ReaderVerticalScroll(
     onBackToSeries: () -> Unit,
     onMenuToggle: () -> Unit
 ) {
+    val currentPageChanged by rememberUpdatedState(onCurrentPageChanged)
+    val boundaryReached by rememberUpdatedState(onBoundaryReached)
     LaunchedEffect(listState, pageCount) {
         snapshotFlow { listState.layoutInfo }
             .map { layout ->
@@ -125,12 +129,12 @@ internal fun ReaderVerticalScroll(
             .distinctUntilChanged()
             .collect { position ->
                 when (position) {
-                    is ReaderVerticalPosition.Page -> onCurrentPageChanged(position.index)
+                    is ReaderVerticalPosition.Page -> currentPageChanged(position.index)
                     ReaderVerticalPosition.PreviousBoundary -> {
-                        onBoundaryReached(ReaderTurnDirection.Previous)
+                        boundaryReached(ReaderTurnDirection.Previous)
                     }
                     ReaderVerticalPosition.NextBoundary -> {
-                        onBoundaryReached(ReaderTurnDirection.Next)
+                        boundaryReached(ReaderTurnDirection.Next)
                     }
                     null -> Unit
                 }

@@ -12,7 +12,8 @@ internal data class ReaderPageTransition(
     // Fraction of the viewport width the slide travels. A spread shift (step 1 on a
     // spread) moves the page strip by one page = half the viewport; everything else
     // sweeps the full width.
-    val distanceFraction: Float = 1f
+    val distanceFraction: Float = 1f,
+    val spreadShift: Boolean = false
 )
 
 internal fun readerSlideDistanceFraction(
@@ -72,7 +73,8 @@ internal data class PendingReaderTurn(
     val direction: ReaderTurnDirection,
     val step: Int,
     val completeWhenPastEnd: Boolean,
-    val slideOnly: Boolean = false
+    val slideOnly: Boolean = false,
+    val spreadShift: Boolean = false
 )
 
 private const val ReaderTurnCommitProgressThreshold = 0.12f
