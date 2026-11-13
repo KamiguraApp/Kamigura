@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
@@ -20,6 +19,8 @@ import kotlinx.coroutines.withTimeout
 import li.mof.kamigura.download.*
 import li.mof.kamigura.reader.ReaderScreen
 import li.mof.kamigura.reader.ReaderSessionPreferenceCache
+import li.mof.kamigura.reader.internal.readerJumpLandingPage
+import li.mof.kamigura.reader.internal.readerVisiblePageIndices
 import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -101,6 +102,8 @@ class OfflineLinkedContentsEpubTest {
                 shell("cmd connectivity airplane-mode enable")
                 compose.runOnIdle { reader.value = KavitaSessionStore(context).apply { useTransient(session) } }
                 compose.waitUntil(15_000) { compose.onAllNodesWithContentDescription("Page 0").fetchSemanticsNodes().isNotEmpty() }
+                val viewport = compose.onRoot().fetchSemanticsNode().size
+                var cursor = 0
                 for ((kind, page) in listOf("contents" to contents, "last" to pages - 1)) {
                     compose.onRoot().performTouchInput { click(Offset(width / 2f, height * .2f)) }
                     compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isNotEmpty() }
@@ -108,12 +111,18 @@ class OfflineLinkedContentsEpubTest {
                     compose.onNodeWithText("Off", useUnmergedTree = true).performClick()
                     compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
                         .performSemanticsAction(SemanticsActions.SetProgress) { it(page.toFloat()) }
-                    compose.onNodeWithText("${page + 1} / $pages", substring = true).assertIsDisplayed()
+                    cursor = readerJumpLandingPage(cursor, page, pages, viewport.height > viewport.width, chapter.dimensions)
+                    compose.onNodeWithText("${cursor + 1} / $pages", substring = true).assertIsDisplayed()
                     compose.onNodeWithContentDescription("Close menu").performClick()
-                    compose.waitUntil(15_000) { pageImages(page).fetchSemanticsNodes().isNotEmpty() }
-                    val bounds = pageImages(page).onFirst().fetchSemanticsNode().boundsInRoot
+                    val visible = readerVisiblePageIndices(cursor, pages, viewport.height > viewport.width, chapter.dimensions)
+                    assertTrue(page in visible)
+                    val label = if (visible.size == 1) "Page $page"
+                        else if (page == cursor) "Left $page" else "Right $page"
+                    val image = compose.onNodeWithContentDescription(label)
+                    compose.waitUntil(15_000) { image.isDisplayed() }
+                    val bounds = image.fetchSemanticsNode().boundsInRoot
                     val expected = decodeOfflinePage(chapter.pages[page], bounds.width.toInt(), bounds.height.toInt())!!
-                    try { compose.waitUntil(15_000) { imageMatches(expected, page) } } finally { expected.recycle() }
+                    try { compose.waitUntil(15_000) { imageMatches(expected, image, label) } } finally { expected.recycle() }
                     val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
                     context.getExternalFilesDir(null)!!.resolve("linked-contents-$label-$kind.png").outputStream().use {
                         screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)
@@ -136,21 +145,13 @@ class OfflineLinkedContentsEpubTest {
         }
     }
 
-    private fun pageImages(page: Int) = compose.onAllNodes(
-        hasContentDescription("Page $page") or hasContentDescription("Left $page") or hasContentDescription("Right $page")
-    )
-
-    private fun imageMatches(expected: Bitmap, page: Int): Boolean {
-        if (compose.onAllNodesWithText("...").fetchSemanticsNodes().isNotEmpty() ||
-            compose.onAllNodesWithContentDescription("Page unavailable").fetchSemanticsNodes().isNotEmpty()) return false
-        val image = pageImages(page).onFirst()
-        val descriptions = image.fetchSemanticsNode().config[SemanticsProperties.ContentDescription]
+    private fun imageMatches(expected: Bitmap, image: SemanticsNodeInteraction, label: String): Boolean {
         val pixels = image.captureToImage().toPixelMap()
         val scale = min(pixels.width.toFloat() / expected.width, pixels.height.toFloat() / expected.height)
         // Spread sheets align to the binding, while single pages are centered.
         val left = when {
-            "Left $page" in descriptions -> pixels.width - expected.width * scale
-            "Right $page" in descriptions -> 0f
+            label.startsWith("Left ") -> pixels.width - expected.width * scale
+            label.startsWith("Right ") -> 0f
             else -> (pixels.width - expected.width * scale) / 2
         }
         val top = (pixels.height - expected.height * scale) / 2

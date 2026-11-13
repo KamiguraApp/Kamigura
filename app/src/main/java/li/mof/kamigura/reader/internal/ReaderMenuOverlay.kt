@@ -217,6 +217,8 @@ internal fun ReaderMenuOverlay(
                     },
                     onValueChangeFinished = {
                         onJumpToPage(jumpPage)
+                        // The requested page may already be the second leaf of this spread.
+                        jumpPage = currentPage
                     },
                     valueRange = 0f..sliderMax,
                     valueLabel = { value -> "${sliderValueToPage(value) + 1}" },

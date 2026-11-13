@@ -58,22 +58,24 @@ class PdfReaderTest {
             awaitPages(server)
             openMenu()
             compose.onNodeWithText("LTR").performClick()
+            // Establish the same pairing before restoration on portrait and landscape.
+            jump(1)
             compose.waitForIdle()
             compose.mainClock.autoAdvance = false
-            jump(4)
+            jump(3)
             compose.mainClock.advanceTimeBy(100)
-            compose.onNodeWithText("5 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("4 / 6", substring = true).assertIsDisplayed()
             assertTrue(server.progressWrites.isEmpty())
             compose.mainClock.autoAdvance = true
             restoration.emulateSavedInstanceStateRestore()
             compose.waitForIdle()
             awaitRenderedPage()
             openMenu()
-            compose.onNodeWithText("5 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("4 / 6", substring = true).assertIsDisplayed()
             compose.onNodeWithContentDescription("Back").performClick()
             compose.waitUntil(5_000) { !visible.value }
             if (incognito) assertTrue(server.progressWrites.isEmpty())
-            else compose.waitUntil(5_000) { server.progressWrites.contains(1 to 4) }
+            else compose.waitUntil(5_000) { server.progressWrites.contains(1 to 3) }
         }
     }
 
@@ -116,18 +118,18 @@ class PdfReaderTest {
             compose.onNodeWithText("LTR").performClick()
             compose.waitForIdle()
             compose.mainClock.autoAdvance = false
-            jump(2)
+            jump(3)
             compose.mainClock.advanceTimeBy(100)
-            compose.onNodeWithText("3 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("4 / 6", substring = true).assertIsDisplayed()
             compose.onNodeWithContentDescription("Back").performClick()
             compose.mainClock.advanceTimeByFrame()
-            compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 2) }
-            assertEquals(listOf(1 to 2), server.progressWrites.toList())
+            compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 3) }
+            assertEquals(listOf(1 to 3), server.progressWrites.toList())
             compose.mainClock.autoAdvance = true
             compose.runOnIdle { visible.value = true }
             awaitRenderedPage()
             openMenu()
-            compose.onNodeWithText("3 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("4 / 6", substring = true).assertIsDisplayed()
         }
     }
 
@@ -194,11 +196,11 @@ class PdfReaderTest {
             compose.onNodeWithText("LTR").performClick()
             compose.waitForIdle()
             compose.mainClock.autoAdvance = false
-            jump(2)
+            jump(3)
             compose.mainClock.advanceTimeBy(100)
             InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
             compose.mainClock.advanceTimeBy(100)
-            compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 2) }
+            compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 3) }
         }
     }
 
@@ -211,7 +213,7 @@ class PdfReaderTest {
             compose.onNodeWithText("LTR").performClick()
             compose.waitForIdle()
             compose.mainClock.autoAdvance = false
-            jump(2)
+            jump(3)
             compose.mainClock.advanceTimeBy(100)
             compose.onNodeWithContentDescription("Close menu").performClick()
             compose.mainClock.advanceTimeBy(100)
@@ -219,7 +221,7 @@ class PdfReaderTest {
                 swipe(Offset(width / 2f, height * 0.3f), Offset(width / 2f, height * 0.85f), 500)
             }
             compose.mainClock.advanceTimeBy(1_000)
-            compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 2) }
+            compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 3) }
         }
     }
 
@@ -461,7 +463,8 @@ internal class ReaderServer(
     downloadPayload: Pair<String, ByteArray>? = null,
     imageDimensions: Pair<Int, Int> = 600 to 900,
     private val initialImageProgress: Int = 0,
-    private val chapterFinished: () -> Boolean = { false }
+    private val chapterFinished: () -> Boolean = { false },
+    private val widePages: Set<Int> = emptySet()
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -551,8 +554,8 @@ internal class ReaderServer(
                             "/api/Reader/chapter-info" -> {
                                 chapterRequested.countDown()
                                 releaseChapter.await(45, TimeUnit.SECONDS)
-                                val dimensions = (0..5).joinToString(",") {
-                                    """{"pageNumber":$it,"width":${imageDimensions.first},"height":${imageDimensions.second}}"""
+                                val dimensions = (0 until spineCount).joinToString(",") {
+                                    """{"pageNumber":$it,"width":${imageDimensions.first},"height":${imageDimensions.second},"isWide":${it in widePages}}"""
                                 }
                                 """{"chapterId":${uri.getQueryParameter("chapterId") ?: 1},"pages":$spineCount,"pageDimensions":[$dimensions]}"""
                             }

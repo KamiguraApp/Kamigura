@@ -77,9 +77,11 @@ class OfflineImageEpubDownloadTest {
                 compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isNotEmpty() }
                 compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
                     .performSemanticsAction(SemanticsActions.SetProgress) { it(2f) }
-                compose.onNodeWithText("3 / 3", substring = true).assertIsDisplayed()
+                val viewport = compose.onRoot().fetchSemanticsNode().size
+                val portrait = viewport.height > viewport.width
+                compose.onNodeWithText("${if (portrait) 3 else 2} / 3", substring = true).assertIsDisplayed()
                 compose.onNodeWithContentDescription("Close menu").performClick()
-                awaitColor(red = false)
+                awaitColor(red = false, label = if (portrait) "Page 2" else "Right 2")
                 val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
                 context.getExternalFilesDir(null)!!.resolve("epub-doctype-offline-${screenshot.width}x${screenshot.height}.png")
                     .outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -135,8 +137,9 @@ class OfflineImageEpubDownloadTest {
         catch (error: UnsupportedOfflineFormatException) { assertEquals(UnsupportedOfflineEpubMessage, error.message) }
     }
 
-    private fun awaitColor(red: Boolean) = compose.waitUntil(10_000) {
-        val pixels = compose.onRoot().captureToImage().toPixelMap()
+    private fun awaitColor(red: Boolean, label: String = "Page 0") = compose.waitUntil(10_000) {
+        if (compose.onAllNodesWithContentDescription(label).fetchSemanticsNodes().isEmpty()) return@waitUntil false
+        val pixels = compose.onNodeWithContentDescription(label).captureToImage().toPixelMap()
         val color = pixels[pixels.width / 2, pixels.height / 2]
         if (red) color.red > .95f && color.green < .05f && color.blue < .05f
         else color.blue > .95f && color.red < .05f && color.green < .05f

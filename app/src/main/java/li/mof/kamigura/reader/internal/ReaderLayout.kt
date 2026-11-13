@@ -67,3 +67,28 @@ internal fun readerVisiblePageIndices(
     if (layout.singlePage) return listOf(page)
     return listOf(page, page + 1).filter { it in 0 until pageCount }
 }
+
+/** Finds the view containing the target by taking the same steps as ordinary page turns. */
+internal fun readerJumpLandingPage(
+    from: Int,
+    target: Int,
+    pageCount: Int,
+    singlePageMode: Boolean,
+    pageDimensions: Map<Int, FileDimensionDto>
+): Int {
+    val last = (pageCount - 1).coerceAtLeast(0)
+    val destination = target.coerceIn(0, last)
+    if (singlePageMode) return destination
+
+    var cursor = from.coerceIn(0, last)
+    while (cursor > destination) {
+        cursor = (cursor - readerPageLayout(cursor, pageCount, false, pageDimensions).previousStep)
+            .coerceAtLeast(0)
+    }
+    while (cursor < destination) {
+        val next = cursor + readerPageLayout(cursor, pageCount, false, pageDimensions).nextStep
+        if (next > destination) break
+        cursor = next
+    }
+    return cursor
+}

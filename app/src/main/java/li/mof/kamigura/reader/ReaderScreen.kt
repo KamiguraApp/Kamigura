@@ -34,6 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,9 +42,11 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntSize
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -111,6 +114,7 @@ import li.mof.kamigura.reader.internal.pageIsWide
 import li.mof.kamigura.reader.internal.preAnalyzeReaderPages
 import li.mof.kamigura.reader.internal.prefetchReaderPages
 import li.mof.kamigura.reader.internal.readerPageLayout
+import li.mof.kamigura.reader.internal.readerJumpLandingPage
 import li.mof.kamigura.reader.internal.readerPanBoundsPx
 import li.mof.kamigura.reader.internal.readerEstimatedDecodeBytes
 import li.mof.kamigura.reader.internal.readerChapterEntry
@@ -196,6 +200,8 @@ fun ReaderScreen(
 ) {
     val ctx = LocalContext.current
     val density = LocalDensity.current
+    var openingViewport by remember { mutableStateOf(IntSize.Zero) }
+    val measureOpeningViewport = Modifier.onSizeChanged { openingViewport = it }
     val fallbackImageLoader = ctx.imageLoader
     val scope = rememberCoroutineScope()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -618,15 +624,23 @@ fun ReaderScreen(
             preferenceKey,
             System.currentTimeMillis()
         )
+        readingDirection = cachedPreferences?.readingDirection ?: persistedReaderSettings.image.readingDirection
         if (cachedPreferences != null) {
             // Apply before network initialization so an offline reopen does not flash the
             // global direction or invert mode while the reading-profile call times out.
-            readingDirection = cachedPreferences.readingDirection
             invertMode = cachedPreferences.invertMode
             invertWhiteThresholdOverride = cachedPreferences.invertWhiteThreshold
             ReaderExitWriteScope.launch {
                 ReaderSessionPreferenceCache.persist(ctx.cacheDir)
             }
+        }
+        suspend fun bookmarkLanding(target: Int): Int {
+            val viewport = snapshotFlow { openingViewport }.first { it.width > 0 && it.height > 0 }
+            return readerJumpLandingPage(
+                from = 0, target = target, pageCount = pages,
+                singlePageMode = viewport.height > viewport.width || readingDirection == ReaderReadingDirection.Vertical,
+                pageDimensions = pageDimensions
+            )
         }
         val local = runCatching {
             offlineRepository.localChapter(loadedSession, currentChapterId)
@@ -645,7 +659,7 @@ fun ReaderScreen(
             )
             pages = local.pages.size
             pageDimensions = local.dimensions
-            page = (restoredPage ?: initialPage ?: local.record.localPage)
+            page = (restoredPage ?: initialPage?.let { bookmarkLanding(it) } ?: local.record.localPage)
                 .coerceIn(0, (pages - 1).coerceAtLeast(0))
             openJumpHistory(currentChapterId, page, opening, local.record.markReadPending, novel = false)
             if (openedPage < 0) openedPage = page
@@ -724,7 +738,8 @@ fun ReaderScreen(
                         progress.copy(pageNum = initialPage, bookScrollId = null)
                     } else progress
                 }
-                page = if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
+                page = if (opening == ReaderJumpOpening.Jump && !loaded.novelEpub) bookmarkLanding(savedPage)
+                    else if (pages > 0) savedPage.coerceIn(0, pages - 1) else 0
                 loadedNovelProgress?.let { progress ->
                     openJumpHistory(currentChapterId, page, opening, finishedOnServer, novel = true)
                     novelProgress = progress
@@ -743,13 +758,14 @@ fun ReaderScreen(
                         )
                     }
                     .getOrNull()
-                val landingPage = initialPage ?: savedPage
+                val landingPage = initialPage?.let { bookmarkLanding(it) } ?: savedPage
                 if (landingPage != null) {
                     finishedOnServer = savedPage != null && pages > 0 && savedPage >= pages
                     page = landingPage.coerceIn(0, pages - 1)
                     lastRemoteProgressPages[currentChapterId] = page
                     lastSyncedPage = page
                     openedPage = page
+                    if (opening == ReaderJumpOpening.Jump) jumpBack.jumped(ReaderJumpLocation(page))
                 }
             }
             chapterMetadataJob.join()
@@ -853,7 +869,9 @@ fun ReaderScreen(
 
     val s = session
     if (s == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Loading session...") }
+        Box(Modifier.fillMaxSize().then(measureOpeningViewport), contentAlignment = Alignment.Center) {
+            Text("Loading session...")
+        }
         return
     }
 
@@ -881,11 +899,13 @@ fun ReaderScreen(
     }
 
     if (!readerReady) {
-        ReaderLoadingScreen(
-            preparingPdf = readerSeries?.format == MangaFormat.Pdf,
-            error = error,
-            onBack = ::closeReader
-        )
+        Box(Modifier.fillMaxSize().then(measureOpeningViewport)) {
+            ReaderLoadingScreen(
+                preparingPdf = readerSeries?.format == MangaFormat.Pdf,
+                error = error,
+                onBack = ::closeReader
+            )
+        }
         return
     }
 
@@ -913,15 +933,18 @@ fun ReaderScreen(
     val vertical = readingDirection == ReaderReadingDirection.Vertical
     val spreadPages = spreadPagesFor(page, rtl)
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+    BoxWithConstraints(Modifier.fillMaxSize().then(measureOpeningViewport).background(Color.Black)) {
         val portrait = maxHeight > maxWidth
         val viewportWidthPx = with(density) { maxWidth.toPx() }
         val viewportHeightPx = with(density) { maxHeight.toPx() }
         val viewportHeight = maxHeight
         val verticalListState = rememberLazyListState()
         var verticalJumpJob by remember(currentChapterId) { mutableStateOf<Job?>(null) }
+        fun pagedJumpLanding(target: Int): Int =
+            readerJumpLandingPage(page, target, pages, portrait, pageDimensions)
+
         fun jumpToImagePage(targetPage: Int, returnFrom: ReaderJumpLocation? = null) {
-            val target = clampPage(targetPage)
+            val target = if (vertical) clampPage(targetPage) else pagedJumpLanding(targetPage)
             val origin = page
             if (target == origin && !vertical) return
             val history = jumpBack
@@ -2322,6 +2345,9 @@ fun ReaderScreen(
 
         if (showReaderMenu && chapterBoundary == null) {
             val location = ReaderJumpLocation(page)
+            val returnTarget = jumpBack.target(location)?.takeIf {
+                it.page in 0 until pages && (vertical || pagedJumpLanding(it.page) != page)
+            }
             ReaderMenuOverlay(
                 seriesName = seriesName,
                 chapterName = currentChapter.displayName,
@@ -2369,8 +2395,8 @@ fun ReaderScreen(
                     requestSingleStep(ReaderTurnDirection.Previous, false)
                 },
                 onJumpToPage = { jumpToImagePage(it) },
-                jumpBackPage = jumpBack.target(location)?.page?.takeIf { it in 0 until pages },
-                onJumpBack = { jumpBack.target(location)?.let { jumpToImagePage(it.page, location) } }
+                jumpBackPage = returnTarget?.page,
+                onJumpBack = { returnTarget?.let { jumpToImagePage(it.page, location) } }
             )
         }
 
