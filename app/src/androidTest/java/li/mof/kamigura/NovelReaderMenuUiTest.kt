@@ -41,15 +41,16 @@ class NovelReaderMenuUiTest {
 
     @Test fun phoneSubtitleOmitsChapterOnlyWhenFullTextDoesNotFit() {
         show(420, 880, withBookmarks = true)
-        val subtitle = compose.onNodeWithText("Page 16 / 21 \u2022 Screen 11 / 23").assertIsDisplayed()
-        compose.onNodeWithText("Volume 33 | Page 16 / 21 \u2022 Screen 11 / 23").assertDoesNotExist()
-        assertSubtitleFits(subtitle)
+        compose.onNodeWithText("p. 16 / 21 \u2022 screen 11 / 23").assertIsDisplayed().assertReaderSubtitleFits()
+        compose.onNodeWithText("Vol. 33", substring = true).assertDoesNotExist()
+        compose.captureReaderHeader("novel-phone")
     }
 
     @Test fun tabletSubtitleKeepsChapterWhenFullTextFits() {
         show(1100, 800, withBookmarks = true)
-        val subtitle = compose.onNodeWithText("Volume 33 | Page 16 / 21 \u2022 Screen 11 / 23").assertIsDisplayed()
-        assertSubtitleFits(subtitle)
+        compose.onNodeWithText("Vol. 33 \u2022 #17 \u2022 p. 16 / 21 \u2022 screen 11 / 23")
+            .assertIsDisplayed().assertReaderSubtitleFits()
+        compose.captureReaderHeader("novel-tablet")
     }
 
     @Test fun narrowHeaderEllipsizesTitleWithoutCrowdingJumpBackOrBookmark() = jumpBackHeader(320, 700)
@@ -88,18 +89,20 @@ class NovelReaderMenuUiTest {
         assertEquals(pageSlider, slider("EPUB page navigation").fetchSemanticsNode().boundsInRoot)
         compose.onNodeWithText("Bookmark saved").assertIsDisplayed()
         val layouts = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText("A long novel series title that must not crowd either icon")
+        val title = compose.onNodeWithText("A long novel series title that must not crowd either icon")
+        title
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        assertEquals(width == 320, layouts.single().isLineEllipsized(0))
+        if (width == 320) {
+            assertTrue(title.fetchSemanticsNode().boundsInRoot.top >= bookmarkLabel.bottom)
+            assertTrue(layouts.single().size.width >= 250)
+        } else {
+            assertFalse(layouts.single().isLineEllipsized(0))
+        }
+        val subtitle = if (width == 320) "p. 16 / 21 \u2022 screen 11 / 23"
+            else "Vol. 33 \u2022 #17 \u2022 p. 16 / 21 \u2022 screen 11 / 23"
+        compose.onNodeWithText(subtitle).assertIsDisplayed().assertReaderSubtitleFits()
         jump.performClick()
         compose.runOnIdle { assertEquals(1, returns) }
-    }
-
-    private fun assertSubtitleFits(node: SemanticsNodeInteraction) {
-        val layouts = mutableListOf<TextLayoutResult>()
-        node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        val result = layouts.single()
-        assertFalse("Subtitle ${result.size}: width=${result.didOverflowWidth}, height=${result.didOverflowHeight}, ellipsis=${result.isLineEllipsized(0)}", result.hasVisualOverflow)
     }
 
     private fun layout(width: Int, height: Int, name: String) {
@@ -108,7 +111,7 @@ class NovelReaderMenuUiTest {
         compose.onNodeWithText("Vertical").assertIsOn()
         compose.onNodeWithText("Background").assertIsDisplayed()
         compose.onNodeWithText("Paper").assertIsOn()
-        compose.onNodeWithText("Volume 33 | Page 16 / 21 \u2022 Screen 11 / 23").assertIsDisplayed()
+        compose.onNodeWithText("Vol. 33 \u2022 #17 \u2022 p. 16 / 21 \u2022 screen 11 / 23").assertIsDisplayed()
         val header = compose.onNodeWithContentDescription("Close menu").fetchSemanticsNode().boundsInRoot
         val panel = compose.onNodeWithText("Writing").fetchSemanticsNode().boundsInRoot
         assertTrue("Header must not overlap the scrollable panel", header.bottom <= panel.top)
@@ -176,11 +179,12 @@ class NovelReaderMenuUiTest {
     }
 
     @Test fun singlePageAndLoadingMenusKeepLabelsWithoutOfferingInvalidActions() {
-        show(420, 880, pages = 1, page = { 0 }, enabled = false)
+        show(420, 880, pages = 1, page = { 0 }, enabled = false, position = NovelPosition(0, 1, true, ""))
         slider("EPUB page navigation").assertIsNotEnabled()
         slider("Font size").assertIsNotEnabled()
         compose.onNodeWithText("Vertical").assertIsNotEnabled()
-        compose.onNodeWithText("Page 1 / 1", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Vol. 33 \u2022 #17 \u2022 p. 1 / 1").assertIsDisplayed().assertReaderSubtitleFits()
+        compose.onNodeWithText("screen ", substring = true).assertDoesNotExist()
         compose.onNodeWithContentDescription("Back to series").assertIsEnabled()
         compose.onNodeWithContentDescription("Close menu").assertIsEnabled()
     }
@@ -193,13 +197,14 @@ class NovelReaderMenuUiTest {
         preferences: () -> NovelReaderPreferences = { NovelReaderPreferences(writingStyle = 1) },
         onStyle: (Int) -> Unit = {}, onFont: (Int) -> Unit = {}, onJump: (Int) -> Unit = {},
         onBackground: (PageBackground) -> Unit = {}, withBookmarks: Boolean = false,
-        jumpBackPage: () -> Int? = { null }, onJumpBack: () -> Unit = {}, bookmarkMessage: String? = null) {
+        jumpBackPage: () -> Int? = { null }, onJumpBack: () -> Unit = {}, bookmarkMessage: String? = null,
+        position: NovelPosition = NovelPosition(10, 23, true, "//body/p[57]")) {
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
                 MaterialTheme {
                     Box(Modifier.size(width.dp, height.dp).background(Color(0xFFFAF7F2))) {
                         NovelReaderMenu("A long novel series title that must not crowd either icon",
-                            "Volume 33", page(), pages, NovelPosition(10, 23, true, "//body/p[57]"),
+                            "Vol. 33 \u2022 #17", page(), pages, position,
                             preferences(), enabled, {}, {}, onStyle, onFont, onJump, onBackground,
                             bookmarkState = if (withBookmarks) ReaderBookmarkState(loaded = true, message = bookmarkMessage) else null,
                             jumpBackPage = jumpBackPage(), onJumpBack = onJumpBack)

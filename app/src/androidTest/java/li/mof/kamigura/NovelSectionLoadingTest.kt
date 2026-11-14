@@ -97,7 +97,7 @@ class NovelSectionLoadingTest {
         val store=KavitaSessionStore(context).apply{useTransient(KavitaSession(baseUrl=server.baseUrl))}
         val api=runBlocking { KavitaClient(context,store).buildApi().first }
         val key="section-loading-${System.nanoTime()}"
-        compose.setContent{MaterialTheme{NovelReaderScreen(api,server.baseUrl,1,1,1,1,6,"Test book","First",
+        compose.setContent{MaterialTheme{NovelReaderScreen(api,server.baseUrl,1,1,1,1,6,"Test book",
             ProgressDto(1,1,1,1,initial),incognito,false,{},onBack,null,key,PageBackground.Paper,false,
             ReaderChapterEntry(1,1,null,"First"),ReaderChapterNeighbors(null,null),false,false,false,null,{_,_->})}}
     }

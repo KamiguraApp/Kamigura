@@ -34,7 +34,7 @@ class BookmarkEntriesTest {
             mapOf(7 to volumes)
         )
         assertEquals(listOf(10, 20, 30), entries.map { it.bookmark.id })
-        assertEquals(listOf("Issue 1 • Vol 1", "Issue 1 • Vol 1", "Issue 2 • Vol 2"), entries.map { it.chapterLabel })
+        assertEquals(listOf("Issue 1 • Vol. 1", "Issue 1 • Vol. 1", "Issue 2 • Vol. 2"), entries.map { it.chapterLabel })
     }
 
     @Test

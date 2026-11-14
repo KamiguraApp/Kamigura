@@ -37,8 +37,11 @@ internal fun VolumeDto.displayName(): String? {
 
 /** Internal to series, not for external use. */
 internal fun VolumeDto.displayShortName(): String? {
-    return displayName()?.replaceFirst("Volume ", "Vol ")
+    return displayName()?.replaceFirst("Volume ", "Vol. ")
 }
+
+internal fun VolumeDto.readerIssueLabel(chapter: ChapterDto): String =
+    listOfNotNull(displayShortName(), chapter.issueLabel(numberPrefix = "#")).joinToString(" \u2022 ")
 
 /** Internal to series, not for external use. */
 internal fun ChapterDto.releaseDateText(): String? {

@@ -121,8 +121,8 @@ import li.mof.kamigura.series.internal.SeriesDetailSummary
 import li.mof.kamigura.series.internal.coverActionColor
 import li.mof.kamigura.series.internal.detailMetaLines
 import li.mof.kamigura.series.internal.displayName
-import li.mof.kamigura.series.internal.displayShortName
 import li.mof.kamigura.series.internal.displayTitle
+import li.mof.kamigura.series.internal.readerIssueLabel
 import li.mof.kamigura.series.internal.primaryReadActionText
 import li.mof.kamigura.series.internal.readableAccentOn
 import li.mof.kamigura.series.internal.readingProgress
@@ -465,7 +465,8 @@ fun ChapterPickScreen(
                                 seriesName = displaySeries.name,
                                 issueName = item.volume.displayName() ?: item.chapter.displayTitle() ?: "Issue",
                                 expectedBytes = selectedIssueSize,
-                                expectedPageCount = selectedIssueDetail?.pages ?: item.chapter.pages
+                                expectedPageCount = selectedIssueDetail?.pages ?: item.chapter.pages,
+                                menuIssueLabel = item.volume.readerIssueLabel(item.chapter)
                             )
                             showMessage("Download queued")
                         } catch (c: CancellationException) {

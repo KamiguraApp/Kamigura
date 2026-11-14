@@ -88,7 +88,7 @@ class NovelReaderTapsTest {
         val store=KavitaSessionStore(context).apply{useTransient(KavitaSession(baseUrl=server.baseUrl))}
         val api=runBlocking{KavitaClient(context,store).buildApi().first}
         val preferenceKey="tap-regression-${System.nanoTime()}"
-        compose.setContent{MaterialTheme{NovelReaderScreen(api,server.baseUrl,1,1,1,1,count,"Test book","First",
+        compose.setContent{MaterialTheme{NovelReaderScreen(api,server.baseUrl,1,1,1,1,count,"Test book",
             ProgressDto(1,1,1,1,0),false,false,{}, {}, UserReadingProfileDto(bookReaderWritingStyle=if(vertical)1 else 0),
             preferenceKey,PageBackground.Paper,false,ReaderChapterEntry(1,1,null,"First"),
             ReaderChapterNeighbors(null,if(neighbor)ReaderChapterEntry(2,1,null,"Second")else null),false,false,false,null,{_,_->onSwitch()})}}

@@ -257,13 +257,13 @@ class ReaderJumpBackUiTest {
             compose.waitUntil(5_000) { novelState() != start }
             val furthest = novelState()
             menu(); jump(0, novel = true); back(3).assertIsDisplayed()
-            closeBook(novel = true)
+            closeBook()
             compose.waitUntil(5_000) { server.bookProgressWrites.lastOrNull()?.pageNum == 0 }
             reloadHistory()
             open(server, novel = true)
             menu(); back(3).performClick()
             compose.waitUntil(10_000) { novelState() == furthest }
-            closeBook(novel = true)
+            closeBook()
             finished.set(true)
             open(server, novel = true)
             menu(); jump(0, novel = true); assertNoBack()
@@ -341,8 +341,8 @@ class ReaderJumpBackUiTest {
         compose.onNodeWithContentDescription("Close menu").performClick()
         compose.waitForIdle()
     }
-    private fun closeBook(novel: Boolean = false) {
-        compose.onNodeWithContentDescription(if (novel) "Back to series" else "Back").performClick()
+    private fun closeBook() {
+        compose.onNodeWithContentDescription("Back to series").performClick()
         compose.waitUntil(10_000) { opening.value == null }
     }
     private fun turnImage(forward: Boolean = true) {

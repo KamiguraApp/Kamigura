@@ -51,8 +51,8 @@ class NovelReaderUiTest {
                 1, 1, 1, 1, incognito = true, initialPage = 15, onBack = { visible.value = false }) } }
             awaitSection(16)
             openMenu()
-            compose.onNodeWithText("Page 16 / 21", substring = true).assertIsDisplayed()
-            compose.onNodeWithText("Screen 1 /", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("p. 16 / 21", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("screen 1 /", substring = true).assertIsDisplayed()
             assertTrue(compose.onAllNodesWithText("100%").fetchSemanticsNodes().isEmpty())
             assertTrue(compose.onAllNodesWithText("complete", substring = true).fetchSemanticsNodes().isEmpty())
             compose.onNodeWithText("Vertical").assertIsOn()
@@ -255,8 +255,8 @@ class NovelReaderUiTest {
                     androidx.compose.ui.semantics.SemanticsProperties.StateDescription].contains("Screen 2 /")
             }
             openMenu()
-            compose.onNodeWithText("Page 1 / 6", substring = true).assertIsDisplayed()
-            compose.onNodeWithText("Screen 2 /", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("p. 1 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("screen 2 /", substring = true).assertIsDisplayed()
             compose.onNodeWithContentDescription("Close menu").performClick()
             openMenu()
             compose.onNodeWithContentDescription("Back to series").performClick()

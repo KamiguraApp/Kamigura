@@ -212,7 +212,7 @@ class ReaderDeviceControlsUiTest {
             val bounds = compose.onRoot().fetchSemanticsNode().boundsInRoot
             val reached = if (bounds.height > bounds.width) 2 else 3
             openMenu()
-            compose.onNodeWithContentDescription("Back").performClick()
+            compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to reached) }
             assertTrue(server.progressWrites.all { it == 1 to reached })
         }

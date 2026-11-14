@@ -72,7 +72,7 @@ class PdfReaderTest {
             awaitRenderedPage()
             openMenu()
             compose.onNodeWithText("4 / 6", substring = true).assertIsDisplayed()
-            compose.onNodeWithContentDescription("Back").performClick()
+            compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { !visible.value }
             if (incognito) assertTrue(server.progressWrites.isEmpty())
             else compose.waitUntil(5_000) { server.progressWrites.contains(1 to 3) }
@@ -104,7 +104,7 @@ class PdfReaderTest {
             }
             awaitRenderedPage()
             openMenu()
-            compose.onNodeWithText("Second | 4 / 6", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("Second \u2022 p. 4 / 6").assertIsDisplayed()
             assertTrue(server.progressWrites.isEmpty())
         }
     }
@@ -121,7 +121,7 @@ class PdfReaderTest {
             jump(3)
             compose.mainClock.advanceTimeBy(100)
             compose.onNodeWithText("4 / 6", substring = true).assertIsDisplayed()
-            compose.onNodeWithContentDescription("Back").performClick()
+            compose.onNodeWithContentDescription("Back to series").performClick()
             compose.mainClock.advanceTimeByFrame()
             compose.waitUntil(5_000) { !visible.value && server.progressWrites.contains(1 to 3) }
             assertEquals(listOf(1 to 3), server.progressWrites.toList())
@@ -140,7 +140,7 @@ class PdfReaderTest {
             awaitPages(server)
             compose.mainClock.advanceTimeBy(4_000)
             openMenu()
-            compose.onNodeWithContentDescription("Back").performClick()
+            compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { !visible.value }
             assertTrue(server.progressWrites.isEmpty())
         }
@@ -154,7 +154,7 @@ class PdfReaderTest {
             compose.mainClock.advanceTimeBy(4_000)
             openMenu()
             compose.onNodeWithText("2 / 6", substring = true).assertIsDisplayed()
-            compose.onNodeWithContentDescription("Back").performClick()
+            compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { !visible.value }
             assertTrue(server.progressWrites.isEmpty())
             assertFalse(server.requests.any { it.path == "/api/Reader/get-progress" })
@@ -265,7 +265,7 @@ class PdfReaderTest {
                 compose.onAllNodesWithContentDescription("EPUB page").fetchSemanticsNodes().isNotEmpty()
             }
             openMenu()
-            compose.onNodeWithText("Page 1 / 6 • Screen", substring = true).assertIsDisplayed()
+            compose.onNodeWithText("p. 1 / 6", substring = true).assertIsDisplayed()
             assertFalse(server.requests.any { it.path == "/api/Reader/image" })
             assertTrue(server.requests.any { it.path == "/api/Book/1/book-page" })
             assertTrue(server.requests.filter { it.path == "/api/Reader/chapter-info" }
@@ -374,7 +374,10 @@ class PdfReaderTest {
             val session = KavitaSession(baseUrl = server.baseUrl)
             try {
                 runBlocking {
-                    repository.enqueue(session, 1, 1, 1, 1, "Test book", "Offline PDF", expectedPageCount = 6)
+                    repository.enqueue(
+                        session, 1, 1, 1, 1, "Test book", "Volume 1",
+                        expectedPageCount = 6, menuIssueLabel = "Vol. 1 \u2022 #3"
+                    )
                 }
                 compose.waitUntil(20_000) {
                     runBlocking { repository.reconcile(session, 1)?.status == OfflineDownloadStatus.Ready }
@@ -385,7 +388,7 @@ class PdfReaderTest {
                 open(server)
                 awaitRenderedPage()
                 openMenu()
-                compose.onNodeWithText("1 / 6", substring = true).assertIsDisplayed()
+                compose.onNodeWithText("Vol. 1 \u2022 #3 \u2022 p. 1 / 6").assertIsDisplayed()
                 assertFalse(server.requests.any { it.path == "/api/Reader/chapter-info" || it.path == "/api/Reader/image" })
             } finally {
                 runBlocking { repository.remove(session, 1) }

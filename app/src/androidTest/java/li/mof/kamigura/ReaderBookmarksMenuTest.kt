@@ -46,7 +46,7 @@ class ReaderBookmarksMenuTest {
             .fetchSemanticsNode().boundsInRoot
         val close = compose.onNodeWithContentDescription("Close menu").fetchSemanticsNode().boundsInRoot
         assertTrue(bookmark.right <= close.left)
-        compose.onNodeWithContentDescription("Back").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back to series").assertIsDisplayed()
         compose.onNodeWithText("Direction").assertIsDisplayed()
         compose.onNodeWithText("Invert").assertIsDisplayed()
         compose.onNodeWithContentDescription("Remove bookmark from page 6").performClick()
@@ -105,12 +105,27 @@ class ReaderBookmarksMenuTest {
         compose.onNodeWithContentDescription("Close menu").assertIsDisplayed()
     }
 
+    @Test fun phoneHeaderKeepsPageAndDropsIssueLabel() = subtitle(320, "p. 6 / 20", "phone")
+
+    @Test fun tabletHeaderKeepsVolumeAndIssue() = subtitle(800, "Vol. 33 \u2022 #17 \u2022 p. 6 / 20", "tablet")
+
+    private fun subtitle(width: Int, expected: String, size: String) {
+        menu(width, state = { ReaderBookmarkState(loaded = true) }, withAllActions = true) {}
+        compose.onNodeWithText(expected).assertIsDisplayed().assertReaderSubtitleFits()
+        if (size == "phone") compose.onNodeWithText("Vol. 33", substring = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Back to series").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back to p. 8").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Bookmark page 6").assertIsDisplayed()
+        compose.captureReaderHeader("image-$size")
+    }
+
     private fun menu(
         width: Int,
         height: Int = 700,
         state: () -> ReaderBookmarkState?,
         direction: () -> ReaderReadingDirection = { ReaderReadingDirection.RightToLeft },
         spread: Boolean = false,
+        withAllActions: Boolean = false,
         onDismiss: () -> Unit = {},
         onBookmark: () -> Unit
     ) {
@@ -120,14 +135,16 @@ class ReaderBookmarksMenuTest {
                     Box(Modifier.size(width.dp, height.dp).background(Color.Black)) {
                         ReaderMenuOverlay(
                             seriesName = "A very long series name that must not push out the controls",
-                            chapterName = "A very long volume and chapter title",
+                            issueLabel = "Vol. 33 \u2022 #17",
                             page = 5, pages = 20,
                             bookmarkState = state(), onBookmark = onBookmark,
                             readingDirection = direction(), showSpreadShift = spread,
                             onBack = {}, onDismiss = onDismiss, onSetReadingDirection = {},
                             invertMode = InvertMode.Off, onSetInvertMode = {},
                             whiteThreshold = .82f, onSetWhiteThreshold = {},
-                            onNextSingle = {}, onPreviousSingle = {}, onJumpToPage = {}
+                            onNextSingle = {}, onPreviousSingle = {}, onJumpToPage = {},
+                            jumpBackPage = if (withAllActions) 7 else null,
+                            onOpenContents = if (withAllActions) ({}) else null
                         )
                     }
                 }

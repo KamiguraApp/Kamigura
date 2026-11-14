@@ -74,7 +74,9 @@ data class OfflineIssueRecord(
     val progressPending: Boolean = false,
     val markReadPending: Boolean = false,
     val markUnreadPending: Boolean = false,
-    val coverPath: String = ""
+    val coverPath: String = "",
+    // Null denotes a legacy record; empty means the chapter has no displayable label.
+    val menuIssueLabel: String? = null
 ) {
     val progressFraction: Float?
         get() = totalBytes.takeIf { it > 0 }?.let {
@@ -171,7 +173,8 @@ class OfflineIssueRepository(context: Context) {
         seriesName: String,
         issueName: String,
         expectedBytes: Long? = null,
-        expectedPageCount: Int? = null
+        expectedPageCount: Int? = null,
+        menuIssueLabel: String? = null
     ): OfflineIssueRecord = withContext(Dispatchers.IO) {
         val key = sessionKey(session)
         val previous = current(key, chapterId)
@@ -234,7 +237,8 @@ class OfflineIssueRepository(context: Context) {
             localPage = previous?.localPage ?: 0,
             progressPending = previous?.progressPending ?: false,
             markReadPending = previous?.markReadPending ?: false,
-            markUnreadPending = previous?.markUnreadPending ?: false
+            markUnreadPending = previous?.markUnreadPending ?: false,
+            menuIssueLabel = menuIssueLabel ?: previous?.menuIssueLabel
         )
         put(record)
         record

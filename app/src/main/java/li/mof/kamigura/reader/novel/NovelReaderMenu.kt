@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import li.mof.kamigura.reader.internal.ReaderMenuHeader
 import li.mof.kamigura.reader.internal.ReaderBookmarkButton
 import li.mof.kamigura.reader.internal.ReaderBookmarkState
+import li.mof.kamigura.reader.internal.readerMenuPosition
+import li.mof.kamigura.reader.internal.readerMenuSubtitle
 import li.mof.kamigura.ui.ValueBubbleSlider
 import li.mof.kamigura.PageBackground
 import li.mof.kamigura.NovelFontSizeRange
@@ -40,7 +42,7 @@ import kotlin.math.roundToInt
 @Composable
 internal fun NovelReaderMenu(
     seriesName: String,
-    chapterName: String,
+    issueLabel: String,
     page: Int,
     pages: Int,
     position: NovelPosition?,
@@ -72,13 +74,14 @@ internal fun NovelReaderMenu(
     }
 
     Column(Modifier.fillMaxSize()) {
-        ReaderMenuHeader(seriesName, "$chapterName | Page ${currentPage + 1} / $count \u2022 Screen ${screen + 1} / $screens",
-            onBack, onDismiss, backLabel = "Back to series",
+        val pagePosition = readerMenuPosition(currentPage, count, screen, screens)
+        ReaderMenuHeader(seriesName, readerMenuSubtitle(issueLabel, pagePosition),
+            onBack, onDismiss,
             contents = { if (showContents) NovelContentsButton(onOpenContents) },
             bookmark = { bookmarkState?.let { ReaderBookmarkButton(currentPage, it, onBookmark) } },
             feedback = bookmarkState?.error ?: bookmarkState?.message,
             feedbackIsError = bookmarkState?.error != null,
-            compactSubtitle = "Page ${currentPage + 1} / $count \u2022 Screen ${screen + 1} / $screens",
+            compactSubtitle = pagePosition,
             jumpBackPage = jumpBackPage.takeIf { enabled }, onJumpBack = onJumpBack)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000))

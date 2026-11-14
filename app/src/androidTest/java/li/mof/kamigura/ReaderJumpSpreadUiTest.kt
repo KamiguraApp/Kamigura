@@ -62,7 +62,7 @@ class ReaderJumpSpreadUiTest {
             spread(13, rtl = true)
             jump(8, 7, rtl = true)
             spread(7, rtl = true)
-            compose.onNodeWithContentDescription("Back").performClick()
+            compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { server.progressWrites.lastOrNull() == (1 to 7) }
         }
     }
@@ -74,7 +74,7 @@ class ReaderJumpSpreadUiTest {
             menu()
             compose.onNodeWithText("7 / 181", substring = true).assertIsDisplayed()
             compose.mainClock.advanceTimeBy(4_000)
-            compose.onNodeWithContentDescription("Back").performClick()
+            compose.onNodeWithContentDescription("Back to series").performClick()
             compose.waitUntil(5_000) { !opened.value }
             assertTrue(server.progressWrites.isEmpty())
         }

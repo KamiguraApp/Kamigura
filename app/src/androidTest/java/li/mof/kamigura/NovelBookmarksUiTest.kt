@@ -155,7 +155,7 @@ class NovelBookmarksUiTest {
             val store = KavitaSessionStore(context).apply { useTransient(KavitaSession(baseUrl = server.baseUrl)) }
             val api = kotlinx.coroutines.runBlocking { KavitaClient(context, store).buildApi().first }
             compose.setContent { MaterialTheme { NovelReaderScreen(api, server.baseUrl, 1, 1, 1, 1, 6,
-                "Test book", "First", ProgressDto(1, 1, 1, 1, 0), false, false, {}, {}, null,
+                "Test book", ProgressDto(1, 1, 1, 1, 0), false, false, {}, {}, null,
                 "offline-novel-fixture", PageBackground.Paper, false, ReaderChapterEntry(1, 1, null, "First"),
                 ReaderChapterNeighbors(null, null), false, false, false, null, { _, _ -> }, offline = true) } }
             awaitLoaded(); menu()
@@ -170,7 +170,7 @@ class NovelBookmarksUiTest {
     private fun header(width: Int, height: Int) {
         compose.setContent { CompositionLocalProvider(LocalDensity provides Density(1f)) { MaterialTheme {
             androidx.compose.foundation.layout.Box(Modifier.requiredSize(width.dp, height.dp)) {
-                NovelReaderMenu("A long novel series name that must not crowd the actions", "Volume 33", 0, 21,
+                NovelReaderMenu("A long novel series name that must not crowd the actions", "Vol. 33", 0, 21,
                     NovelPosition(0, 12, true, "//body/p[1]"), NovelReaderPreferences(), true,
                     {}, {}, {}, {}, {}, {}, ReaderBookmarkState(loaded = true), {}, {})
             }

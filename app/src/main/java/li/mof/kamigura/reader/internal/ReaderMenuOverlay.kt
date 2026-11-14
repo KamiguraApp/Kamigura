@@ -4,7 +4,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,6 +34,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.contentDescription
@@ -53,7 +54,7 @@ import kotlin.math.roundToInt
 @Composable
 internal fun ReaderMenuOverlay(
     seriesName: String,
-    chapterName: String,
+    issueLabel: String,
     page: Int,
     bookmarkState: ReaderBookmarkState?,
     onBookmark: () -> Unit,
@@ -98,8 +99,10 @@ internal fun ReaderMenuOverlay(
                 detectTapGestures(onTap = { onDismiss() })
             }
     ) {
+        val position = readerMenuPosition(currentPage, safePageCount)
         ReaderMenuHeader(
-            seriesName, "$chapterName | ${page + 1} / $pages", onBack, onDismiss,
+            seriesName, readerMenuSubtitle(issueLabel, position), onBack, onDismiss,
+            compactSubtitle = position,
             contents = { onOpenContents?.let { NovelContentsButton(it) } },
             bookmark = { bookmarkState?.let { ReaderBookmarkButton(currentPage, it, onBookmark) } },
             feedback = bookmarkState?.error ?: bookmarkState?.message,
@@ -281,7 +284,7 @@ internal fun ReaderMenuHeader(
     subtitle: String,
     onBack: () -> Unit,
     onDismiss: () -> Unit,
-    backLabel: String = "Back",
+    backLabel: String = "Back to series",
     bookmark: @Composable () -> Unit = {},
     feedback: String? = null,
     feedbackIsError: Boolean = false,
@@ -293,63 +296,66 @@ internal fun ReaderMenuHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag("Reader menu header")
             .background(Color(0xCC000000))
             .statusBarsPadding()
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = backLabel,
-                    tint = Color.White
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = seriesName,
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (compactSubtitle == null) {
-                    Text(
-                        text = subtitle,
-                        color = Color.White.copy(alpha = 0.72f),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                } else {
-                    val measurer = rememberTextMeasurer()
-                    val style = MaterialTheme.typography.bodySmall
-                    BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        val fullWidth = measurer.measure(subtitle, style, softWrap = false, maxLines = 1).multiParagraph.width
-                        Text(if (fullWidth <= constraints.maxWidth) subtitle else compactSubtitle,
-                            color = Color.White.copy(alpha = 0.72f), style = style,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
+        val measurer = rememberTextMeasurer()
+        val subtitleStyle = MaterialTheme.typography.bodySmall
+        val subtitleColor = Color.White.copy(alpha = 0.72f)
+        SubcomposeLayout(Modifier.fillMaxWidth()) { constraints ->
+            val spacing = 8.dp.roundToPx()
+            val loose = constraints.copy(minWidth = 0, minHeight = 0)
+            val back = subcompose("back") {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = backLabel, tint = Color.White)
+                }
+            }.single().measure(loose)
+            val actions = subcompose("actions") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    contents()
+                    if (jumpBackPage != null) {
+                        ReaderPageActionButton(jumpBackPage, "Back to p. ${jumpBackPage + 1}", onJumpBack) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = Color.White)
+                        }
+                    }
+                    bookmark()
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Filled.Close, contentDescription = "Close menu", tint = Color.White)
                     }
                 }
+            }.single().measure(loose.copy(maxWidth = (loose.maxWidth - back.width).coerceAtLeast(0)))
+            val titleWidth = (constraints.maxWidth - back.width - actions.width - 2 * spacing).coerceAtLeast(0)
+            fun fits(text: String) = measurer.measure(text, subtitleStyle, softWrap = false, maxLines = 1).size.width <= titleWidth
+            // Keep page position readable even if all of the header actions are present on a phone.
+            val inlineSubtitle = when {
+                compactSubtitle == null || fits(subtitle) -> subtitle
+                fits(compactSubtitle) -> compactSubtitle
+                else -> null
             }
-            contents()
-            if (jumpBackPage != null) {
-                ReaderPageActionButton(jumpBackPage, "Back to p. ${jumpBackPage + 1}", onJumpBack) {
-                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null, tint = Color.White)
+            val stackTitle = inlineSubtitle == null
+            val textWidth = if (stackTitle) constraints.maxWidth else titleWidth
+            val title = subcompose("title") {
+                Column {
+                    Text(seriesName, color = Color.White, style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val position = inlineSubtitle ?: checkNotNull(compactSubtitle)
+                    Text(
+                        position, color = subtitleColor, style = subtitleStyle,
+                        maxLines = if (stackTitle) Int.MAX_VALUE else 1,
+                        overflow = if (stackTitle) TextOverflow.Clip else TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
-            }
-            bookmark()
-            IconButton(onClick = onDismiss) {
-                Icon(
-                    imageVector = Icons.Filled.Close,
-                    contentDescription = "Close menu",
-                    tint = Color.White
-                )
+            }.single().measure(loose.copy(minWidth = textWidth, maxWidth = textWidth))
+            val rowHeight = maxOf(back.height, actions.height, if (stackTitle) 0 else title.height)
+            layout(constraints.maxWidth, rowHeight + if (stackTitle) title.height else 0) {
+                back.placeRelative(0, (rowHeight - back.height) / 2)
+                if (stackTitle) title.placeRelative(0, rowHeight)
+                else title.placeRelative(back.width + spacing, (rowHeight - title.height) / 2)
+                actions.placeRelative(constraints.maxWidth - actions.width, (rowHeight - actions.height) / 2)
             }
         }
         if (feedback != null) {

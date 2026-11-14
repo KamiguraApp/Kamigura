@@ -108,6 +108,7 @@ import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
 import li.mof.kamigura.reader.internal.lerpTo
 import li.mof.kamigura.reader.internal.loadReaderChapterPages
+import li.mof.kamigura.reader.internal.readerMenuIssueLabel
 import li.mof.kamigura.reader.novel.NovelReaderScreen
 import li.mof.kamigura.reader.novel.NovelContents
 import li.mof.kamigura.reader.novel.NovelContentsScreen
@@ -661,7 +662,8 @@ fun ReaderScreen(
                 chapterId = currentChapterId,
                 volumeId = currentVolumeId,
                 volumeName = null,
-                chapterName = local.record.issueName
+                chapterName = local.record.issueName,
+                menuIssueLabel = local.record.readerMenuIssueLabel()
             )
             pages = local.pages.size
             pageDimensions = local.dimensions
@@ -886,7 +888,7 @@ fun ReaderScreen(
             api = requireNotNull(api), baseUrl = s.baseUrl,
             libraryId = libraryId, seriesId = seriesId, volumeId = currentVolumeId,
             chapterId = currentChapterId, spineCount = pages, seriesName = seriesName,
-            chapterName = currentChapter.displayName, initialProgress = progress,
+            initialProgress = progress,
             incognito = incognito, volumeKeys = settings.reader.common.turnPagesWithVolumeKeys,
             profile = readingProfile, preferenceKey = requireNotNull(sessionPreferenceKey),
             defaultBackground = settings.reader.novel.background,
@@ -2382,7 +2384,7 @@ fun ReaderScreen(
             }
             ReaderMenuOverlay(
                 seriesName = seriesName,
-                chapterName = currentChapter.displayName,
+                issueLabel = currentChapter.menuIssueLabel,
                 page = page,
                 pages = pages,
                 bookmarkState = bookmarks?.state,

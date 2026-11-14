@@ -96,7 +96,7 @@ private fun NovelPosition.jumpLocation(spine: Int): ReaderJumpLocation {
 @Composable
 internal fun NovelReaderScreen(
     api: KavitaApi, baseUrl: String, libraryId: Int, seriesId: Int, volumeId: Int,
-    chapterId: Int, spineCount: Int, seriesName: String, chapterName: String,
+    chapterId: Int, spineCount: Int, seriesName: String,
     initialProgress: ProgressDto, incognito: Boolean, volumeKeys: Boolean,
     onMenuChanged: (Boolean) -> Unit, onBack: () -> Unit,
     profile: UserReadingProfileDto?, preferenceKey: String,
@@ -531,7 +531,7 @@ internal fun NovelReaderScreen(
                 savingPage = spine.takeIf { state.saving }, message = state.message,
                 error = bookmarkPositionError ?: state.error)
             }
-            NovelReaderMenu(seriesName, chapterName, spine, spineCount, position,
+            NovelReaderMenu(seriesName, currentChapter.menuIssueLabel, spine, spineCount, position,
                 preferences.copy(writingStyle = if (position?.vertical ?: preferences.vertical) 1 else 0),
                 enabled = !loading && failure == null && !turning,
                 onBack = ::close, onDismiss = { menu = false },

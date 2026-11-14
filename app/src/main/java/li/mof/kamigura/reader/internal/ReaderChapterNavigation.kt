@@ -2,8 +2,12 @@ package li.mof.kamigura.reader.internal
 
 import li.mof.kamigura.ChapterDto
 import li.mof.kamigura.VolumeDto
+import li.mof.kamigura.download.OfflineIssueRecord
 import li.mof.kamigura.series.internal.displayName
+import li.mof.kamigura.series.internal.displayShortName
 import li.mof.kamigura.series.internal.displayTitle
+import li.mof.kamigura.series.internal.issueLabel
+import li.mof.kamigura.series.internal.readerIssueLabel
 
 /** A non-special chapter in the same order as the series screen. */
 internal data class ReaderChapterEntry(
@@ -11,7 +15,8 @@ internal data class ReaderChapterEntry(
     val volumeId: Int,
     val volumeName: String?,
     val chapterName: String?,
-    val finished: Boolean = false
+    val finished: Boolean = false,
+    val menuIssueLabel: String = ""
 ) {
     val displayName: String
         get() = listOfNotNull(volumeName, chapterName).joinToString(" / ").ifBlank { "Chapter" }
@@ -59,5 +64,17 @@ private fun VolumeDto.readerEntry(chapter: ChapterDto): ReaderChapterEntry =
         volumeId = chapter.volumeId ?: id,
         volumeName = displayName(),
         chapterName = chapter.displayTitle(),
-        finished = chapter.pages?.let { it > 0 && (chapter.pagesRead ?: 0) >= it } == true
+        finished = chapter.pages?.let { it > 0 && (chapter.pagesRead ?: 0) >= it } == true,
+        menuIssueLabel = readerIssueLabel(chapter)
     )
+
+internal fun OfflineIssueRecord.readerMenuIssueLabel(): String = menuIssueLabel ?: when {
+    // Old downloads only kept the volume name OR the chapter title, never both.
+    issueName == "Issue" -> ""
+    issueName.startsWith("Volume ") -> {
+        val number = issueName.removePrefix("Volume ")
+        VolumeDto(volumeId, name = if (number.toFloatOrNull() != null) number else issueName)
+            .displayShortName().orEmpty()
+    }
+    else -> ChapterDto(chapterId, title = issueName).issueLabel(numberPrefix = "#").orEmpty()
+}
