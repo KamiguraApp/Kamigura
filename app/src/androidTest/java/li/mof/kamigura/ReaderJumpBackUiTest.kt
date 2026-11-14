@@ -59,7 +59,7 @@ class ReaderJumpBackUiTest {
                 assertTrue(header.compress(Bitmap.CompressFormat.PNG, 100, it))
             }
             jump(1); back(furthest).assertIsDisplayed()
-            jump(11); assertNoBack()
+            jump(11); back(furthest).assertIsDisplayed()
             jump(0); back(furthest).performClick()
             assertEquals(furthest, imagePage())
             back(1).performClick()
@@ -93,7 +93,7 @@ class ReaderJumpBackUiTest {
             menu(); back(furthest).assertIsDisplayed()
             closeBook()
             open(server, initialPage = 10)
-            menu(); assertNoBack()
+            menu(); back(furthest).assertIsDisplayed()
             jump(1); back(furthest).assertIsDisplayed()
             closeBook()
             finished.set(true)
@@ -115,7 +115,7 @@ class ReaderJumpBackUiTest {
             assertTrue(furthest > 2)
             assertNoBack()
             jump(0); back(furthest).assertIsDisplayed()
-            jump(9); assertNoBack()
+            jump(9); back(furthest).assertIsDisplayed()
             jump(0); back(furthest).performClick()
             assertEquals(furthest, imagePage())
             back(1).assertIsDisplayed()
@@ -140,7 +140,7 @@ class ReaderJumpBackUiTest {
             menu(); assertNoBack()
             openContentsItem("Open contents: Character list")
             menu(); back(3).assertIsDisplayed()
-            jump(5, novel = true); assertNoBack()
+            jump(5, novel = true); back(3).assertIsDisplayed()
             val slider = pageSlider(novel = true).fetchSemanticsNode().boundsInRoot
             val close = closeButton().fetchSemanticsNode().boundsInRoot
             jump(0, novel = true)
@@ -164,6 +164,85 @@ class ReaderJumpBackUiTest {
             key(KeyEvent.KEYCODE_PAGE_DOWN)
             compose.waitUntil(5_000) { novelState().contains("Screen 2 /") }
             menu(); assertNoBack()
+        }
+    }
+
+    @Test fun imageSliderAndContentsCanPeekAheadAndTurningCommitsTheNewPosition() = withReaderSettings {
+        val contents = Json.encodeToString(listOf(BookChapterItemDto("Cover"), BookChapterItemDto("Ahead", page = 9)))
+        ReaderServer(3, spineCount = 12, initialImageProgress = 1, readingProfile = ltrProfile,
+            bookFragment = { "<img src='/api/Book/1/book-resources?file=$it.png'>" },
+            contentsResponse = { 200 to contents }).use { server ->
+            open(server, incognito = true)
+            turnImage()
+            menu()
+            val furthest = imagePage()
+            assertNoBack()
+            jump(7)
+            back(furthest).performClick()
+            assertEquals(furthest, imagePage())
+            back(8).assertIsDisplayed()
+            closeMenu()
+            menu()
+            openContentsItem("Open contents: Ahead", novel = false)
+            menu()
+            assertEquals(10, imagePage())
+            back(furthest).performClick()
+            assertEquals(furthest, imagePage())
+            // Turn from a second slider lookup, then from a second Contents lookup.
+            jump(7)
+            closeMenu()
+            turnImage(forward = false)
+            menu()
+            assertNoBack()
+            jump(0)
+            back(8).assertIsDisplayed()
+            openContentsItem("Open contents: Ahead", novel = false)
+            turnImage(forward = false)
+            menu()
+            assertNoBack()
+            jump(0)
+            back(10).assertIsDisplayed()
+            assertTrue(server.progressWrites.isEmpty())
+        }
+    }
+
+    @Test fun novelSliderAndContentsCanPeekAheadAndTurningCommitsTheNewPosition() = withReaderSettings {
+        val contents = Json.encodeToString(listOf(BookChapterItemDto("Ahead", page = 5)))
+        ReaderServer(3, spineCount = 12, bookProgress = ProgressDto(1, 1, 1, 1, 2),
+            bookFragment = { novelText() }, readingProfile = ltrProfile,
+            contentsResponse = { 200 to contents }).use { server ->
+            open(server, novel = true, incognito = true)
+            val start = novelState()
+            key(KeyEvent.KEYCODE_PAGE_DOWN)
+            compose.waitUntil(5_000) { novelState() != start }
+            val furthest = novelState()
+            menu(); assertNoBack()
+            jump(5, novel = true)
+            back(3).performClick()
+            compose.waitUntil(10_000) { novelState() == furthest }
+            back(6).assertIsDisplayed()
+            jump(4, novel = true)
+            closeMenu()
+            key(KeyEvent.KEYCODE_PAGE_DOWN)
+            compose.waitUntil(5_000) { novelState().contains("Page 5 /") && novelState().contains("Screen 2 /") }
+            menu(); assertNoBack()
+            jump(2, novel = true)
+            back(5).performClick()
+            compose.waitUntil(10_000) { novelState().contains("Page 5 /") && novelState().contains("Screen 2 /") }
+            openContentsItem("Open contents: Ahead")
+            menu()
+            back(5).performClick()
+            compose.waitUntil(10_000) { novelState().contains("Page 5 /") && novelState().contains("Screen 2 /") }
+            openContentsItem("Open contents: Ahead")
+            val ahead = novelState()
+            assertTrue(ahead.contains("Page 6 /"))
+            key(KeyEvent.KEYCODE_PAGE_UP)
+            compose.waitUntil(10_000) { novelState() != ahead }
+            menu(); assertNoBack()
+            jump(0, novel = true)
+            back(6).performClick()
+            compose.waitUntil(10_000) { novelState() == ahead }
+            assertTrue(server.bookProgressWrites.isEmpty())
         }
     }
 
@@ -300,12 +379,16 @@ class ReaderJumpBackUiTest {
         if (novel) compose.waitUntil(10_000) { novelState().contains("Page ${page + 1} /") }
         else compose.waitUntil(5_000) { imagePage() == page + 1 }
     }
-    private fun openContentsItem(label: String, bookmarks: Boolean = false) {
+    private fun openContentsItem(label: String, bookmarks: Boolean = false, novel: Boolean = true) {
+        compose.waitUntil(5_000) { compose.onNodeWithContentDescription("Contents").isDisplayed() }
         compose.onNodeWithContentDescription("Contents").performClick()
         if (bookmarks) compose.onNode(hasText("Bookmarks") and SemanticsMatcher.keyIsDefined(SemanticsProperties.Selected)).performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithContentDescription(label).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithContentDescription(label).performClick()
-        compose.waitUntil(10_000) { compose.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isEmpty() && novelState().isNotEmpty() }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isEmpty() &&
+                (!novel || novelState().isNotEmpty())
+        }
     }
     private fun novelText() = "<div>" + (1..180).joinToString("") {
         "<p>Paragraph $it. The reader returns to this exact screen after visiting the character list.</p>"

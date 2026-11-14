@@ -80,7 +80,7 @@ import org.json.JSONObject
 private val NovelPreferenceWriteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
 private sealed interface NovelJumpLanding {
-    data object Turn : NovelJumpLanding
+    data class Turn(val from: ReaderJumpLocation) : NovelJumpLanding
     data object Jump : NovelJumpLanding
     data class Return(val from: ReaderJumpLocation) : NovelJumpLanding
 }
@@ -265,10 +265,13 @@ internal fun NovelReaderScreen(
     fun continueChapter() {
         boundary?.let { onSwitchChapter(it.neighbor, it.direction == ReaderTurnDirection.Previous) }
     }
-    fun sectionBoundary(delta: Int) {
+    fun sectionBoundary(delta: Int, from: ReaderJumpLocation) {
         if (closing) return
         val target = spine + delta
-        if (target in 0 until spineCount) { loadSpine(target, delta < 0, navigation = NovelJumpLanding.Turn); return }
+        if (target in 0 until spineCount) {
+            loadSpine(target, delta < 0, navigation = NovelJumpLanding.Turn(from))
+            return
+        }
         turning = false
         menu = false
         queuedTurns = emptyList()
@@ -291,11 +294,12 @@ internal fun NovelReaderScreen(
             if (it == delta) continueChapter() else boundaryDirection = null
             return
         }
+        val from = position?.jumpLocation(reachedSpine) ?: ReaderJumpLocation(reachedSpine)
         turning = true
         moved = true
         view.turn(delta, onLanded = { current ->
-            if (renderedSpine == spine && !closing) jumpBack.turned(current.jumpLocation(spine))
-        }, onBoundary = ::sectionBoundary)
+            if (renderedSpine == spine && !closing) jumpBack.turned(from, current.jumpLocation(spine))
+        }, onBoundary = { sectionBoundary(it, from) })
     }
     LaunchedEffect(loading, turning, dragging, queuedTurns, menu, failure, chapterSwitching, closing, boundaryDirection, pendingBookmarkAnchor) {
         if (menu || failure != null || closing || boundaryDirection != null) queuedTurns = emptyList()
@@ -323,7 +327,7 @@ internal fun NovelReaderScreen(
                 historyOpened = true
             }
             when (val landing = pendingLanding) {
-                NovelJumpLanding.Turn -> jumpBack.turned(location)
+                is NovelJumpLanding.Turn -> jumpBack.turned(landing.from, location)
                 NovelJumpLanding.Jump -> jumpBack.jumped(location)
                 is NovelJumpLanding.Return -> jumpBack.returned(landing.from, location)
                 null -> Unit

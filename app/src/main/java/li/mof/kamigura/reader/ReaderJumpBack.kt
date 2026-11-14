@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 
 @Serializable
 internal data class ReaderJumpTextPosition(val text: Int, val offset: Int)
@@ -28,7 +29,7 @@ internal data class ReaderJumpLocation(
 @Serializable
 internal data class ReaderJumpBackRecord(
     val furthest: ReaderJumpLocation? = null,
-    val lookingBack: Boolean = false
+    @SerialName("lookingBack") val lookingUp: Boolean = false
 )
 
 internal enum class ReaderJumpOpening { Resume, Jump, Restore }
@@ -46,18 +47,26 @@ internal class ReaderJumpBackState(
             ReaderJumpOpening.Resume -> {
                 val previous = record
                 if (previous == null) update(ReaderJumpBackRecord(at))
-                else if (previous.furthest?.let { at >= it } == true) update(previous.copy(lookingBack = false))
+                else if (previous.furthest?.let { at.compareTo(it) == 0 } == true) {
+                    update(previous.copy(lookingUp = false))
+                }
             }
             ReaderJumpOpening.Restore -> Unit
         }
     }
 
-    fun turned(at: ReaderJumpLocation) {
+    fun turned(from: ReaderJumpLocation, at: ReaderJumpLocation) {
+        val wasReturning = alternate != null
         alternate = null
         val previous = record
         val furthest = previous?.furthest
-        update(if (furthest == null || at > furthest) ReaderJumpBackRecord(at)
-            else previous.copy(lookingBack = previous.lookingBack && at < furthest))
+        update(when {
+            // A turn from a peek ahead commits that position even if the turn goes backward.
+            furthest != null && from > furthest && (previous.lookingUp || wasReturning) ->
+                ReaderJumpBackRecord(maxOf(from, at))
+            furthest == null || at > furthest -> ReaderJumpBackRecord(at)
+            else -> previous.copy(lookingUp = previous.lookingUp && at < furthest)
+        })
     }
 
     fun jumped(at: ReaderJumpLocation) {
@@ -71,12 +80,12 @@ internal class ReaderJumpBackState(
 
     fun returned(from: ReaderJumpLocation, at: ReaderJumpLocation) {
         alternate = from.takeIf { it.compareTo(at) != 0 }
-        record?.let { update(it.copy(lookingBack = false)) }
+        record?.let { update(it.copy(lookingUp = false)) }
     }
 
     fun target(at: ReaderJumpLocation): ReaderJumpLocation? =
         alternate?.takeIf { it.compareTo(at) != 0 }
-            ?: record?.takeIf { it.lookingBack }?.furthest?.takeIf { at < it }
+            ?: record?.takeIf { it.lookingUp }?.furthest?.takeIf { at.compareTo(it) != 0 }
 
     fun reset() {
         alternate = null
@@ -86,7 +95,7 @@ internal class ReaderJumpBackState(
 
     private fun recordJump(at: ReaderJumpLocation) {
         val previous = record ?: ReaderJumpBackRecord()
-        update(previous.copy(lookingBack = previous.furthest?.let { at < it } == true))
+        update(previous.copy(lookingUp = previous.furthest?.let { at.compareTo(it) != 0 } == true))
     }
 
     private fun update(next: ReaderJumpBackRecord) {

@@ -277,8 +277,9 @@ fun ReaderScreen(
     }
     fun landImageTurn(target: Int, spreadShift: Boolean = false) {
         if (page != target) {
+            val from = page
             page = target
-            if (spreadShift) jumpBack.shifted() else jumpBack.turned(ReaderJumpLocation(target))
+            if (spreadShift) jumpBack.shifted() else jumpBack.turned(ReaderJumpLocation(from), ReaderJumpLocation(target))
         }
     }
     fun persistSessionPreferences() {
