@@ -75,9 +75,9 @@ class ReaderSmartThresholdUiTest {
         thresholdSlider().performTouchInput { up() }
         compose.runOnIdle { assertEquals(1, commits); assertEquals(0, dismissals) }
         compose.onNodeWithText("Off", useUnmergedTree = true).performClick()
-        compose.onNodeWithContentDescription("White threshold").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Smart threshold").assertDoesNotExist()
         compose.onNodeWithText("Always", useUnmergedTree = true).performClick()
-        compose.onNodeWithContentDescription("White threshold").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Smart threshold").assertDoesNotExist()
         compose.onNodeWithText("Smart", useUnmergedTree = true).performClick()
         thresholdSlider().assertIsDisplayed()
         val before = commits
@@ -136,7 +136,7 @@ class ReaderSmartThresholdUiTest {
             assertEquals(.2f, thresholdSlider().fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo].current, .001f)
             setThreshold(.9f)
             compose.onNodeWithText("Off", useUnmergedTree = true).performClick()
-            compose.onNodeWithContentDescription("White threshold").assertDoesNotExist()
+            compose.onNodeWithContentDescription("Smart threshold").assertDoesNotExist()
             compose.onNodeWithText("Smart", useUnmergedTree = true).performClick()
             compose.onNodeWithText("RTL").performClick()
             compose.onNodeWithText("LTR").performClick()
@@ -187,7 +187,7 @@ class ReaderSmartThresholdUiTest {
         menu(); compose.onNodeWithText("LTR").performClick(); closeMenu()
         return session
     }
-    private fun thresholdSlider() = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress) and hasAnyAncestor(hasContentDescription("White threshold")))
+    private fun thresholdSlider() = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress) and hasAnyAncestor(hasContentDescription("Smart threshold")))
     private fun setThreshold(value: Float) = thresholdSlider().performScrollTo().performSemanticsAction(SemanticsActions.SetProgress) { it(value) }
     private fun menu() {
         compose.onRoot().performTouchInput { click(Offset(width * .5f, height * .2f)) }

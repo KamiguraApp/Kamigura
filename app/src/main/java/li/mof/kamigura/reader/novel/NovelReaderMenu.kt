@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ButtonGroupDefaults
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -31,6 +32,11 @@ import androidx.compose.ui.unit.dp
 import li.mof.kamigura.reader.internal.ReaderMenuHeader
 import li.mof.kamigura.reader.internal.ReaderBookmarkButton
 import li.mof.kamigura.reader.internal.ReaderBookmarkState
+import li.mof.kamigura.reader.internal.ReaderMenuButtonLabels
+import li.mof.kamigura.reader.internal.ReaderMenuMinimumTarget
+import li.mof.kamigura.reader.internal.ReaderMenuOption
+import li.mof.kamigura.reader.internal.ReaderMenuPanel
+import li.mof.kamigura.reader.internal.limitHorizontal
 import li.mof.kamigura.reader.internal.readerMenuPosition
 import li.mof.kamigura.reader.internal.readerMenuSubtitle
 import li.mof.kamigura.ui.ValueBubbleSlider
@@ -68,6 +74,11 @@ internal fun NovelReaderMenu(
     val rightToLeft = preferences.rightToLeft
     var selectedFont by remember(preferences.fontSize) { mutableIntStateOf(preferences.fontSize) }
     var jumpPage by remember(currentPage, count) { mutableIntStateOf(currentPage) }
+    val writingLabels = ReaderMenuButtonLabels("Writing", listOf("Horizontal", "Vertical"),
+        ButtonGroupDefaults.ConnectedSpaceBetween)
+    val backgrounds = PageBackground.entries
+    val backgroundLabels = ReaderMenuButtonLabels("Background", backgrounds.map { it.name },
+        ButtonGroupDefaults.ConnectedSpaceBetween)
     fun pageFromSlider(value: Float): Int {
         val index = value.roundToInt().coerceIn(0, count - 1)
         return if (rightToLeft) count - 1 - index else index
@@ -84,58 +95,57 @@ internal fun NovelReaderMenu(
             compactSubtitle = pagePosition,
             jumpBackPage = jumpBackPage.takeIf { enabled }, onJumpBack = onJumpBack)
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xCC000000))
-                .verticalScroll(rememberScrollState()).navigationBarsPadding().padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("Writing", color = Color.White)
-                    Row(Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-                        listOf("Horizontal", "Vertical").forEachIndexed { index, label ->
+            ReaderMenuPanel(
+                modifier = Modifier.align(Alignment.BottomCenter).background(Color(0xCC000000))
+                    .verticalScroll(rememberScrollState()).testTag("Novel reader controls").navigationBarsPadding().padding(12.dp),
+                buttons = listOf(writingLabels, backgroundLabels),
+                sliderLabels = listOf("Font size")
+            ) {
+                Buttons(writingLabels) { padding ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(writingLabels.gap)) {
+                        writingLabels.options.forEachIndexed { index, label ->
                             ToggleButton(checked = preferences.writingStyle == index, enabled = enabled,
                                 onCheckedChange = { onWritingStyle(index) },
                                 modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
+                                contentPadding = ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight)
+                                    .limitHorizontal(padding),
                                 shapes = if (index == 0) ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                    else ButtonGroupDefaults.connectedTrailingButtonShapes()) { Text(label) }
+                                    else ButtonGroupDefaults.connectedTrailingButtonShapes()) { ReaderMenuOption(label) }
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("Background", color = Color.White)
-                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)) {
-                        PageBackground.entries.forEachIndexed { index, background ->
+                Buttons(backgroundLabels) { padding ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(backgroundLabels.gap)) {
+                        backgrounds.forEachIndexed { index, background ->
                             ToggleButton(checked = preferences.background == background, enabled = enabled,
                                 onCheckedChange = { onBackground(background) },
                                 modifier = Modifier.weight(1f).semantics { role = Role.RadioButton },
+                                contentPadding = ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight)
+                                    .limitHorizontal(padding),
                                 shapes = if (index == 0) ButtonGroupDefaults.connectedLeadingButtonShapes()
-                                    else ButtonGroupDefaults.connectedTrailingButtonShapes()) { Text(background.name) }
+                                    else ButtonGroupDefaults.connectedTrailingButtonShapes()) { ReaderMenuOption(background.name) }
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("Font size", color = Color.White)
+                Slider("Font size") {
                     ValueBubbleSlider(value = selectedFont.toFloat(),
                         onValueChange = { selectedFont = it.roundToInt() },
                         onValueChangeFinished = { onFontSize(selectedFont) },
                         valueRange = minOf(NovelFontSizeRange.first, preferences.fontSize).toFloat()..
                             maxOf(NovelFontSizeRange.last, preferences.fontSize).toFloat(),
                         valueLabel = { "${it.roundToInt()}%" }, enabled = enabled,
-                        modifier = Modifier.weight(1f).semantics { contentDescription = "Font size" })
+                        modifier = Modifier.semantics { contentDescription = "Font size" },
+                        trackModifier = Modifier.testTag("Font size track"), sliderMinHeight = ReaderMenuMinimumTarget)
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (rightToLeft) "$count" else "1", color = Color.White)
+                PageSlider(start = if (rightToLeft) "$count" else "1", end = if (rightToLeft) "1" else "$count") {
                     ValueBubbleSlider(value = (if (rightToLeft) count - 1 - jumpPage else jumpPage).toFloat(),
                         onValueChange = { jumpPage = pageFromSlider(it) },
                         onValueChangeFinished = { if (jumpPage != currentPage) onJumpToPage(jumpPage) },
                         valueRange = 0f..(count - 1).toFloat(),
                         valueLabel = { "${pageFromSlider(it) + 1}" }, enabled = enabled && count > 1,
                         reverseTrackColors = rightToLeft, showStopIndicator = false,
-                        modifier = Modifier.weight(1f).semantics { contentDescription = "EPUB page navigation" })
-                    Text(if (rightToLeft) "1" else "$count", color = Color.White)
+                        modifier = Modifier.semantics { contentDescription = "EPUB page navigation" },
+                        trackModifier = Modifier.testTag("Page navigation track"), sliderMinHeight = ReaderMenuMinimumTarget)
                 }
             }
         }

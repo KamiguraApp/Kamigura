@@ -112,7 +112,7 @@ class ReaderJumpSpreadUiTest {
 
     private fun jump(target: Int, origin: Int, rtl: Boolean) {
         val slider = compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress) and
-            !hasAnyAncestor(hasContentDescription("White threshold")))
+            !hasAnyAncestor(hasContentDescription("Smart threshold")))
         slider.performSemanticsAction(SemanticsActions.SetProgress) { it((if (rtl) 180 - target else target).toFloat()) }
         compose.onNodeWithText("${origin + 1} / 181", substring = true).assertIsDisplayed()
         assertEquals((if (rtl) 180 - origin else origin).toFloat(),

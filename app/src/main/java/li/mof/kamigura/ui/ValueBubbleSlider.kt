@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,6 +38,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 private val SliderThumbWidth = 4.dp
@@ -56,7 +58,9 @@ internal fun ValueBubbleSlider(
     steps: Int = 0,
     reverseTrackColors: Boolean = false,
     showStopIndicator: Boolean = true,
-    onValueChangeFinished: (() -> Unit)? = null
+    onValueChangeFinished: (() -> Unit)? = null,
+    trackModifier: Modifier = Modifier,
+    sliderMinHeight: Dp = 0.dp
 ) {
     var showBubble by remember { mutableStateOf(false) }
     val interactionSource = remember { MutableInteractionSource() }
@@ -148,7 +152,7 @@ internal fun ValueBubbleSlider(
             onValueChangeFinished?.invoke()
         }
 
-        if (showStopIndicator) {
+        if (showStopIndicator && trackModifier == Modifier && sliderMinHeight == 0.dp) {
             Slider(
                 value = value,
                 onValueChange = sliderOnValueChange,
@@ -170,13 +174,19 @@ internal fun ValueBubbleSlider(
                 enabled = enabled,
                 interactionSource = interactionSource,
                 colors = sliderColors,
+                thumb = {
+                    // Material sizes the hit area from the track and thumb placeables.
+                    Box(Modifier.heightIn(min = sliderMinHeight), contentAlignment = Alignment.Center) {
+                        SliderDefaults.Thumb(interactionSource, colors = sliderColors, enabled = enabled)
+                    }
+                },
                 track = { sliderState ->
-                    SliderDefaults.Track(
-                        sliderState = sliderState,
-                        enabled = enabled,
-                        colors = sliderColors,
-                        drawStopIndicator = null
-                    )
+                    if (showStopIndicator) {
+                        SliderDefaults.Track(sliderState, trackModifier, enabled = enabled, colors = sliderColors)
+                    } else {
+                        SliderDefaults.Track(sliderState, trackModifier, enabled = enabled,
+                            colors = sliderColors, drawStopIndicator = null)
+                    }
                 },
                 modifier = sliderModifier
             )

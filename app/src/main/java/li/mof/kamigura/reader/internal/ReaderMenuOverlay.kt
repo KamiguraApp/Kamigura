@@ -16,6 +16,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -49,6 +50,8 @@ import li.mof.kamigura.ReaderReadingDirection
 import li.mof.kamigura.reader.novel.NovelContentsButton
 import li.mof.kamigura.ui.ValueBubbleSlider
 import kotlin.math.roundToInt
+
+private const val SmartThresholdLabel = "Smart threshold"
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 /** Internal to reader, not for external use. */
 @Composable
@@ -87,6 +90,14 @@ internal fun ReaderMenuOverlay(
     } else {
         jumpPage
     }.toFloat()
+    val directions = ReaderReadingDirection.entries
+    val directionLabels = ReaderMenuButtonLabels("Direction", listOf("RTL", "Vertical", "LTR"),
+        ButtonGroupDefaults.ConnectedSpaceBetween)
+    val modes = InvertMode.entries
+    val invertLabels = ReaderMenuButtonLabels("Invert", modes.map { it.name },
+        ButtonGroupDefaults.ConnectedSpaceBetween)
+    val spreadLabels = ReaderMenuButtonLabels("Spread shift", listOf("-1", "+1"), 8.dp)
+    var thresholdDraft by remember(whiteThreshold, invertMode) { mutableFloatStateOf(whiteThreshold) }
     fun sliderValueToPage(value: Float): Int {
         val sliderPage = value.roundToInt().coerceIn(0, safePageCount - 1)
         return if (rightToLeft) safePageCount - 1 - sliderPage else sliderPage
@@ -113,25 +124,21 @@ internal fun ReaderMenuOverlay(
 
         Spacer(Modifier.weight(1f))
 
-        Column(
+        ReaderMenuPanel(
             modifier = Modifier
-                .fillMaxWidth()
                 .background(Color(0xCC000000))
                 .verticalScroll(rememberScrollState())
+                .testTag("Image reader controls")
                 .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            // Hidden rows count too, so choosing Smart does not shift the buttons under the finger.
+            buttons = listOf(directionLabels, invertLabels, spreadLabels),
+            sliderLabels = listOf(SmartThresholdLabel)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Direction", color = Color.White)
+            Buttons(directionLabels) { padding ->
                 Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(directionLabels.gap)
                 ) {
-                    val directions = ReaderReadingDirection.entries
                     directions.forEachIndexed { index, direction ->
                         ToggleButton(
                             checked = readingDirection == direction,
@@ -139,35 +146,25 @@ internal fun ReaderMenuOverlay(
                             modifier = Modifier
                                 .weight(1f)
                                 .semantics { role = Role.RadioButton },
+                            contentPadding = ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight)
+                                .limitHorizontal(padding),
                             shapes = when (index) {
                                 0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
                                 directions.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                                 else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                             }
                         ) {
-                            Text(
-                                when (direction) {
-                                    ReaderReadingDirection.RightToLeft -> "RTL"
-                                    ReaderReadingDirection.Vertical -> "Vertical"
-                                    ReaderReadingDirection.LeftToRight -> "LTR"
-                                }
-                            )
+                            ReaderMenuOption(directionLabels.options[index])
                         }
                     }
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Invert", color = Color.White)
+            Buttons(invertLabels) { padding ->
                 Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween)
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(invertLabels.gap)
                 ) {
-                    val modes = InvertMode.entries
                     modes.forEachIndexed { index, mode ->
                         ToggleButton(
                             checked = invertMode == mode,
@@ -175,24 +172,20 @@ internal fun ReaderMenuOverlay(
                             modifier = Modifier
                                 .weight(1f)
                                 .semantics { role = Role.RadioButton },
+                            contentPadding = ButtonDefaults.contentPaddingFor(ButtonDefaults.MinHeight)
+                                .limitHorizontal(padding),
                             shapes = when (index) {
                                 0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
                                 modes.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                                 else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
                             }
-                        ) { Text(mode.name) }
+                        ) { ReaderMenuOption(mode.name) }
                     }
                 }
             }
 
             if (invertMode == InvertMode.Smart) {
-                var thresholdDraft by remember(whiteThreshold) { mutableFloatStateOf(whiteThreshold) }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("White threshold", color = Color.White)
+                Slider(SmartThresholdLabel) {
                     ValueBubbleSlider(
                         value = thresholdDraft,
                         onValueChange = { thresholdDraft = it },
@@ -201,21 +194,17 @@ internal fun ReaderMenuOverlay(
                         },
                         valueRange = InvertWhiteThresholdRange,
                         valueLabel = { "${(it * 100f).roundToInt()}%" },
-                        modifier = Modifier.weight(1f).semantics { contentDescription = "White threshold" }
+                        modifier = Modifier.semantics { contentDescription = SmartThresholdLabel },
+                        trackModifier = Modifier.testTag("Smart threshold track"),
+                        sliderMinHeight = ReaderMenuMinimumTarget
                     )
-                    Text("${(thresholdDraft * 100f).roundToInt()}%", color = Color.White)
                 }
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            PageSlider(
+                start = if (rightToLeft) "$safePageCount" else "1",
+                end = if (rightToLeft) "1" else "$safePageCount"
             ) {
-                Text(
-                    text = if (rightToLeft) "$safePageCount" else "1",
-                    color = Color.White
-                )
                 ValueBubbleSlider(
                     value = sliderValue,
                     onValueChange = { value ->
@@ -231,44 +220,40 @@ internal fun ReaderMenuOverlay(
                     enabled = safePageCount > 1,
                     reverseTrackColors = rightToLeft,
                     showStopIndicator = false,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = if (rightToLeft) "1" else "$safePageCount",
-                    color = Color.White
+                    trackModifier = Modifier.testTag("Page navigation track"),
+                    sliderMinHeight = ReaderMenuMinimumTarget
                 )
             }
 
             if (showSpreadShift) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Buttons(spreadLabels) { padding ->
                     // Kept discoverable here even though edge long-press does the same:
                     // the menu is the only place a new user can find spread correction.
-                    Text("Spread shift", color = Color.White)
                     Row(
-                        modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(spreadLabels.gap)
                     ) {
                         if (rightToLeft) {
                             Button(
                                 onClick = onNextSingle,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                contentPadding = ButtonDefaults.ContentPadding.limitHorizontal(padding)
                             ) { Text("+1") }
                             Button(
                                 onClick = onPreviousSingle,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                contentPadding = ButtonDefaults.ContentPadding.limitHorizontal(padding)
                             ) { Text("-1") }
                         } else {
                             Button(
                                 onClick = onPreviousSingle,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                contentPadding = ButtonDefaults.ContentPadding.limitHorizontal(padding)
                             ) { Text("-1") }
                             Button(
                                 onClick = onNextSingle,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f),
+                                contentPadding = ButtonDefaults.ContentPadding.limitHorizontal(padding)
                             ) { Text("+1") }
                         }
                     }

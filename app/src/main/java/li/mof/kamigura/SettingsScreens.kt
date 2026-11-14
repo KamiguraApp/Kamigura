@@ -742,7 +742,7 @@ fun ReaderSettingsScreen(
                 val threshold = settings.reader.image.invertWhiteThreshold
                 var thresholdDraft by remember(threshold) { mutableStateOf(threshold) }
                 Text(
-                    "Illustration threshold: pages at least ${(thresholdDraft * 100f).roundToInt()}% white are treated as text and inverted.",
+                    "Smart threshold: pages at least ${(thresholdDraft * 100f).roundToInt()}% white are treated as text and inverted.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color.Gray
                 )
