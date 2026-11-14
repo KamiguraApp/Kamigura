@@ -8,6 +8,8 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.system.ErrnoException
+import android.system.OsConstants
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.material3.MaterialTheme
@@ -18,7 +20,9 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import coil.ImageLoader
+import coil.annotation.ExperimentalCoilApi
 import coil.decode.DataSource
+import coil.disk.DiskCache
 import coil.intercept.Interceptor
 import coil.request.CachePolicy
 import coil.request.ErrorResult
@@ -30,12 +34,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import li.mof.kamigura.reader.internal.*
 import okhttp3.OkHttpClient
+import okio.FileSystem
+import okio.ForwardingFileSystem
+import okio.Path
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketTimeoutException
@@ -48,6 +57,92 @@ import java.util.concurrent.atomic.AtomicInteger
 class ReaderPoorConnectionTest {
     @get:Rule val compose = createComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+
+    @Test fun tinyCacheEvictionKeepsVisiblePagesAndPrefetchReadable() {
+        tinyCacheEviction(CachePolicy.ENABLED)
+    }
+
+    @Test fun tinyCacheEvictionAlsoRecoversManualRetry() {
+        tinyCacheEviction(CachePolicy.WRITE_ONLY)
+    }
+
+    @Test fun noSpaceWritingToDiskDoesNotFailThePage() = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory(context.cacheDir.toPath(), "reader-full-").toFile()
+        val cache = DiskCache.Builder().directory(directory).maxSizeBytes(2 * 1024 * 1024L)
+            .fileSystem(object : ForwardingFileSystem(FileSystem.SYSTEM) {
+                override fun sink(file: Path, mustCreate: Boolean): okio.Sink {
+                    if (file.name.endsWith(".1.tmp")) {
+                        throw IOException(ErrnoException("write", OsConstants.ENOSPC))
+                    }
+                    return super.sink(file, mustCreate)
+                }
+            }).build()
+        val loader = ImageLoader.Builder(context)
+            .callFactory(readerImageCallFactory(client()))
+            .diskCache(ReaderDiskCache(cache))
+            .components { add(ReaderImageRequestInterceptor()) }
+            .build()
+        try {
+            SlowPageServer(Transfer.Normal).use { server ->
+                val request = ImageRequest.Builder(context).data(server.url).size(600, 900).build()
+                val result = loader.execute(request)
+                assertTrue((result as? ErrorResult)?.throwable.toString(), result is SuccessResult)
+                assertNull((result as SuccessResult).diskCacheKey)
+                assertEquals(2, server.requests.get())
+            }
+        } finally {
+            loader.shutdown()
+            directory.deleteRecursively()
+        }
+    }
+
+    @OptIn(ExperimentalCoilApi::class)
+    private fun tinyCacheEviction(policy: CachePolicy) = runBlocking {
+        val directory = kotlin.io.path.createTempDirectory(context.cacheDir.toPath(), "reader-tiny-").toFile()
+        val cache = DiskCache.Builder().directory(directory).maxSizeBytes(128 * 1024L).build()
+        val loader = ImageLoader.Builder(context)
+            .callFactory(readerImageCallFactory(client()))
+            .diskCache(ReaderDiskCache(cache))
+            .components { add(ReaderImageRequestInterceptor()) }
+            .build()
+        try {
+            SlowPageServer(Transfer.Hold).use { visible ->
+                SlowPageServer(Transfer.Normal).use { prefetch ->
+                    fun request(url: String, diskPolicy: CachePolicy) = ImageRequest.Builder(context)
+                        .data(url).size(600, 900).diskCacheKey(url)
+                        .diskCachePolicy(diskPolicy).memoryCachePolicy(CachePolicy.DISABLED).build()
+                    withTimeout(12_000) {
+                        val visibleRequest = request(visible.url, policy)
+                        val held = async { loader.execute(visibleRequest) }
+                        val shared = async { loader.execute(visibleRequest) }
+                        try {
+                            // Keep the visible editor open while two larger-than-budget
+                            // images commit and the real Coil LRU trims past that editor.
+                            while (directory.listFiles().orEmpty().none { it.name.endsWith(".1.tmp") }) delay(10)
+                            visible.transfer = Transfer.Normal
+                            val prefetches = (1..2).map {
+                                async { loader.execute(request("${prefetch.url}&window=$it", CachePolicy.ENABLED)) }
+                            }
+                            prefetches.forEach { assertTrue(it.await() is SuccessResult) }
+                            while (cache.size != 0L) delay(10)
+                        } finally {
+                            visible.release.countDown()
+                        }
+                        for (result in listOf(held.await(), shared.await())) {
+                            assertTrue((result as? ErrorResult)?.throwable.toString(), result is SuccessResult)
+                            assertNull((result as SuccessResult).diskCacheKey)
+                        }
+                        assertEquals("The shared flight retries only once", 2, visible.requests.get())
+                        assertTrue("Each prefetch can retry at most once", prefetch.requests.get() in 2..4)
+                    }
+                }
+            }
+        } finally {
+            loader.shutdown()
+            cache.clear()
+            directory.deleteRecursively()
+        }
+    }
 
     @Test fun midBodyStallBecomesRetryAndThenSmartRecovers() = transferFailure(Transfer.Stall)
     @Test fun midBodyDisconnectBecomesRetryAndThenSmartRecovers() = transferFailure(Transfer.Drop)

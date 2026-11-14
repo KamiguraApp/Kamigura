@@ -24,6 +24,7 @@ import li.mof.kamigura.cache.ReaderPageCacheDirectory
 import li.mof.kamigura.cache.imageCacheBudget
 import li.mof.kamigura.cache.imageCacheScope
 import li.mof.kamigura.reader.internal.ReaderImageRequestInterceptor
+import li.mof.kamigura.reader.internal.ReaderDiskCache
 import li.mof.kamigura.reader.internal.readerImageCallFactory
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -183,10 +184,10 @@ class KavitaClient(
                     .build()
             }
             .diskCache {
-                DiskCache.Builder()
+                ReaderDiskCache(DiskCache.Builder()
                     .directory(context.cacheDir.resolve(ReaderPageCacheDirectory))
                     .maxSizeBytes(budget.readerDiskBytes)
-                    .build()
+                    .build())
             }
             .components {
                 add(KavitaImageDiskCacheKeyInterceptor(cacheScope))

@@ -1,6 +1,7 @@
 package li.mof.kamigura.reader.internal
 
 import coil.intercept.Interceptor
+import coil.request.CachePolicy
 import coil.request.ErrorResult
 import coil.request.ImageResult
 import coil.request.SuccessResult
@@ -58,7 +59,15 @@ internal class ReaderImageRequestInterceptor : Interceptor {
                 val transfer = ReaderImageTransfer()
                 val tagged = request.newBuilder().tag(ReaderImageTransfer::class.java, transfer).build()
                 // Memory hits must finish inline, before Curl paints this newly composed sheet.
-                Flight(scope, scope.async(start = CoroutineStart.UNDISPATCHED) { chain.proceed(tagged) }, transfer)
+                Flight(scope, scope.async(start = CoroutineStart.UNDISPATCHED) {
+                    val result = chain.proceed(tagged)
+                    if (result is ErrorResult && tagged.networkCachePolicy.readEnabled &&
+                        tagged.diskCachePolicy != CachePolicy.DISABLED && readerDiskCacheCanBypass(result.throwable)
+                    ) {
+                        // Keep the same transfer tag, memory identity and consumers for the fallback.
+                        chain.proceed(tagged.newBuilder().diskCachePolicy(CachePolicy.DISABLED).build())
+                    } else result
+                }, transfer)
             }.also { it.users++ }
         }
         try {
