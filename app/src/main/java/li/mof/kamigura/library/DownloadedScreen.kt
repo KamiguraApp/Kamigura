@@ -1,9 +1,6 @@
 ﻿package li.mof.kamigura.library
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -14,17 +11,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Checklist
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -38,7 +24,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -68,8 +53,9 @@ import li.mof.kamigura.series.chapterCoverUrl
 import li.mof.kamigura.series.internal.coverActionColor
 import li.mof.kamigura.ui.DarkMessageState
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
-import li.mof.kamigura.ui.browse.BrowsePageScaffold
 import li.mof.kamigura.ui.browse.PosterGrid
+import li.mof.kamigura.ui.browse.SelectablePosterCard
+import li.mof.kamigura.ui.browse.SelectablePosterScaffold
 import li.mof.kamigura.ui.theme.KamiguraBackground
 
 @Composable
@@ -81,83 +67,14 @@ private fun DownloadedGrid(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var selectionMode by rememberSaveable { mutableStateOf(false) }
-    var selectedIds by rememberSaveable { mutableStateOf<List<Int>>(emptyList()) }
-    val selectedIdSet = selectedIds.toSet()
-
-    fun exitSelectionMode() {
-        selectionMode = false
-        selectedIds = emptyList()
-    }
-
-    fun toggleSelection(chapterId: Int) {
-        selectedIds = if (chapterId in selectedIdSet) {
-            selectedIds - chapterId
-        } else {
-            selectedIds + chapterId
-        }
-    }
-
-    LaunchedEffect(records) {
-        val availableIds = records.mapTo(mutableSetOf()) { it.chapterId }
-        selectedIds = selectedIds.filter { it in availableIds }
-        if (records.isEmpty()) selectionMode = false
-    }
-
-    BackHandler(enabled = selectionMode, onBack = ::exitSelectionMode)
-
-    BrowsePageScaffold(
-        title = if (selectionMode) "${selectedIds.size} selected" else "Downloaded",
+    SelectablePosterScaffold(
+        title = "Downloaded",
+        keys = records.map { it.chapterId },
+        deleteLabel = "Delete selected downloads",
         modifier = modifier,
-        onBack = if (selectionMode) ::exitSelectionMode else onBack,
-        navigationIcon = if (selectionMode) Icons.Filled.Close else Icons.AutoMirrored.Filled.ArrowBack,
-        navigationContentDescription = if (selectionMode) "Cancel selection" else "Back",
-        actions = {
-            if (selectionMode) {
-                IconButton(
-                    onClick = {
-                        selectedIds = if (selectedIds.size == records.size) {
-                            emptyList()
-                        } else {
-                            records.map { it.chapterId }
-                        }
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.SelectAll,
-                        contentDescription = if (selectedIds.size == records.size) {
-                            "Clear selection"
-                        } else {
-                            "Select all"
-                        },
-                        tint = Color.White
-                    )
-                }
-                IconButton(
-                    enabled = selectedIds.isNotEmpty(),
-                    onClick = {
-                        val selected = records.filter { it.chapterId in selectedIdSet }
-                        exitSelectionMode()
-                        onDelete(selected)
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Delete selected downloads",
-                        tint = Color.White
-                    )
-                }
-            } else if (records.isNotEmpty()) {
-                IconButton(onClick = { selectionMode = true }) {
-                    Icon(
-                        imageVector = Icons.Filled.Checklist,
-                        contentDescription = "Select items",
-                        tint = Color.White
-                    )
-                }
-            }
-        }
-    ) {
+        onBack = onBack,
+        onDelete = { selected -> onDelete(records.filter { it.chapterId in selected }) }
+    ) { selectionMode, selected, toggle ->
         if (records.isEmpty()) {
             DarkMessageState(title = "Downloaded", body = "No issues downloaded yet.")
         } else {
@@ -166,91 +83,51 @@ private fun DownloadedGrid(
                     record = record,
                     session = session,
                     selectionMode = selectionMode,
-                    selected = record.chapterId in selectedIdSet,
-                    onClick = {
-                        if (selectionMode) toggleSelection(record.chapterId) else onSelect(record)
-                    },
-                    onLongClick = {
-                        if (!selectionMode) selectionMode = true
-                        toggleSelection(record.chapterId)
-                    },
-                    onSelectionChange = { toggleSelection(record.chapterId) }
+                    selected = record.chapterId in selected,
+                    onOpen = { onSelect(record) },
+                    onToggle = { toggle(record.chapterId) }
                 )
             }
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DownloadedIssueCard(
     record: OfflineIssueRecord,
     session: KavitaSession,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
     selectionMode: Boolean,
     selected: Boolean,
-    onSelectionChange: () -> Unit
+    onOpen: () -> Unit,
+    onToggle: () -> Unit
 ) {
-    Box {
-        Card(
+    SelectablePosterCard(selectionMode, selected, onOpen, onToggle) {
+        AsyncImage(
+            model = record.localCoverFile() ?: chapterCoverUrl(session, record.chapterId),
+            contentDescription = record.issueName,
             modifier = Modifier
                 .fillMaxWidth()
-                .combinedClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick
-                ),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
-        ) {
-            Column {
-                AsyncImage(
-                    model = record.localCoverFile() ?: chapterCoverUrl(session, record.chapterId),
-                    contentDescription = record.issueName,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(KavitaCoverAspectRatio)
-                        .background(Color(0xFF111111)),
-                    contentScale = ContentScale.Crop
-                )
-                Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-                    Text(
-                        text = record.issueName,
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        text = record.seriesName,
-                        color = Color(0xFFB9BDBD),
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-        if (selectionMode) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(KavitaCoverAspectRatio)
-                    .background(
-                        if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-                        else Color.Black.copy(alpha = 0.12f)
-                    )
-            ) {
-                Checkbox(
-                    checked = selected,
-                    onCheckedChange = { onSelectionChange() },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .background(Color.Black.copy(alpha = 0.62f), MaterialTheme.shapes.small)
-                )
-            }
+                .aspectRatio(KavitaCoverAspectRatio)
+                .background(Color(0xFF111111)),
+            contentScale = ContentScale.Crop
+        )
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+            Text(
+                text = record.issueName,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = record.seriesName,
+                color = Color(0xFFB9BDBD),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

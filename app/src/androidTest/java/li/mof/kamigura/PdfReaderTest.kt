@@ -467,7 +467,8 @@ internal class ReaderServer(
     imageDimensions: Pair<Int, Int> = 600 to 900,
     private val initialImageProgress: Int = 0,
     private val chapterFinished: () -> Boolean = { false },
-    private val widePages: Set<Int> = emptySet()
+    private val widePages: Set<Int> = emptySet(),
+    bookmarkHandler: ((String, Uri, String) -> Pair<Int, String>)? = null
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -531,7 +532,9 @@ internal class ReaderServer(
                         val contents = if (uri.path in listOf("/api/Book/1/chapters", "/api/Book/2/chapters")) contentsResponse() else null
                         val book = if (uri.path in listOf("/api/Book/1/book-page", "/api/Book/2/book-page"))
                             bookPageResponse?.invoke(uri.pathSegments[2].toInt(), uri.getQueryParameter("page")?.toInt() ?: 0) else null
-                        val custom = personal ?: contents ?: book
+                        val bookmarks = if (uri.path in listOf("/api/Reader/all-bookmarks", "/api/Reader/unbookmark"))
+                            bookmarkHandler?.invoke(request.substringBefore(' '), uri, String(requestBody)) else null
+                        val custom = personal ?: contents ?: book ?: bookmarks
                         val json = custom?.second ?: when (uri.path) {
                             "/api/Series/1" -> """{"id":1,"name":"Test book","format":$format}"""
                             "/api/Series/volumes" -> if (chapterFinished())
@@ -564,7 +567,8 @@ internal class ReaderServer(
                             }
                             else -> "{}"
                         }
-                        val isImage = uri.path == "/api/Reader/image" || uri.path.orEmpty().endsWith("/book-resources")
+                        val isImage = uri.path in listOf("/api/Reader/image", "/api/Reader/bookmark-image") ||
+                            uri.path.orEmpty().endsWith("/book-resources")
                         val isDownload = uri.path == "/api/Download/chapter"
                         if (isImage) imageResponseGate(uri.getQueryParameter("page")?.toInt() ?: 0)
                             ?.await(30, TimeUnit.SECONDS)

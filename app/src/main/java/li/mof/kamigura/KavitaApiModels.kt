@@ -311,7 +311,8 @@ data class BookmarkPageDto(
     val seriesId: Int,
     val volumeId: Int,
     val chapterId: Int,
-    val page: Int
+    val page: Int,
+    val imageOffset: Int? = null
 )
 
 @Serializable

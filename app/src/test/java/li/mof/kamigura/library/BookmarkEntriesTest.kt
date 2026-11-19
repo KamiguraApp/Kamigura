@@ -34,7 +34,8 @@ class BookmarkEntriesTest {
             mapOf(7 to volumes)
         )
         assertEquals(listOf(10, 20, 30), entries.map { it.bookmark.id })
-        assertEquals(listOf("Issue 1 • Vol. 1", "Issue 1 • Vol. 1", "Issue 2 • Vol. 2"), entries.map { it.chapterLabel })
+        assertEquals(listOf("Vol. 1 • #1", "Vol. 1 • #1", "Vol. 2 • #2"), entries.map { it.chapterLabel })
+        assertEquals("Vol. 1 • #1 • p. 6", entries.first().displaySubtitle())
     }
 
     @Test
@@ -45,6 +46,7 @@ class BookmarkEntriesTest {
         )))
         val entries = bookmarkEntries(listOf(bookmark(1, 60, 0), bookmark(2, 61, 0)), mapOf(7 to loose))
         assertEquals(listOf(null, "Afterword"), entries.map { it.chapterLabel })
+        assertEquals("p. 1", entries.first().displaySubtitle())
     }
 
     @Test
