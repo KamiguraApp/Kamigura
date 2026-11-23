@@ -57,7 +57,14 @@ Several Kavita clients already exist. Kamigura focuses on **tablet/phone parity*
 
 - **Smart Invert**
   The reader can switch between **Off / Smart / Always**. Smart Invert flips mostly-white text pages for night reading while leaving illustrations and color pages untouched.
-  - The "Smart" detection threshold (percentage of white) is **adjustable in the settings**
+  - The "Smart" detection threshold (percentage of white) is **adjustable in the settings**, and for each series from the reader menu (**Smart threshold**)
+
+- **Novel reader**
+  Text EPUBs such as light novels open in a reader of their own: horizontal or vertical writing with ruby, Paper or Dark pages, font size, line spacing and margins. The book's contents and links work, and a pinch or double-tap opens an illustration on its own. Reading position and bookmarks are shared with Kavita's web reader. Novels are read online only for now.
+  - Import your own Mincho and Gothic font files (TTF / OTF / TTC). For Japanese novels we suggest GenEi Chikugo Mincho and GenEi Gothic N Regular (SIL OFL, free from [okoneya.jp](https://okoneya.jp/font/download.html)).
+
+- **Manga EPUBs**
+  EPUBs whose pages are images open in the image reader, with spreads, right-to-left reading and offline reading. Online, the reader menu also lists the book's contents.
 
 - **Search**
   The Home Search tab searches Series / Persons / Genres / Tags / Collections / Reading Lists / Chapters and lets you jump from authors or metadata to filtered series grids.
@@ -66,16 +73,20 @@ Several Kavita clients already exist. Kamigura focuses on **tablet/phone parity*
 
 - Multiple Kavita server profiles
 - Reading progress sync and mark-as-read on completion
-- Offline reading
-- Reader page prefetch
+- Offline reading for CBZ / ZIP, PDF and manga EPUBs, with a download queue
+- **Back to p. N**: after jumping with the slider, contents, a bookmark or a link, one tap returns to where you were reading
+- Page bookmarks, listed in Browse → Bookmarks
+- Collections, Reading Lists and Want to Read
+- Reader page prefetch, and Retry for a page that failed to load
 - Admin-only Scan Library / metadata refresh actions
 - Navigation rail on tablets and bottom navigation on phones
 - Automatic single-page / spread switching
 - Right-to-left and left-to-right binding
 - Pinch zoom, pan, double-tap zoom
-- Tap and swipe page turns
+- Tap and swipe page turns, page keys and (optionally) volume keys
+- Page transitions: Off, Slide or Curl (experimental)
 - Page-jump slider
-- Novel reader fonts: import your own Mincho and Gothic font files (TTF / OTF / TTC). For Japanese novels we suggest GenEi Chikugo Mincho and GenEi Gothic N Regular (SIL OFL, free from [okoneya.jp](https://okoneya.jp/font/download.html)).
+- Keep the screen on while reading
 
 ## Install
 
