@@ -75,6 +75,7 @@ Several Kavita clients already exist. Kamigura focuses on **tablet/phone parity*
 - Pinch zoom, pan, double-tap zoom
 - Tap and swipe page turns
 - Page-jump slider
+- Novel reader fonts: import your own Mincho and Gothic font files (TTF / OTF / TTC). For Japanese novels we suggest GenEi Chikugo Mincho and GenEi Gothic N Regular (SIL OFL, free from [okoneya.jp](https://okoneya.jp/font/download.html)).
 
 ## Install
 
