@@ -80,6 +80,17 @@ internal fun ReaderTapLayer(
         if (interceptor == null) fallback() else interceptor(position, fallback)
     }
 
+    // In right-to-left books the left edge moves forward; in left-to-right books, backward.
+    fun spread(leftEdge: Boolean, position: Offset) {
+        if (zoomPanEnabled) return
+        if (leftEdge == rightToLeft) latestOnNextSpread(position) else latestOnPreviousSpread(position)
+    }
+
+    fun single(leftEdge: Boolean) {
+        if (zoomPanEnabled) return
+        if (leftEdge == rightToLeft) latestOnNextSingle() else latestOnPreviousSingle()
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -103,31 +114,11 @@ internal fun ReaderTapLayer(
                 onCloseDrag = onCloseDrag,
                 onCloseDragEnd = onCloseDragEnd,
                 onCloseDragCancel = onCloseDragCancel,
-                onLeftTap = { position ->
-                    tap(position) {
-                        if (!zoomPanEnabled) {
-                            if (rightToLeft) latestOnNextSpread(position) else latestOnPreviousSpread(position)
-                        }
-                    }
-                },
+                onLeftTap = { position -> tap(position) { spread(leftEdge = true, position) } },
                 onCenterTap = { position -> tap(position) { latestOnCenterTap() } },
-                onRightTap = { position ->
-                    tap(position) {
-                        if (!zoomPanEnabled) {
-                            if (rightToLeft) latestOnPreviousSpread(position) else latestOnNextSpread(position)
-                        }
-                    }
-                },
-                onLeftLongPress = {
-                    if (!zoomPanEnabled) {
-                        if (rightToLeft) latestOnNextSingle() else latestOnPreviousSingle()
-                    }
-                },
-                onRightLongPress = {
-                    if (!zoomPanEnabled) {
-                        if (rightToLeft) latestOnPreviousSingle() else latestOnNextSingle()
-                    }
-                },
+                onRightTap = { position -> tap(position) { spread(leftEdge = false, position) } },
+                onLeftLongPress = { single(leftEdge = true) },
+                onRightLongPress = { single(leftEdge = false) },
                 onCenterDoubleTap = latestOnDoubleTap,
                 onRetryTap = { position ->
                     val target = retryTargets.firstOrNull { it.bounds.contains(position) }

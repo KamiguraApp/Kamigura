@@ -102,7 +102,6 @@ import li.mof.kamigura.reader.internal.readerPageRetryTargets
 import li.mof.kamigura.reader.internal.ReaderTapLayer
 import li.mof.kamigura.reader.internal.ReaderVerticalScroll
 import li.mof.kamigura.reader.internal.ReaderVerticalPosition
-import li.mof.kamigura.reader.internal.ReaderVerticalVisibleItem
 import li.mof.kamigura.reader.internal.readerVerticalPosition
 import li.mof.kamigura.reader.internal.ReaderZoomEpsilon
 import li.mof.kamigura.reader.internal.ReaderZoomPanState
@@ -977,10 +976,7 @@ fun ReaderScreen(
                     verticalListState.scrollToItem(target + 1)
                     if (history !== jumpBack || readingDirection != ReaderReadingDirection.Vertical) return@launch
                     val info = verticalListState.layoutInfo
-                    val visible = readerVerticalPosition(
-                        info.visibleItemsInfo.map { ReaderVerticalVisibleItem(it.index, it.offset, it.size) },
-                        info.viewportStartOffset, info.viewportEndOffset, pages
-                    )
+                    val visible = info.readerVerticalPosition(pages)
                     land((visible as? ReaderVerticalPosition.Page)?.index ?: target)
                 }
                 verticalJumpJob?.start()
@@ -1230,7 +1226,7 @@ fun ReaderScreen(
         }
 
         fun rememberZoomTurnLanding(direction: ReaderTurnDirection) {
-            if (zoomPan.userScale > 1f + ReaderZoomEpsilon) {
+            if (zoomPan.zoomed) {
                 pendingZoomLandingDirection = direction
             }
         }
@@ -1240,7 +1236,7 @@ fun ReaderScreen(
             closeAnimationJob?.cancel()
             val landingDirection = pendingZoomLandingDirection
             pendingZoomLandingDirection = null
-            zoomPan = if (zoomPan.userScale > 1f + ReaderZoomEpsilon) {
+            zoomPan = if (zoomPan.zoomed) {
                 zoomPan.copy(
                     offsetX = landingDirection
                         ?.let(::zoomTurnLandingOffsetX)
@@ -1449,9 +1445,7 @@ fun ReaderScreen(
                 return
             }
             if (!settings.reader.image.pageTransitionAnimation) {
-                if (zoomPan.userScale > 1f + ReaderZoomEpsilon) {
-                    pendingZoomLandingDirection = direction
-                }
+                rememberZoomTurnLanding(direction)
                 landImageTurn(target, spreadShift)
                 return
             }
@@ -1505,7 +1499,7 @@ fun ReaderScreen(
             readingDirection = readingDirection,
             volumeKeys = settings.reader.common.turnPagesWithVolumeKeys,
             isBlocked = {
-                showReaderMenu || zoomPan.userScale > 1f + ReaderZoomEpsilon || chapterSwitching ||
+                showReaderMenu || zoomPan.zoomed || chapterSwitching ||
                     closeDragOffsetY != 0f || curlDragStartPointer != null ||
                     dragBoundaryDirection != null || boundaryDragDirection != null ||
                     (activeTransition != null && !transitionSettling) ||
@@ -1514,10 +1508,7 @@ fun ReaderScreen(
             onTurn = { direction ->
                 if (vertical) {
                     val info = verticalListState.layoutInfo
-                    val position = readerVerticalPosition(
-                        info.visibleItemsInfo.map { ReaderVerticalVisibleItem(it.index, it.offset, it.size) },
-                        info.viewportStartOffset, info.viewportEndOffset, pages
-                    )
+                    val position = info.readerVerticalPosition(pages)
                     val continueBoundary =
                         (position == ReaderVerticalPosition.NextBoundary && direction == ReaderTurnDirection.Next) ||
                         (position == ReaderVerticalPosition.PreviousBoundary && direction == ReaderTurnDirection.Previous)

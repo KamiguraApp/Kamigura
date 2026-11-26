@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
@@ -50,6 +51,15 @@ internal fun readerVerticalRetryOffset(
     if (itemSize <= 0 || end <= start) return 0
     return start + (end - start) / 2 - itemOffset - itemSize / 2
 }
+
+/** The reading position shown by a vertical reader list. */
+internal fun LazyListLayoutInfo.readerVerticalPosition(pageCount: Int): ReaderVerticalPosition? =
+    readerVerticalPosition(
+        visibleItems = visibleItemsInfo.map { ReaderVerticalVisibleItem(it.index, it.offset, it.size) },
+        viewportStartOffset = viewportStartOffset,
+        viewportEndOffset = viewportEndOffset,
+        pageCount = pageCount
+    )
 
 internal fun readerVerticalPosition(
     visibleItems: List<ReaderVerticalVisibleItem>,
@@ -116,16 +126,7 @@ internal fun ReaderVerticalScroll(
     val boundaryReached by rememberUpdatedState(onBoundaryReached)
     LaunchedEffect(listState, pageCount) {
         snapshotFlow { listState.layoutInfo }
-            .map { layout ->
-                readerVerticalPosition(
-                    visibleItems = layout.visibleItemsInfo.map { item ->
-                        ReaderVerticalVisibleItem(item.index, item.offset, item.size)
-                    },
-                    viewportStartOffset = layout.viewportStartOffset,
-                    viewportEndOffset = layout.viewportEndOffset,
-                    pageCount = pageCount
-                )
-            }
+            .map { layout -> layout.readerVerticalPosition(pageCount) }
             .distinctUntilChanged()
             .collect { position ->
                 when (position) {

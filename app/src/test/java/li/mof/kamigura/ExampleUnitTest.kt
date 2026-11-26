@@ -228,7 +228,7 @@ class ExampleUnitTest {
     fun readerSessionPreferencesExpireAfterThirtyDays() {
         ReaderSessionPreferenceCache.clearMemoryForTest()
         val preferences = ReaderSessionPreferences(
-            rightToLeft = false,
+            readingDirection = ReaderReadingDirection.LeftToRight,
             invertMode = InvertMode.Always
         )
         ReaderSessionPreferenceCache.put("book", preferences, nowMillis = 1_000L)
@@ -253,7 +253,7 @@ class ExampleUnitTest {
     fun readerSessionPreferencesSurviveAnInMemoryCacheReset() = runBlocking {
         val directory = Files.createTempDirectory("reader-preferences").toFile()
         val preferences = ReaderSessionPreferences(
-            rightToLeft = true,
+            readingDirection = ReaderReadingDirection.RightToLeft,
             invertMode = InvertMode.Smart
         )
         try {
@@ -267,29 +267,6 @@ class ExampleUnitTest {
             assertEquals(
                 preferences,
                 ReaderSessionPreferenceCache.get("book", nowMillis = 11_000L)
-            )
-        } finally {
-            ReaderSessionPreferenceCache.clear(directory)
-            ReaderSessionPreferenceCache.clearMemoryForTest()
-            directory.deleteRecursively()
-        }
-    }
-
-    @Test
-    fun legacyReaderSessionDirectionSurvivesDiskMigration() = runBlocking {
-        val directory = Files.createTempDirectory("legacy-reader-preferences").toFile()
-        try {
-            ReaderSessionPreferenceCache.clear(directory)
-            directory.resolve("reader_session_preferences.json").writeText(
-                """[{"key":"book","rightToLeft":false,"invertMode":"Off","touchedAtMillis":10000}]"""
-            )
-            ReaderSessionPreferenceCache.clearMemoryForTest()
-
-            ReaderSessionPreferenceCache.load(directory, nowMillis = 11_000L)
-
-            assertEquals(
-                ReaderReadingDirection.LeftToRight,
-                ReaderSessionPreferenceCache.get("book", nowMillis = 11_000L)?.readingDirection
             )
         } finally {
             ReaderSessionPreferenceCache.clear(directory)

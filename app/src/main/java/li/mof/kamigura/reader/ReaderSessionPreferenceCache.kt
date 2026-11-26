@@ -24,20 +24,7 @@ internal data class ReaderSessionPreferences(
     val readingDirection: ReaderReadingDirection,
     val invertMode: InvertMode,
     val invertWhiteThreshold: Float? = null
-) {
-    constructor(rightToLeft: Boolean, invertMode: InvertMode, invertWhiteThreshold: Float? = null) : this(
-        readingDirection = if (rightToLeft) {
-            ReaderReadingDirection.RightToLeft
-        } else {
-            ReaderReadingDirection.LeftToRight
-        },
-        invertMode = invertMode,
-        invertWhiteThreshold = invertWhiteThreshold
-    )
-
-    val rightToLeft: Boolean
-        get() = readingDirection == ReaderReadingDirection.RightToLeft
-}
+)
 
 internal fun resolveReaderInvertWhiteThreshold(globalThreshold: Float, seriesThreshold: Float?): Float =
     seriesThreshold?.takeIf { it in InvertWhiteThresholdRange } ?: globalThreshold
@@ -62,7 +49,6 @@ internal object ReaderSessionPreferenceCache {
     private data class StoredEntry(
         val key: String,
         val readingDirection: String? = null,
-        val rightToLeft: Boolean? = null,
         val invertMode: String? = null,
         val touchedAtMillis: Long,
         val novelWritingStyle: Int? = null,
@@ -109,11 +95,7 @@ internal object ReaderSessionPreferenceCache {
                     if (mode == null && novel == null && storedEntry.jumpBack == null) return@forEach
                     val direction = storedEntry.readingDirection
                         ?.let { runCatching { ReaderReadingDirection.valueOf(it) }.getOrNull() }
-                        ?: if (storedEntry.rightToLeft != false) {
-                            ReaderReadingDirection.RightToLeft
-                        } else {
-                            ReaderReadingDirection.LeftToRight
-                        }
+                        ?: ReaderReadingDirection.RightToLeft
                     entries[storedEntry.key] = Entry(
                         preferences = mode?.let {
                             ReaderSessionPreferences(

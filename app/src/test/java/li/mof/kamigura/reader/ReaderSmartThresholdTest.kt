@@ -16,13 +16,11 @@ class ReaderSmartThresholdTest {
     @Test fun v029EntriesWithoutThresholdKeepDirectionInvertAndNovelOverrides() = withCache { directory ->
         directory.resolve("reader_session_preferences.json").writeText("""[
             {"key":"old","readingDirection":"Vertical","invertMode":"Smart","touchedAtMillis":100,
-             "novelWritingStyle":1,"novelFontSize":150},
-            {"key":"legacy","rightToLeft":false,"invertMode":"Always","touchedAtMillis":100}]
+             "novelWritingStyle":1,"novelFontSize":150}]
         """)
         ReaderSessionPreferenceCache.load(directory, 101)
         assertEquals(ReaderSessionPreferences(ReaderReadingDirection.Vertical, InvertMode.Smart), ReaderSessionPreferenceCache.get("old", 102))
         assertEquals(NovelReaderOverrides(1, 150), ReaderSessionPreferenceCache.getNovel("old", 102))
-        assertEquals(ReaderSessionPreferences(false, InvertMode.Always), ReaderSessionPreferenceCache.get("legacy", 102))
         assertEquals(.2f, resolveReaderInvertWhiteThreshold(.2f, ReaderSessionPreferenceCache.get("old", 102)?.invertWhiteThreshold), 0f)
         assertEquals(.9f, resolveReaderInvertWhiteThreshold(.9f, ReaderSessionPreferenceCache.get("old", 102)?.invertWhiteThreshold), 0f)
     }

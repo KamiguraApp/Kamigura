@@ -42,7 +42,10 @@ internal data class ReaderZoomPanState(
     val userScale: Float = 1f,
     val offsetX: Float = 0f,
     val offsetY: Float = 0f
-)
+) {
+    /** The user has zoomed in beyond the fitted page. */
+    val zoomed: Boolean get() = userScale > 1f + ReaderZoomEpsilon
+}
 
 internal data class ReaderPanBounds(
     val maxX: Float,

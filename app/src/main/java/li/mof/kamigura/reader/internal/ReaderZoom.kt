@@ -64,7 +64,7 @@ internal fun ReaderZoomPanState.withDoubleTapZoom(
     viewportHeightPx: Float,
     initialState: ReaderZoomPanState
 ): ReaderZoomPanState {
-    if (userScale > 1f + ReaderZoomEpsilon) return initialState
+    if (zoomed) return initialState
 
     val maxUserScale = (ReaderMaxZoomScale / baseZoomScale).coerceAtLeast(1f)
     val nextUserScale = ReaderDoubleTapUserZoomScale.coerceIn(1f, maxUserScale)

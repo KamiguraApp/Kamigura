@@ -138,18 +138,4 @@ class NovelReaderPreferencesTest {
             assertNull(ReaderSessionPreferenceCache.get("series", 104 + ReaderSessionPreferenceTtlMillis))
         } finally { ReaderSessionPreferenceCache.clear(directory); directory.deleteRecursively() }
     }
-
-    @Test fun oldBooleanDirectionCacheStillLoadsWithoutNovelOverride() = runBlocking {
-        val directory = Files.createTempDirectory("novel-cache").toFile()
-        try {
-            ReaderSessionPreferenceCache.clear(directory)
-            directory.resolve("reader_session_preferences.json").writeText(
-                """[{"key":"legacy","rightToLeft":false,"invertMode":"Smart","touchedAtMillis":100}]""")
-            ReaderSessionPreferenceCache.clearMemoryForTest()
-            ReaderSessionPreferenceCache.load(directory, 101)
-            assertEquals(ReaderSessionPreferences(ReaderReadingDirection.LeftToRight, InvertMode.Smart),
-                ReaderSessionPreferenceCache.get("legacy", 102))
-            assertNull(ReaderSessionPreferenceCache.getNovel("legacy", 102))
-        } finally { ReaderSessionPreferenceCache.clear(directory); directory.deleteRecursively() }
-    }
 }

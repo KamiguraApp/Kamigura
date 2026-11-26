@@ -68,10 +68,10 @@ internal fun imageCacheBudget(
         ((usableStorageBytes - StorageReserveBytes) / 20L)
             .coerceAtMost(MaximumImageCacheBytes)
     }
-    val coverDiskBytes = when {
-        cachePool < 128L * MiB -> cachePool / 4L
-        cachePool < 512L * MiB -> cachePool / 4L
-        else -> (cachePool / 9L).coerceIn(256L * MiB, 1L * GiB)
+    val coverDiskBytes = if (cachePool < 512L * MiB) {
+        cachePool / 4L
+    } else {
+        (cachePool / 9L).coerceIn(256L * MiB, 1L * GiB)
     }
     val readerDiskBytes = cachePool - coverDiskBytes
 
