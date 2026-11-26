@@ -243,6 +243,9 @@
         if (!href) return null;
         let url;
         try { url = new URL(href, document.baseURI).href; } catch (_) { return null; }
+        // The prefetch already read the intrinsic size from the image header; don't load it again.
+        const known = resourceSizes[imageUrl(url)]?.size;
+        if (known) return { url, width: known[0], height: known[1], ready: Promise.resolve() };
         if (!svgIllustrationSizes.has(url)) {
             const entry = { url, width: 0, height: 0 };
             entry.ready = new Promise(resolve => {
@@ -363,6 +366,8 @@
     const frozenImages = new Map();
     const originalImageUrls = new WeakMap();
     let resourceSizes = window.novelImageSizes || {};
+    // Width / height of the frame kept for an illustration whose size is not known yet.
+    const PendingImageAspect = .71;
     let imageRevision = 0, sheetImage = null, imageViewport;
     function imageUrl(source) {
         try {
@@ -484,7 +489,7 @@
     }
     function dimensionsForLayout(image, availableHeight) {
         return image.matches('img') ? rasterSize(image) ||
-            (imagePending(image) ? [.71 * availableHeight, availableHeight] : null) : null;
+            (imagePending(image) ? [PendingImageAspect * availableHeight, availableHeight] : null) : null;
     }
     function settleImages() {
         if (!window.novelReader.ready) return;
@@ -531,7 +536,7 @@
         const artwork = images.filter(image => !spacers.includes(image));
         if (artwork.length !== 1 || artwork[0].matches('img.gaiji')) return;
         const image = artwork[0], box = image.viewBox?.baseVal, bounds = image.getBoundingClientRect();
-        const raster = image.matches('img') ? rasterSize(image) || (imagePending(image) ? [710, 1000] : null) : null;
+        const raster = image.matches('img') ? rasterSize(image) || (imagePending(image) ? [PendingImageAspect * 1000, 1000] : null) : null;
         const naturalWidth = raster?.[0] || box?.width || image.width?.baseVal?.value || 0;
         const naturalHeight = raster?.[1] || box?.height || image.height?.baseVal?.value || 0;
         // Only substantial artwork is a sheet; icons and authored miniature images keep their layout.

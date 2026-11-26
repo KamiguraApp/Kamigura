@@ -172,8 +172,8 @@ internal class NovelPageView(context: Context) : WebView(context) {
                 return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
             }
             // A committed document can lay out while its subresources are still loading.
-            override fun onPageCommitVisible(view: WebView, url: String) { awaitLayout(token, 0, imageSizes) }
-            override fun onPageFinished(view: WebView, url: String) { awaitLayout(token, 0, imageSizes) }
+            override fun onPageCommitVisible(view: WebView, url: String) { awaitLayout(token, imageSizes) }
+            override fun onPageFinished(view: WebView, url: String) { awaitLayout(token, imageSizes) }
         }
         val script = context.assets.open("novel-reader.js").bufferedReader().use { it.readText() }
         loadDataWithBaseURL(normalizeKavitaBaseUrl(baseUrl) + "/", novelDocument(fragment, baseUrl, script, anchor, last,
@@ -181,20 +181,41 @@ internal class NovelPageView(context: Context) : WebView(context) {
             "text/html", "UTF-8", null)
     }
 
-    private fun awaitLayout(token: Int, attempt: Int, imageSizes: () -> String) {
-        if (disposed || token != generation || reportedGeneration == token) return
-        evaluateJavascript("window.novelDocumentId === '$token' && window.novelReader && window.novelReader.ready ? ${pageLayoutScript()} : null") { value ->
-            if (disposed || token != generation || reportedGeneration == token) return@evaluateJavascript
-            if (value.startsWith("{")) {
-                reportedGeneration = token
-                setColors(colors)
-                report(value)
-                watchIllustrations(token, 0, imageSizes)
-            } else if (attempt < 200) {
-                postDelayed({ awaitLayout(token, attempt + 1, imageSizes) }, 100)
-            } else onFailure("Could not lay out this EPUB.")
+    /**
+     * Evaluates [script] every 100 ms until [onValue] accepts the result, retrying [attempts] times.
+     * Stops quietly, or calls [onGone], once [alive] turns false; calls [onTimeout] when attempts run out.
+     */
+    private fun pollScript(script: () -> String, attempts: Int, alive: () -> Boolean, onValue: (String) -> Boolean,
+                           onTimeout: () -> Unit, onGone: () -> Unit = {}, attempt: Int = 0) {
+        if (!alive()) { onGone(); return }
+        evaluateJavascript(script()) { value ->
+            when {
+                !alive() -> onGone()
+                onValue(value) -> Unit
+                attempt < attempts -> postDelayed({
+                    pollScript(script, attempts, alive, onValue, onTimeout, onGone, attempt + 1)
+                }, 100)
+                else -> onTimeout()
+            }
         }
     }
+
+    private fun awaitLayout(token: Int, imageSizes: () -> String) = pollScript(
+        script = { "window.novelDocumentId === '$token' && window.novelReader && window.novelReader.ready ? ${pageLayoutScript()} : null" },
+        attempts = 200,
+        alive = { !disposed && token == generation && reportedGeneration != token },
+        onValue = { value ->
+            value.startsWith("{").also { ready ->
+                if (ready) {
+                    reportedGeneration = token
+                    setColors(colors)
+                    report(value)
+                    watchIllustrations(token, 0, imageSizes)
+                }
+            }
+        },
+        onTimeout = { onFailure("Could not lay out this EPUB.") }
+    )
 
     private fun watchIllustrations(token: Int, revision: Int, imageSizes: () -> String) {
         if (disposed || token != generation) return
@@ -251,17 +272,19 @@ internal class NovelPageView(context: Context) : WebView(context) {
         allowedFonts = novelFontIds(settings)
         evaluateJavascript("window.novelFontUpdate = null; window.novelReader.setFonts(${novelFontsJson(settings)})" +
             ".then(value => window.novelFontUpdate = value).catch(() => window.novelFontUpdate = {error:true})", null)
-        fun poll(attempt: Int) {
-            if (disposed || token != generation) return
-            evaluateJavascript("window.novelFontUpdate") { value ->
-                if (disposed || token != generation) return@evaluateJavascript
-                if (value.contains("\"error\"")) onFailure("Could not load the novel font.")
-                else if (value.startsWith("{")) report(value)
-                else if (attempt < 200) postDelayed({ poll(attempt + 1) }, 100)
-                else onFailure("Could not load the novel font.")
-            }
-        }
-        poll(0)
+        pollScript(
+            script = { "window.novelFontUpdate" },
+            attempts = 200,
+            alive = { !disposed && token == generation },
+            onValue = { value ->
+                when {
+                    value.contains("\"error\"") -> { onFailure("Could not load the novel font."); true }
+                    value.startsWith("{") -> { report(value); true }
+                    else -> false
+                }
+            },
+            onTimeout = { onFailure("Could not load the novel font.") }
+        )
     }
 
     fun setColors(value: NovelReaderColors) {
@@ -343,22 +366,25 @@ internal class NovelPageView(context: Context) : WebView(context) {
         val viewportWidth = width; val viewportHeight = height
         fun current() = !disposed && token == generation && query == illustrationQuery &&
             viewportWidth == width && viewportHeight == height
-        fun poll(attempt: Int) {
-            if (!current()) { callback(null); return }
-            evaluateJavascript("window.novelIllustrationQuery && window.novelIllustrationQuery.id === $query ? window.novelIllustrationQuery.images : null") { value ->
-                if (!current()) { callback(null); return@evaluateJavascript }
-                if (value.startsWith("[")) callback(runCatching {
-                    novelIllustrationAt(JSONArray(value).toNovelIllustrations(), point, width, height)
-                }.getOrNull())
-                else if (attempt < 110) postDelayed({ poll(attempt + 1) }, 100)
-                else callback(null)
-            }
-        }
+        fun poll() = pollScript(
+            script = { "window.novelIllustrationQuery && window.novelIllustrationQuery.id === $query ? window.novelIllustrationQuery.images : null" },
+            attempts = 110,
+            alive = ::current,
+            onValue = { value ->
+                value.startsWith("[").also { ready ->
+                    if (ready) callback(runCatching {
+                        novelIllustrationAt(JSONArray(value).toNovelIllustrations(), point, width, height)
+                    }.getOrNull())
+                }
+            },
+            onTimeout = { callback(null) },
+            onGone = { callback(null) }
+        )
         evaluateJavascript("window.novelIllustrationQuery = {id:$query}; " +
             "Promise.resolve(window.novelReader && window.novelReader.ready ? window.novelReader.prepareIllustrations() : [])" +
             ".then(images => { if (window.novelIllustrationQuery?.id === $query) window.novelIllustrationQuery.images = images; })" +
             ".catch(() => { if (window.novelIllustrationQuery?.id === $query) window.novelIllustrationQuery.images = []; })") {
-            if (current()) poll(0) else callback(null)
+            if (current()) poll() else callback(null)
         }
     }
 
