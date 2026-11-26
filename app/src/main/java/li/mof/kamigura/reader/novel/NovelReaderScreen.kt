@@ -46,8 +46,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import li.mof.kamigura.KavitaApi
-import li.mof.kamigura.MarkChapterReadDto
-import li.mof.kamigura.MarkVolumesReadDto
 import li.mof.kamigura.ProgressDto
 import li.mof.kamigura.PageBackground
 import li.mof.kamigura.NovelSettings
@@ -58,6 +56,8 @@ import li.mof.kamigura.reader.ReaderJumpBackState
 import li.mof.kamigura.reader.ReaderJumpLocation
 import li.mof.kamigura.reader.ReaderJumpOpening
 import li.mof.kamigura.reader.ReaderJumpTextPosition
+import li.mof.kamigura.reader.ReaderProgressTarget
+import li.mof.kamigura.reader.ReaderProgressWriter
 import li.mof.kamigura.reader.ReaderSessionPreferenceCache
 import li.mof.kamigura.reader.ReaderTurnDirection
 import li.mof.kamigura.reader.shouldCommitReaderTurn
@@ -109,7 +109,8 @@ internal fun NovelReaderScreen(
     novelSettings: NovelSettings = NovelSettings(),
     imageLoader: ImageLoader = LocalContext.current.imageLoader,
     jumpBack: ReaderJumpBackState = remember { ReaderJumpBackState() },
-    jumpOpening: ReaderJumpOpening = ReaderJumpOpening.Resume
+    jumpOpening: ReaderJumpOpening = ReaderJumpOpening.Resume,
+    writer: ReaderProgressWriter = remember(incognito) { ReaderProgressWriter(incognito) }
 ) {
     val context = LocalContext.current
     val initialOverrides = remember(preferenceKey) {
@@ -174,7 +175,6 @@ internal fun NovelReaderScreen(
     }
     // Retrofit proxies need identity keys; their Object.equals implementation is not reflexive.
     val apiIdentity = System.identityHashCode(api)
-    val writer = remember(apiIdentity, incognito) { NovelProgressWriter(api, incognito) }
     val view = remember { NovelPageView(context).apply { setColors(colors) } }
     val scope = rememberCoroutineScope()
     val illustrations = remember(apiIdentity, chapterId, baseUrl) { NovelIllustrationCache(scope, baseUrl, chapterId) }
@@ -206,7 +206,9 @@ internal fun NovelReaderScreen(
     }
     val minimumFlingVelocity = remember(context) { ViewConfiguration.get(context).scaledMinimumFlingVelocity.toFloat() }
 
-    fun progress(anchor: String?) = ProgressDto(libraryId, seriesId, volumeId, chapterId, reachedSpine, anchor)
+    fun progress(anchor: String?) = ReaderProgressTarget(
+        preferenceKey, ProgressDto(libraryId, seriesId, volumeId, chapterId, reachedSpine, anchor), api
+    )
     fun persistOverrides(style: Int? = null, font: Int? = null, background: PageBackground? = null) {
         preferenceKey.let { key ->
             val old = ReaderSessionPreferenceCache.getNovel(key, System.currentTimeMillis()) ?: NovelReaderOverrides()
@@ -222,7 +224,7 @@ internal fun NovelReaderScreen(
         queuedTurns = emptyList()
         fun finishClose(anchor: String?) {
             if (moved && hasReachedPage && boundaryDirection == null) {
-                writer.submit(progress(anchor), immediately = true)
+                writer.close(progress(anchor))
             }
             onMenuChanged(false)
             onBack()
@@ -279,10 +281,7 @@ internal fun NovelReaderScreen(
         menu = false
         queuedTurns = emptyList()
         if (delta > 0) jumpBack.reset()
-        writer.finishAsync(if (delta > 0) progress(reachedAnchor) else null) {
-            if (delta > 0) api.markChapterRead(MarkChapterReadDto(seriesId, chapterId, false))
-            else api.markChaptersUnread(MarkVolumesReadDto(seriesId = seriesId, chapterIds = listOf(chapterId)))
-        }
+        if (delta > 0) writer.complete(progress(reachedAnchor)) else writer.reset(progress(null))
         if ((if (delta > 0) neighbors.next else neighbors.previous) == null) {
             closing = true
             onMenuChanged(false)
@@ -336,14 +335,14 @@ internal fun NovelReaderScreen(
                 null -> Unit
             }
             pendingLanding = null
-            if (moved && boundaryDirection == null) writer.submit(progress(current.anchor))
+            if (moved && boundaryDirection == null) writer.submit(progress(current.anchor), timerScope = scope)
         }
     })
     val latestFailure by rememberUpdatedState<(String) -> Unit>({ failure = it; loading = false; turning = false })
     DisposableEffect(view) {
         view.onPosition = { latestPosition(it) }
         view.onFailure = { latestFailure(it) }
-        onDispose { if (!closing) writer.cancelPending(); view.dispose() }
+        onDispose { if (!closing) writer.detach(flushMatured = false, chapterId = chapterId); view.dispose() }
     }
     LaunchedEffect(spine, reload) {
         val targetSpine = spine

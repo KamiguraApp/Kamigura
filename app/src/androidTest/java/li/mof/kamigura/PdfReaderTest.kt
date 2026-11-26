@@ -396,6 +396,45 @@ class PdfReaderTest {
         }
     }
 
+    @Test
+    fun downloadedChapterResumesAtReachedPageWithServerUnavailable() {
+        ReaderServer(format = 4).use { server ->
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val repository = OfflineIssueRepository(context)
+            val session = KavitaSession(baseUrl = server.baseUrl)
+            try {
+                runBlocking { repository.enqueue(session, 1, 1, 1, 1, "Test book", "Volume 1", expectedPageCount = 6) }
+                compose.waitUntil(20_000) {
+                    runBlocking { repository.reconcile(session, 1)?.status == OfflineDownloadStatus.Ready }
+                }
+                server.close()
+                val visible = open(server, incognito = false)
+                awaitRenderedPage()
+                openMenu()
+                compose.onNodeWithText("LTR").performClick()
+                jump(3)
+                compose.onNodeWithText("4 / 6", substring = true).assertIsDisplayed()
+                compose.onNodeWithContentDescription("Back to series").performClick()
+                compose.waitUntil(5_000) {
+                    !visible.value && runBlocking {
+                        repository.localChapter(session, 1)?.record?.let { it.localPage == 3 && it.progressPending } == true
+                    }
+                }
+                compose.runOnIdle { visible.value = true }
+                awaitRenderedPage()
+                openMenu()
+                compose.onNodeWithText("4 / 6", substring = true).assertIsDisplayed()
+            } finally {
+                runBlocking {
+                    repository.localChapter(session, 1)?.record?.let {
+                        repository.markProgressSynced(session, 1, expectedPage = it.localPage)
+                    }
+                    repository.remove(session, 1)
+                }
+            }
+        }
+    }
+
     private fun open(
         server: ReaderServer,
         incognito: Boolean = true,

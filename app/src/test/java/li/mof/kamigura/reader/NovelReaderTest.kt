@@ -1,57 +1,11 @@
 package li.mof.kamigura.reader
 
-import java.lang.reflect.Proxy
-import java.util.concurrent.CopyOnWriteArrayList
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
-import li.mof.kamigura.KavitaApi
-import li.mof.kamigura.ProgressDto
-import li.mof.kamigura.reader.novel.NovelProgressWriter
 import li.mof.kamigura.reader.novel.novelResourceAllowed
-import org.junit.Assert.*
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NovelReaderTest {
-    @Test fun failedFinalProgressDoesNotPreventReadMarking() = runBlocking {
-        val failingApi = object : KavitaApi by api(mutableListOf()) {
-            override suspend fun saveProgress(dto: ProgressDto) { throw java.io.IOException("unavailable") }
-        }
-        var marked = false
-        val errors = mutableListOf<Throwable>()
-        NovelProgressWriter(failingApi, false, this, logFailure = { _, error -> errors += error })
-            .finish(progress(3, "//body/p[9]")) { marked = true }
-        assertTrue(marked)
-        assertEquals(1, errors.size)
-    }
-    @Test fun aNewPositionDoesNotCancelAnInFlightSaveAndExitWaitsItsTurn() = runBlocking {
-        val completed = CopyOnWriteArrayList<ProgressDto>()
-        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
-        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
-        val slowApi = object : KavitaApi by api(completed) {
-            override suspend fun saveProgress(dto: ProgressDto) {
-                if (dto.pageNum == 0) { entered.complete(Unit); release.await() }
-                completed += dto
-            }
-        }
-        val writer = NovelProgressWriter(slowApi, false, this, 1)
-        writer.submit(progress(0, "//body/p[1]"), true)
-        entered.await()
-        writer.submit(progress(1, "//body/p[2]"), true)
-        delay(10)
-        assertTrue(completed.isEmpty())
-        release.complete(Unit)
-        delay(20)
-        assertEquals(listOf(progress(0, "//body/p[1]"), progress(1, "//body/p[2]")), completed)
-    }
-    private fun progress(spine: Int, path: String) = ProgressDto(1, 2, 3, 4, spine, path)
-    private fun api(writes: MutableList<ProgressDto>): KavitaApi = Proxy.newProxyInstance(
-        KavitaApi::class.java.classLoader, arrayOf(KavitaApi::class.java)
-    ) { _, method, args ->
-        check(method.name == "saveProgress")
-        writes += args[0] as ProgressDto
-        Unit
-    } as KavitaApi
-
     @Test fun resourcesAreRestrictedToCurrentServerProxyPrefixAndChapter() {
         val base = "https://books.example/kavita"
         assertTrue(novelResourceAllowed("$base/api/Book/4/book-resources?file=font.woff&apiKey=secret", base, 4))
@@ -60,51 +14,5 @@ class NovelReaderTest {
             "https://user:pass@books.example/kavita/api/Book/4/book-resources").forEach {
             assertFalse(it, novelResourceAllowed(it, base, 4))
         }
-    }
-
-    @Test fun debounceCapturesSpineAndXPathAndCancelsTransientPositions() = runBlocking {
-        val writes = CopyOnWriteArrayList<ProgressDto>()
-        val writer = NovelProgressWriter(api(writes), false, this, 80)
-        writer.submit(progress(0, "//body/p[1]"))
-        delay(20)
-        writer.submit(progress(1, "id(\"second\")"))
-        delay(40)
-        assertTrue(writes.isEmpty())
-        delay(80)
-        assertEquals(listOf(progress(1, "id(\"second\")")), writes)
-    }
-
-    @Test fun immediateExitWritesLatestPositionOnce() = runBlocking {
-        val writes = CopyOnWriteArrayList<ProgressDto>()
-        val writer = NovelProgressWriter(api(writes), false, this, 80)
-        val latest = progress(3, "//body/div[1]/p[5]")
-        writer.submit(progress(1, "//body/p[1]"))
-        writer.submit(latest, immediately = true)
-        delay(20)
-        writer.submit(latest, immediately = true)
-        delay(100)
-        assertEquals(listOf(latest), writes)
-    }
-
-    @Test fun incognitoNeverSendsProgressOrBoundaryWrites() = runBlocking {
-        val writes = CopyOnWriteArrayList<ProgressDto>()
-        val writer = NovelProgressWriter(api(writes), true, this, 1)
-        writer.submit(progress(1, "//body"))
-        writer.submit(progress(2, "//body"), true)
-        var marked = false
-        writer.finish(progress(2, "//body")) { marked = true }
-        delay(20)
-        assertTrue(writes.isEmpty())
-        assertFalse(marked)
-    }
-
-    @Test fun boundaryCancelsDebounceAndOrdersFinalProgressBeforeMark() = runBlocking {
-        val writes = CopyOnWriteArrayList<ProgressDto>()
-        val writer = NovelProgressWriter(api(writes), false, this, 80)
-        writer.submit(progress(0, "//body/p[1]"))
-        val last = progress(5, "//body/p[8]")
-        writer.finish(last) { assertEquals(listOf(last), writes) }
-        delay(100)
-        assertEquals(listOf(last), writes)
     }
 }
