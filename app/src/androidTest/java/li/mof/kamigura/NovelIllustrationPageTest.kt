@@ -139,6 +139,55 @@ class NovelIllustrationPageTest {
         compose.runOnIdle { view.dispose() }
     }
 
+    @Test fun delayedLandscapeIllustrationKeepsVerticalProseAndReflowsAtTheSameLocation() {
+        delayedVerticalIllustration(1200 to 700, reflows = true)
+    }
+
+    @Test fun nearlyMatchingIllustrationFillsTheReservedFrameWithoutReflow() {
+        delayedVerticalIllustration(1443 to 2048, reflows = false)
+    }
+
+    private fun delayedVerticalIllustration(dimensions: Pair<Int, Int>, reflows: Boolean) {
+        create()
+        compose.runOnIdle { wide.value = true }
+        val release = CountDownLatch(1)
+        ReaderServer(3, imageDimensions = dimensions, imageResponseGate = { release }).use { server ->
+            try {
+                open("<div><p id='prose'>\u632f\u308a\u8fd4\u308b\u3068\u3001\u958b\u3044\u305f\u7a93\u304c\u898b\u3048\u305f\u3002</p>" +
+                    "<img id='art' src='/api/Book/1/book-resources'></div>", true, baseUrl = server.baseUrl)
+                val pending = geometry()
+                assertEquals(.71, pending.getDouble("width") / pending.getDouble("height"), .01)
+                assertEquals("true", js("""(() => {
+                    const p=document.querySelector('#prose').getBoundingClientRect(),
+                        i=document.querySelector('#art').getBoundingClientRect();
+                    return p.left < innerWidth && p.right > 0 && i.left < innerWidth && i.right > 0 &&
+                        p.top < innerHeight && i.top < innerHeight && i.right <= p.left &&
+                        document.querySelector('.novel-image-wait:not([hidden])')?.textContent === '...';
+                })()"""))
+                val location = JSONObject(js("window.novelReader.state()")).getString("location")
+                release.countDown()
+                compose.waitUntil(5_000) {
+                    js("document.querySelector('#art').complete && !document.querySelector('.novel-image-wait')") == "true"
+                }
+                val update = JSONObject(js("window.novelReader.imageUpdate({},0)"))
+                assertEquals(if (reflows) 1 else 0, update.getInt("revision"))
+                assertEquals(location, JSONObject(js("window.novelReader.state()")).getString("location"))
+                val settled = geometry()
+                if (reflows) {
+                    assertEquals(dimensions.first.toDouble() / dimensions.second,
+                        settled.getDouble("width") / settled.getDouble("height"), .01)
+                } else {
+                    for (dimension in listOf("width", "height")) {
+                        assertEquals(pending.getDouble(dimension), settled.getDouble(dimension), .01)
+                    }
+                }
+            } finally {
+                release.countDown()
+                compose.runOnIdle { view.dispose() }
+            }
+        }
+    }
+
     private fun create() {
         compose.setContent {
             val config = LocalConfiguration.current
@@ -147,9 +196,9 @@ class NovelIllustrationPageTest {
                     minOf(if (wide.value) 360 else 700, config.screenHeightDp).dp).testTag("Illustration sheet"))
         }
     }
-    private fun open(html: String, vertical: Boolean, anchor: String? = null) {
+    private fun open(html: String, vertical: Boolean, anchor: String? = null, baseUrl: String = "http://127.0.0.1") {
         position = null
-        compose.runOnIdle { view.open(html, "http://127.0.0.1", 1, anchor, false, vertical) }
+        compose.runOnIdle { view.open(html, baseUrl, 1, anchor, false, vertical) }
         compose.waitUntil(20_000) { position != null }
     }
     private fun sheet(link: Boolean = false): String = """<div><style>

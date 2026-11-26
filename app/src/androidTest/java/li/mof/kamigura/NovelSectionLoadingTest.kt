@@ -19,6 +19,7 @@ import li.mof.kamigura.reader.novel.*
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.json.JSONObject
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -41,6 +42,8 @@ class NovelSectionLoadingTest {
                 compose.onNodeWithText("Back to series").assertDoesNotExist()
                 val during=compose.onRoot().captureToImage();assertTrue(redPixels(during)>50)
                 assertEquals(redPixels(before),redPixels(during))
+                compose.onRoot().performTouchInput { click(center) }
+                closeOpenedMenu()
                 compose.runOnIdle {find(compose.activity.window.decorView)!!.onPosition(NovelPosition(4,9,false,"id(\"stale\")"))}
                 compose.runOnIdle {compose.activity.onBackPressedDispatcher.onBackPressed()}
                 compose.waitUntil(5_000){closed&&server.bookProgressWrites.isNotEmpty()}
@@ -50,21 +53,58 @@ class NovelSectionLoadingTest {
         }
     }
 
-    @Test fun oldFrameStaysUntilTheNewDocumentsImagesAreReadyAndPrefetchIsShared() {
+    @Test fun unknownImageDoesNotBlockTheSectionMenuOrNextTurn() {
         val imageRequested=CountDownLatch(1);val release=CountDownLatch(1)
-        ReaderServer(3,bookFragment={page->if(page==1)"<div><p>Target section.</p><img src='/api/Book/1/book-resources?page=1'></div>" else source},
+        ReaderServer(3,bookFragment={page->if(page==1)"<div><img src='/api/Book/1/book-resources?page=1'></div>" else source},
             imageResponseGate={page->if(page==1){imageRequested.countDown();release}else null}).use{server->
             try{
                 open(server);awaitPage(1)
                 compose.waitUntil(5_000){server.requests.any{it.path=="/api/Book/1/book-page"&&it.getQueryParameter("page")=="1"}}
-                next();compose.waitUntil(5_000){imageRequested.count==0L}
-                compose.onNodeWithContentDescription("Loading EPUB section").assertIsDisplayed()
-                assertTrue(redPixels(compose.onRoot().captureToImage())>50)
-                release.countDown();awaitPage(2)
-                assertEquals(0,redPixels(compose.onRoot().captureToImage()))
+                next();compose.waitUntil(5_000){imageRequested.count==0L};awaitPage(2)
+                assertEquals(true, imageGeometry().getBoolean("waiting"))
+                assertEquals(.71, imageGeometry().getDouble("ratio"), .01)
+                compose.onRoot().performTouchInput { click(center) }
+                closeOpenedMenu()
+                next(); awaitPage(3)
                 assertEquals(1,server.requests.count{it.path=="/api/Book/1/book-page"&&it.getQueryParameter("page")=="1"})
             }finally{release.countDown()}
         }
+    }
+
+    @Test fun prefetchedHeaderReservesTheActualSizeBeforeTheSharedBodyArrives() {
+        val release = CountDownLatch(1)
+        ReaderServer(3, bookFragment = { page ->
+            if (page == 1) "<div><img src='/api/Book/1/book-resources?page=1'></div>" else source
+        }, imageDimensions = 600 to 900, imageBodyGate = { page -> release.takeIf { page == 1 } }).use { server ->
+            try {
+                open(server); awaitPage(1)
+                compose.waitUntil(5_000) { server.requests.any { it.path.orEmpty().endsWith("/book-resources") } }
+                next(); awaitPage(2)
+                compose.waitUntil(5_000) { kotlin.math.abs(imageGeometry().getDouble("ratio") - 2.0 / 3) < .01 }
+                assertTrue(imageGeometry().getBoolean("waiting"))
+                release.countDown()
+                compose.waitUntil(5_000) { !imageGeometry().getBoolean("waiting") }
+                assertEquals(1, server.requests.count { it.path.orEmpty().endsWith("/book-resources") })
+            } finally { release.countDown() }
+        }
+    }
+
+    private fun imageGeometry(): JSONObject {
+        val result = java.util.concurrent.ArrayBlockingQueue<String>(1)
+        compose.runOnIdle {
+            find(compose.activity.window.decorView)!!.evaluateJavascript(
+                """(()=>{const i=document.querySelector('.book-content img'), b=i.getBoundingClientRect();
+                    return {waiting:i.hasAttribute('data-novel-pending'),ratio:b.width/b.height};})()"""
+            ) { result.offer(it) }
+        }
+        return JSONObject(checkNotNull(result.poll(5, TimeUnit.SECONDS)))
+    }
+
+    private fun closeOpenedMenu() {
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithContentDescription("Close menu").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithContentDescription("Close menu").assertIsDisplayed().performClick()
     }
 
     @Test fun speculativeFailureIsQuietButForegroundFailureOffersRetryAndExit() {

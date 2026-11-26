@@ -16,6 +16,7 @@ import kotlinx.coroutines.sync.withPermit
 internal class NovelSectionCache(
     parent: CoroutineScope,
     private val maxBytes: Int = 8 * 1024 * 1024,
+    private val onPrefetched: suspend (Int, String) -> Unit = { _, _ -> },
     private val load: suspend (Int) -> String
 ) {
     private val scope = CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job]))
@@ -57,7 +58,7 @@ internal class NovelSectionCache(
     fun prefetchAround(page: Int, count: Int) {
         for (target in listOf(page + 1, page - 1).filter { it in 0 until count }) {
             scope.launch {
-                try { get(target) }
+                try { onPrefetched(target, get(target)) }
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) { /* Foreground retries failed speculative requests. */ }
             }

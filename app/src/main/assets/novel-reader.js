@@ -228,6 +228,7 @@
         screen = Math.max(0, Math.min(count - 1, index));
         readerStyle(book, 'transform', vertical ? 'translateY(' + (-screen * height) + 'px)' :
             'translateX(' + (-screen * width) + 'px)');
+        updateImageMarkers();
     }
     function locate(element) {
         if (!element || element === root) return 0;
@@ -237,7 +238,8 @@
     }
     const svgIllustrationSizes = new Map();
     function svgIllustrationSize(image) {
-        const href = image.href?.baseVal || image.getAttribute('href') || image.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+        const href = originalImageUrls.get(image) || image.href?.baseVal ||
+            image.getAttribute('href') || image.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
         if (!href) return null;
         let url;
         try { url = new URL(href, document.baseURI).href; } catch (_) { return null; }
@@ -261,7 +263,7 @@
         return svgIllustrationSizes.get(url);
     }
     function svgIllustrationVisible(image) {
-        if (image.closest('.gaiji,.visually-hidden')) return false;
+        if (image.closest('.gaiji,.visually-hidden') || waitingImages.has(image)) return false;
         const box = image.getBoundingClientRect();
         if (box.width <= 0 || box.height <= 0 || Math.max(box.width, box.height) < 64 ||
             box.right <= 0 || box.bottom <= 0 || box.left >= innerWidth || box.top >= innerHeight) return false;
@@ -337,7 +339,7 @@
             const box = image.getBoundingClientRect();
             if (box.width <= 0 || box.height <= 0 || Math.max(box.width, box.height) < 64 || box.right <= 0 || box.bottom <= 0 ||
                 box.left >= innerWidth || box.top >= innerHeight) return [];
-            return [{ url: image.currentSrc || image.src, left: Math.max(0, box.left) / innerWidth,
+            return [{ url: originalImageUrls.get(image) || image.currentSrc || image.src, left: Math.max(0, box.left) / innerWidth,
                 top: Math.max(0, box.top) / innerHeight, right: Math.min(innerWidth, box.right) / innerWidth,
                 bottom: Math.min(innerHeight, box.bottom) / innerHeight }];
         });
@@ -357,22 +359,184 @@
     const imageStyles = new WeakMap();
     const imageSizeProperties = ['width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
         'object-fit', 'break-inside'];
+    const waitingImages = new Map();
+    const frozenImages = new Map();
+    const originalImageUrls = new WeakMap();
+    let resourceSizes = window.novelImageSizes || {};
+    let imageRevision = 0, sheetImage = null, imageViewport;
+    function imageUrl(source) {
+        try {
+            const url = new URL(source, document.baseURI);
+            url.hash = '';
+            return url.href;
+        } catch (_) { return ''; }
+    }
+    function imagePending(image) {
+        return waitingImages.get(image)?.done === false || !image.complete;
+    }
+    function rasterSize(image) {
+        if (image.naturalWidth > 0 && image.naturalHeight > 0) return [image.naturalWidth, image.naturalHeight];
+        const url = originalImageUrls.get(image) || imageUrl(image.currentSrc || image.src);
+        if (resourceSizes[url]?.size) return resourceSizes[url].size;
+        const width = Number(image.getAttribute('width')), height = Number(image.getAttribute('height'));
+        return width > 0 && height > 0 ? [width, height] : null;
+    }
+    function updateImageMarkers() {
+        for (const [image, entry] of waitingImages) {
+            if (!entry.marker) continue;
+            const box = image.getBoundingClientRect();
+            const show = visible(box) && box.width > 0 && box.height > 0 &&
+                getComputedStyle(image).visibility === 'visible';
+            entry.marker.hidden = !show;
+            if (show) {
+                const left = Math.max(box.left, pagePadding.left), right = Math.min(box.right, width - pagePadding.right);
+                const top = Math.max(box.top, pagePadding.top), bottom = Math.min(box.bottom, height - pagePadding.bottom);
+                entry.marker.style.left = (left + right) / 2 + 'px';
+                entry.marker.style.top = (top + bottom) / 2 + 'px';
+            }
+        }
+    }
+    function watchImage(image, source, managed, decorate) {
+        const marker = decorate ? document.createElement('span') : null;
+        if (marker) {
+            marker.className = 'novel-image-wait';
+            marker.setAttribute('aria-hidden', 'true');
+            marker.hidden = true;
+            marker.textContent = '...';
+            document.getElementById('novel-viewport').appendChild(marker);
+            if (image.matches('img')) image.setAttribute('data-novel-pending', '');
+        }
+        const entry = { marker, done: false, source, managed, retried: false, failed: image.complete === true };
+        waitingImages.set(image, entry);
+        function finish(success) {
+            entry.done = true;
+            if (success) {
+                image.removeAttribute('data-novel-pending');
+                marker?.remove();
+                waitingImages.delete(image);
+            } else if (marker) marker.textContent = '-';
+            requestAnimationFrame(settleImages);
+        }
+        image.addEventListener('load', () => finish(true), { once: true });
+        image.addEventListener('error', () => {
+            if (entry.managed && !entry.retried) {
+                entry.failed = true;
+                requestAnimationFrame(settleImages);
+            } else finish(false);
+        });
+    }
+    function retryReadyImages() {
+        for (const [image, entry] of waitingImages) {
+            if (!entry.managed || !entry.failed || entry.retried || !resourceSizes[entry.source]?.ready) continue;
+            // The first response may have been a local no-store placeholder. Use a
+            // fresh request URL so Chromium asks the native cache for the body.
+            const url = entry.source + (entry.source.includes('?') ? '&' : '?') +
+                '_kamigura_art=' + encodeURIComponent(window.novelDocumentId);
+            entry.retried = true;
+            if (image.matches('img')) image.src = url;
+            else image.setAttribute('href', url);
+        }
+    }
+    function restoreImageStyle(image) {
+        imageSizeProperties.forEach((property, index) => {
+            const saved = imageStyles.get(image)[index];
+            readerStyle(image, property, saved.value, saved.priority);
+        });
+    }
+    function fixImageBox(image, width, height) {
+        const style = getComputedStyle(image);
+        const edges = names => names.reduce((sum, name) => sum + (parseFloat(style[name]) || 0), 0);
+        if (style.boxSizing !== 'border-box') {
+            width -= edges(['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth']);
+            height -= edges(['paddingTop', 'paddingBottom', 'borderTopWidth', 'borderBottomWidth']);
+        }
+        readerStyle(image, 'width', Math.max(0, width) + 'px');
+        readerStyle(image, 'height', Math.max(0, height) + 'px');
+    }
+    function fitImage(image, availableWidth, availableHeight, dimensions) {
+        restoreImageStyle(image);
+        if (image.matches('img') && dimensions && !image.naturalWidth) {
+            const [naturalWidth, naturalHeight] = dimensions;
+            const style = image.computedStyleMap();
+            const autoWidth = style.get('width').toString() === 'auto';
+            const autoHeight = style.get('height').toString() === 'auto';
+            const bounds = image.getBoundingClientRect();
+            if (autoWidth) readerStyle(image, 'width', (autoHeight ? naturalWidth : bounds.height * naturalWidth / naturalHeight) + 'px');
+            if (autoHeight) readerStyle(image, 'height', (autoWidth ? naturalHeight : bounds.width * naturalHeight / naturalWidth) + 'px');
+        }
+        const bounds = image.getBoundingClientRect();
+        const scale = Math.min(1, availableWidth / bounds.width, availableHeight / bounds.height);
+        readerStyle(image, 'max-width', availableWidth + 'px');
+        readerStyle(image, 'max-height', availableHeight + 'px');
+        readerStyle(image, 'object-fit', 'contain');
+        readerStyle(image, 'break-inside', 'avoid');
+        const box = image.viewBox?.baseVal;
+        const ratio = dimensions ? dimensions[0] / dimensions[1] :
+            box?.width > 0 && box?.height > 0 ? box.width / box.height : bounds.width / bounds.height;
+        const clamped = (bounds.height >= availableHeight - .5 || bounds.width >= availableWidth - .5) &&
+            Math.abs(bounds.width / bounds.height - ratio) > .005;
+        if (scale < 1 || clamped) {
+            const fittedWidth = Math.min(bounds.width, bounds.height * ratio, availableWidth, availableHeight * ratio);
+            readerStyle(image, 'min-width', '0');
+            readerStyle(image, 'min-height', '0');
+            fixImageBox(image, fittedWidth, fittedWidth / ratio);
+        }
+    }
+    function dimensionsForLayout(image, availableHeight) {
+        return image.matches('img') ? rasterSize(image) ||
+            (imagePending(image) ? [.71 * availableHeight, availableHeight] : null) : null;
+    }
+    function settleImages() {
+        if (!window.novelReader.ready) return;
+        retryReadyImages();
+        const { availableWidth, availableHeight } = imageViewport;
+        let needsLayout = false;
+        for (const [image, frame] of frozenImages) {
+            const dimensions = rasterSize(image);
+            const key = dimensions?.join('x');
+            if (!key || key === frame.key) continue;
+            frame.key = key;
+            let width, height;
+            if (image === sheetImage) {
+                const scale = Math.min(availableWidth / dimensions[0], availableHeight / dimensions[1]);
+                width = dimensions[0] * scale;
+                height = dimensions[1] * scale;
+                if (Math.min(...dimensions) < 320) needsLayout = true;
+            } else {
+                // Compare the authored, fitted box without paging or publishing a new location.
+                const saved = imageSizeProperties.map(property => [image.style.getPropertyValue(property),
+                    image.style.getPropertyPriority(property)]);
+                fitImage(image, availableWidth, availableHeight, dimensions);
+                ({ width, height } = image.getBoundingClientRect());
+                imageSizeProperties.forEach((property, index) => readerStyle(image, property, ...saved[index]));
+            }
+            if (Math.abs(width - frame.width) > 2 || Math.abs(height - frame.height) > 2) needsLayout = true;
+        }
+        if (needsLayout) {
+            layout(anchor(), false, lastLocation ?? location());
+            imageRevision++;
+        } else updateImageMarkers();
+    }
     let illustrationOverrides = [];
     function restoreIllustrationLayout() {
         for (const { element, property, value, priority } of illustrationOverrides) readerStyle(element, property, value, priority);
         illustrationOverrides = [];
+        sheetImage = null;
     }
     function fitIllustrationPage(availableWidth, availableHeight) {
         if (textNodes().some(node => !node.parentElement.closest('svg')) || root.querySelector('video,audio,canvas,iframe')) return;
         const images = Array.from(root.querySelectorAll('img,svg')).filter(image => !image.parentElement.closest('svg'));
-        const spacers = images.filter(image => image.matches('img:not(.gaiji)') && image.naturalWidth === 1 && image.naturalHeight === 1);
+        const spacers = images.filter(image => image.matches('img:not(.gaiji)') &&
+            rasterSize(image)?.every(value => value === 1));
         const artwork = images.filter(image => !spacers.includes(image));
         if (artwork.length !== 1 || artwork[0].matches('img.gaiji')) return;
         const image = artwork[0], box = image.viewBox?.baseVal, bounds = image.getBoundingClientRect();
-        const naturalWidth = image.naturalWidth || box?.width || image.width?.baseVal?.value || 0;
-        const naturalHeight = image.naturalHeight || box?.height || image.height?.baseVal?.value || 0;
+        const raster = image.matches('img') ? rasterSize(image) || (imagePending(image) ? [710, 1000] : null) : null;
+        const naturalWidth = raster?.[0] || box?.width || image.width?.baseVal?.value || 0;
+        const naturalHeight = raster?.[1] || box?.height || image.height?.baseVal?.value || 0;
         // Only substantial artwork is a sheet; icons and authored miniature images keep their layout.
         if (Math.min(naturalWidth, naturalHeight) < 320 || Math.max(bounds.width, bounds.height) <= 128) return;
+        sheetImage = image;
         const scale = Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight);
         const fittedWidth = naturalWidth * scale, fittedHeight = naturalHeight * scale;
         function override(element, property, value) {
@@ -403,37 +567,25 @@
         const style = getComputedStyle(book);
         const availableWidth = Math.max(1, book.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
         const availableHeight = Math.max(1, book.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom));
+        imageViewport = { availableWidth, availableHeight };
+        frozenImages.clear();
         for (const image of root.querySelectorAll('img,svg')) {
             if (image.matches('img.gaiji') || image.parentElement.closest('svg')) continue;
             if (!imageStyles.has(image)) imageStyles.set(image, imageSizeProperties.map(property => ({
                 value: image.style.getPropertyValue(property), priority: image.style.getPropertyPriority(property)
             })));
-            imageSizeProperties.forEach((property, index) => {
-                const saved = imageStyles.get(image)[index];
-                readerStyle(image, property, saved.value, saved.priority);
-            });
-            const bounds = image.getBoundingClientRect();
-            const scale = Math.min(1, availableWidth / bounds.width, availableHeight / bounds.height);
-            // Percentage limits have no useful block-size reference in fragmented book content.
-            readerStyle(image, 'max-width', availableWidth + 'px');
-            readerStyle(image, 'max-height', availableHeight + 'px');
-            readerStyle(image, 'object-fit', 'contain');
-            readerStyle(image, 'break-inside', 'avoid');
-            const box = image.viewBox?.baseVal;
-            const ratio = image.naturalWidth > 0 && image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight :
-                box?.width > 0 && box?.height > 0 ? box.width / box.height : bounds.width / bounds.height;
-            // A book's percentage max-size may already have clamped just one axis.
-            const clamped = (bounds.height >= availableHeight - .5 || bounds.width >= availableWidth - .5) &&
-                Math.abs(bounds.width / bounds.height - ratio) > .005;
-            if (scale < 1 || clamped) {
-                const fittedWidth = Math.min(bounds.width, bounds.height * ratio, availableWidth, availableHeight * ratio);
-                readerStyle(image, 'min-width', '0');
-                readerStyle(image, 'min-height', '0');
-                readerStyle(image, 'width', fittedWidth + 'px');
-                readerStyle(image, 'height', fittedWidth / ratio + 'px');
+            fitImage(image, availableWidth, availableHeight, dimensionsForLayout(image, availableHeight));
+            if (image.matches('img') && imagePending(image)) {
+                const bounds = image.getBoundingClientRect();
+                fixImageBox(image, bounds.width, bounds.height);
+                frozenImages.set(image, { key: rasterSize(image)?.join('x') });
             }
         }
         fitIllustrationPage(availableWidth, availableHeight);
+        for (const [image, frame] of frozenImages) {
+            const { width, height } = image.getBoundingClientRect();
+            Object.assign(frame, { width, height });
+        }
     }
     function applySpacing() {
         for (const saved of spacingOverrides) {
@@ -521,6 +673,12 @@
     window.novelReader = {
         ready: false, state, layout, setColors, bookmarkContext, contentsParts,
         illustrations: illustrationRegions, prepareIllustrations,
+        imageUpdate(sizes, revision) {
+            resourceSizes = sizes;
+            settleImages();
+            return { pending: Array.from(waitingImages.values()).some(entry => !entry.done),
+                revision: imageRevision, position: revision === imageRevision ? null : state() };
+        },
         reflow() { return layout(anchor(), false, lastLocation); },
         turn(delta) {
             const target = screen + delta;
@@ -562,13 +720,25 @@
         },
         path, resolve
     };
-    const imageReady = Array.from(root.querySelectorAll('img')).map(image => image.complete ? Promise.resolve() :
-        new Promise(resolve => { image.onload = resolve; image.onerror = resolve; }));
+    const embedded = [];
+    for (const image of root.querySelectorAll('img,svg image')) {
+        const source = image.currentSrc || image.src || image.href?.baseVal || '';
+        if (!source) continue;
+        const url = imageUrl(source), managed = Object.prototype.hasOwnProperty.call(resourceSizes, url);
+        const decorate = !image.closest('.gaiji,.visually-hidden');
+        if (image.complete && (!managed || image.naturalWidth)) continue;
+        if (source.startsWith('data:') && image.matches('img')) embedded.push(image.decode().catch(() => {}));
+        else if (!source.startsWith('data:') && (decorate || managed)) {
+            if (managed) originalImageUrls.set(image, url);
+            watchImage(image, url, managed, decorate);
+        }
+    }
     Promise.race([
-        Promise.all([document.fonts.ready, ...imageReady]),
+        Promise.all([document.fonts.ready, ...embedded]),
         new Promise(resolve => setTimeout(resolve, 10000))
     ]).then(() => requestAnimationFrame(() => layout(window.novelInitialAnchor, window.novelOpenLast, window.novelInitialLocation)));
     window.addEventListener('resize', () => {
+        if (!window.novelReader.ready) return;
         const xpath = anchor(), precise = lastLocation;
         clearTimeout(resizeTimer);
         resizeTimer = setTimeout(() => layout(xpath, false, precise), 100);

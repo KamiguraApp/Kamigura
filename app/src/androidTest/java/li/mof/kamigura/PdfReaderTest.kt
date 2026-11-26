@@ -468,7 +468,8 @@ internal class ReaderServer(
     private val initialImageProgress: Int = 0,
     private val chapterFinished: () -> Boolean = { false },
     private val widePages: Set<Int> = emptySet(),
-    bookmarkHandler: ((String, Uri, String) -> Pair<Int, String>)? = null
+    bookmarkHandler: ((String, Uri, String) -> Pair<Int, String>)? = null,
+    imageBodyGate: (Int) -> CountDownLatch? = { null }
 ) : AutoCloseable {
     private val socket = ServerSocket(0)
     private val workers = Executors.newCachedThreadPool()
@@ -570,8 +571,11 @@ internal class ReaderServer(
                         val isImage = uri.path in listOf("/api/Reader/image", "/api/Reader/bookmark-image") ||
                             uri.path.orEmpty().endsWith("/book-resources")
                         val isDownload = uri.path == "/api/Download/chapter"
-                        if (isImage) imageResponseGate(uri.getQueryParameter("page")?.toInt() ?: 0)
-                            ?.await(30, TimeUnit.SECONDS)
+                        if (isImage) try {
+                            imageResponseGate(uri.getQueryParameter("page")?.toInt() ?: 0)?.await(30, TimeUnit.SECONDS)
+                        } catch (_: InterruptedException) {
+                            return@use
+                        }
                         val invalidImage = isImage && failPage(uri.getQueryParameter("page")?.toInt() ?: 0)
                         val isBookFont = bookFont != null && uri.path.orEmpty().endsWith("/book-resources") &&
                             uri.getQueryParameter("font") == "embedded"
@@ -581,8 +585,15 @@ internal class ReaderServer(
                             else if (uri.path == "/api/Book/1/book-page") "text/html" else "application/json"
                         val cacheHeader = if (isImage && cacheImages) "Cache-Control: max-age=3600\r\n" else ""
                         runCatching {
-                            it.getOutputStream().write(("HTTP/1.1 ${custom?.first ?: 200} Response\r\nContent-Type: $type\r\n" +
-                                cacheHeader + "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray() + body)
+                            val output = it.getOutputStream()
+                            output.write(("HTTP/1.1 ${custom?.first ?: 200} Response\r\nContent-Type: $type\r\n" +
+                                cacheHeader + "Content-Length: ${body.size}\r\nConnection: close\r\n\r\n").toByteArray())
+                            val gate = if (isImage) imageBodyGate(uri.getQueryParameter("page")?.toInt() ?: 0) else null
+                            val prefix = if (gate != null) minOf(4096, body.size / 2) else 0
+                            output.write(body, 0, prefix)
+                            output.flush()
+                            gate?.await(30, TimeUnit.SECONDS)
+                            output.write(body, prefix, body.size - prefix)
                         }
                     }
                 }

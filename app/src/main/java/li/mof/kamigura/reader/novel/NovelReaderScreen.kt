@@ -177,10 +177,13 @@ internal fun NovelReaderScreen(
     val writer = remember(apiIdentity, incognito) { NovelProgressWriter(api, incognito) }
     val view = remember { NovelPageView(context).apply { setColors(colors) } }
     val scope = rememberCoroutineScope()
-    val sections = remember(apiIdentity, chapterId) {
-        NovelSectionCache(scope) { page -> withContext(Dispatchers.IO) { api.bookPage(chapterId, page).use { it.string() } } }
+    val illustrations = remember(apiIdentity, chapterId, baseUrl) { NovelIllustrationCache(scope, baseUrl, chapterId) }
+    val sections = remember(illustrations) {
+        NovelSectionCache(scope, onPrefetched = { page, html ->
+            withContext(Dispatchers.Default) { illustrations.prepare(page, html, speculative = true) }
+        }) { page -> withContext(Dispatchers.IO) { api.bookPage(chapterId, page).use { it.string() } } }
     }
-    DisposableEffect(sections) { onDispose { sections.close() } }
+    DisposableEffect(sections) { onDispose { sections.close(); illustrations.close() } }
     val bookmarks = remember(apiIdentity, chapterId, incognito, offline) {
         if (readerCanManageBookmarks(incognito, offline))
             NovelBookmarks(api, chapterId, volumeId, seriesId, libraryId, spineCount) else null
@@ -349,12 +352,15 @@ internal fun NovelReaderScreen(
         loading = true
         failure = null
         sections.retainAround(targetSpine, spineCount)
+        illustrations.retainAround(targetSpine, spineCount)
         try {
             val html = sections.get(targetSpine)
+            withContext(Dispatchers.Default) { illustrations.prepare(targetSpine, html, speculative = false) }
             withContext(Dispatchers.Main.immediate) {
                 renderedSpine = targetSpine
                 view.open(html, baseUrl, chapterId, savedAnchor, openLast,
-                    if (preferences.automaticWritingStyle) null else preferences.vertical, savedLocation, preferences)
+                    if (preferences.automaticWritingStyle) null else preferences.vertical, savedLocation, preferences,
+                    illustrations, targetSpine)
                 renderedFonts = novelFontsJson(preferences.fonts)
             }
         } catch (cancelled: CancellationException) { throw cancelled }
@@ -408,7 +414,7 @@ internal fun NovelReaderScreen(
     BackHandler { when { illustration != null -> illustration = null; contentsList && menu -> contentsList = false; menu -> menu = false; else -> close() } }
     ReaderKeyEffect(
         if (rightToLeft) ReaderReadingDirection.RightToLeft else ReaderReadingDirection.LeftToRight,
-        volumeKeys, isBlocked = { illustration != null || loading || turning || menu || dragging || chapterSwitching || closing || failure != null },
+        volumeKeys, isBlocked = { illustration != null || menu || dragging || chapterSwitching || closing || failure != null },
         onTurn = { turn(if (it == ReaderTurnDirection.Next) 1 else -1) }
     )
 

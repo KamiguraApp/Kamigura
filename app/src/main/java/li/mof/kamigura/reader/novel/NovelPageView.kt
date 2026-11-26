@@ -35,7 +35,8 @@ internal fun novelResourceAllowed(url: String, baseUrl: String, chapterId: Int):
 
 internal fun novelDocument(fragment: String, baseUrl: String, script: String, anchor: String?, last: Boolean,
     vertical: Boolean? = null, documentId: String = "", location: String? = null,
-    preferences: NovelReaderPreferences = NovelReaderPreferences(), cutout: NovelPageInsets = NovelPageInsets()): String {
+    preferences: NovelReaderPreferences = NovelReaderPreferences(), cutout: NovelPageInsets = NovelPageInsets(),
+    imageSizes: String = "{}"): String {
     val nonce = UUID.randomUUID().toString()
     val base = normalizeKavitaBaseUrl(baseUrl).toHttpUrl()
     val origin = base.newBuilder().encodedPath("/").query(null).fragment(null).build().toString().trimEnd('/')
@@ -51,6 +52,9 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
         .book-content { box-sizing:border-box; column-fill:auto; font-size:${preferences.fontSize * 0.16}px; font-family:'KamiguraBookDefault'; writing-mode:${if (preferences.vertical) "vertical-rl" else "horizontal-tb"}; }
         .book-content > div { margin:0; padding:0; }
         .book-content img,.book-content svg { max-width:100%; max-height:100%; object-fit:contain; }
+        .book-content img[data-novel-pending] { opacity:0 !important; }
+        #novel-viewport > .novel-image-wait { position:absolute; transform:translate(-50%,-50%);
+            color:var(--novel-text-color); opacity:.45; font:14px sans-serif; pointer-events:none; }
         .book-content .visually-hidden { position:absolute !important; width:1px !important; height:1px !important;
             padding:0 !important; margin:-1px !important; overflow:hidden !important; clip:rect(0,0,0,0) !important;
             white-space:nowrap !important; border:0 !important; }
@@ -64,6 +68,7 @@ internal fun novelDocument(fragment: String, baseUrl: String, script: String, an
         }
         </style></head><body><div id="novel-viewport"><div class="book-content">$fragment</div></div>
         <script nonce="$nonce">window.novelInitialAnchor=${JSONObject.quote(anchor.orEmpty())};window.novelOpenLast=$last;window.novelWritingMode=$vertical;window.novelFonts=${novelFontsJson(preferences.fonts)};window.novelDocumentId=${JSONObject.quote(documentId)};window.novelInitialLocation=${JSONObject.quote(location.orEmpty())};window.novelMargin=${preferences.margin};window.novelCutout=${cutout.json()};window.novelLineSpacing=${preferences.lineSpacing};window.novelFontSize=${preferences.fontSize};window.novelColors={background:'${colors.backgroundCss}',text:'${colors.textCss}'};
+        window.novelImageSizes=${imageSizes.replace("<", "\\u003c")};
         $script</script></body></html>""".trimIndent()
 }
 
@@ -73,6 +78,7 @@ internal class NovelPageView(context: Context) : WebView(context) {
     var onPosition: (NovelPosition) -> Unit = {}
     var onFailure: (String) -> Unit = {}
     private var generation = 0
+    private var reportedGeneration = 0
     private var illustrationQuery = 0
     private var disposed = false
     private var colors = novelReaderColors(li.mof.kamigura.PageBackground.Paper, false)
@@ -148,35 +154,57 @@ internal class NovelPageView(context: Context) : WebView(context) {
     }
 
     fun open(fragment: String, baseUrl: String, chapterId: Int, anchor: String?, last: Boolean, vertical: Boolean? = null,
-        location: String? = null, preferences: NovelReaderPreferences = NovelReaderPreferences()) {
+        location: String? = null, preferences: NovelReaderPreferences = NovelReaderPreferences(),
+        illustrations: NovelIllustrationCache? = null, spine: Int = 0) {
         setColors(novelReaderColors(preferences.background, preferences.usePureColors))
         margin = preferences.margin
         val token = ++generation
+        val imageSizes = { illustrations?.imagesJson(spine) ?: "{}" }
         allowedFonts = novelFontIds(preferences.fonts)
         webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 fonts.response(request.url.toString(), allowedFonts)?.let { return it }
-                if (novelResourceAllowed(request.url.toString(), baseUrl, chapterId)) return null
+                val url = request.url.toString()
+                if (novelResourceAllowed(url, baseUrl, chapterId)) {
+                    return if (request.method == "GET") illustrations?.response(spine, url) else null
+                }
                 return WebResourceResponse("text/plain", "UTF-8", ByteArrayInputStream(ByteArray(0)))
             }
-            override fun onPageFinished(view: WebView, url: String) { awaitLayout(token, 0) }
+            // A committed document can lay out while its subresources are still loading.
+            override fun onPageCommitVisible(view: WebView, url: String) { awaitLayout(token, 0, imageSizes) }
+            override fun onPageFinished(view: WebView, url: String) { awaitLayout(token, 0, imageSizes) }
         }
         val script = context.assets.open("novel-reader.js").bufferedReader().use { it.readText() }
-        loadDataWithBaseURL(normalizeKavitaBaseUrl(baseUrl) + "/", novelDocument(fragment, baseUrl, script, anchor, last, vertical, token.toString(), location, preferences, cutoutCss()),
+        loadDataWithBaseURL(normalizeKavitaBaseUrl(baseUrl) + "/", novelDocument(fragment, baseUrl, script, anchor, last,
+            vertical, token.toString(), location, preferences, cutoutCss(), imageSizes()),
             "text/html", "UTF-8", null)
     }
 
-    private fun awaitLayout(token: Int, attempt: Int) {
-        if (disposed || token != generation) return
+    private fun awaitLayout(token: Int, attempt: Int, imageSizes: () -> String) {
+        if (disposed || token != generation || reportedGeneration == token) return
         evaluateJavascript("window.novelDocumentId === '$token' && window.novelReader && window.novelReader.ready ? ${pageLayoutScript()} : null") { value ->
-            if (disposed || token != generation) return@evaluateJavascript
+            if (disposed || token != generation || reportedGeneration == token) return@evaluateJavascript
             if (value.startsWith("{")) {
+                reportedGeneration = token
                 setColors(colors)
                 report(value)
+                watchIllustrations(token, 0, imageSizes)
             } else if (attempt < 200) {
-                postDelayed({ awaitLayout(token, attempt + 1) }, 100)
+                postDelayed({ awaitLayout(token, attempt + 1, imageSizes) }, 100)
             } else onFailure("Could not lay out this EPUB.")
+        }
+    }
+
+    private fun watchIllustrations(token: Int, revision: Int, imageSizes: () -> String) {
+        if (disposed || token != generation) return
+        evaluateJavascript("window.novelDocumentId === '$token' ? window.novelReader.imageUpdate(${imageSizes()}, $revision) : null") { value ->
+            if (disposed || token != generation || !value.startsWith("{")) return@evaluateJavascript
+            val update = JSONObject(value)
+            update.optJSONObject("position")?.let { report(it.toString()) }
+            if (update.optBoolean("pending")) {
+                postDelayed({ watchIllustrations(token, update.getInt("revision"), imageSizes) }, 150)
+            }
         }
     }
 
