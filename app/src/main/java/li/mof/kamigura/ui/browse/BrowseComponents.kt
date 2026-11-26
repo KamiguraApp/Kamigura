@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -63,9 +62,9 @@ import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.seriesCoverUrl
 import li.mof.kamigura.ui.seriesInitial
 import li.mof.kamigura.ui.theme.KamiguraBackground
-import li.mof.kamigura.ui.theme.ReadingProgressInProgress
-import li.mof.kamigura.ui.theme.ReadingProgressRead
-import li.mof.kamigura.ui.theme.ReadingProgressTrack
+import li.mof.kamigura.series.internal.readingProgress
+import li.mof.kamigura.ui.ReadingProgressBar
+import li.mof.kamigura.ui.readingProgressSemantics
 
 @Composable
 internal fun BrowsePageScaffold(
@@ -203,8 +202,9 @@ internal fun SeriesPosterCard(
     shape: Shape = MaterialTheme.shapes.small,
     coverFillsHeight: Boolean = false
 ) {
+    val progress = series.readingProgress()
     Card(
-        modifier = modifier,
+        modifier = modifier.readingProgressSemantics(progress),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
     ) {
@@ -239,12 +239,9 @@ internal fun SeriesPosterCard(
                     .fillMaxWidth()
                     .height(seriesPosterLabelHeight())
             ) {
-                SeriesReadingProgressBar(
-                    progress = series.readingProgress(),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxWidth()
-                        .height(3.dp)
+                ReadingProgressBar(
+                    progress = progress,
+                    modifier = Modifier.align(Alignment.TopStart)
                 )
                 Text(
                     text = series.name,
@@ -377,24 +374,3 @@ internal val SeriesShelfItemSpacing = 14.dp
 @Composable
 internal fun seriesShelfHeight(): Dp =
     SeriesShelfItemWidth / KavitaCoverAspectRatio + seriesPosterLabelHeight()
-
-@Composable
-private fun SeriesReadingProgressBar(progress: Float?, modifier: Modifier = Modifier) {
-    val boundedProgress = (progress ?: 0f).coerceIn(0f, 1f)
-    val fillColor = if (boundedProgress >= 1f) ReadingProgressRead else ReadingProgressInProgress
-    Box(modifier = modifier.background(ReadingProgressTrack)) {
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(boundedProgress)
-                .background(fillColor)
-        )
-    }
-}
-
-private fun SeriesDto.readingProgress(): Float? {
-    val total = pages ?: return null
-    if (total <= 0) return null
-    val read = (pagesRead ?: 0).coerceIn(0, total)
-    return read.toFloat() / total.toFloat()
-}

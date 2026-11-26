@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -36,9 +35,8 @@ import li.mof.kamigura.KavitaSession
 import li.mof.kamigura.VolumeDto
 import li.mof.kamigura.series.chapterCoverUrl
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
-import li.mof.kamigura.ui.theme.ReadingProgressInProgress
-import li.mof.kamigura.ui.theme.ReadingProgressRead
-import li.mof.kamigura.ui.theme.ReadingProgressTrack
+import li.mof.kamigura.ui.ReadingProgressBar
+import li.mof.kamigura.ui.readingProgressSemantics
 /** Internal to series, not for external use. */
 @Composable
 internal fun ChapterIssueGrid(
@@ -129,7 +127,8 @@ internal fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCl
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .readingProgressSemantics(progress),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF303333))
     ) {
         Column {
@@ -154,10 +153,7 @@ internal fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCl
             Box(Modifier.fillMaxWidth()) {
                 ReadingProgressBar(
                     progress = progress,
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .fillMaxWidth()
-                        .height(3.dp)
+                    modifier = Modifier.align(Alignment.TopStart)
                 )
                 Column(Modifier.padding(horizontal = 10.dp, vertical = 10.dp)) {
                     Text(
@@ -171,21 +167,6 @@ internal fun ChapterGridCard(item: ChapterCardItem, session: KavitaSession, onCl
                 }
             }
         }
-    }
-}
-
-/** Internal to series, not for external use. */
-@Composable
-internal fun ReadingProgressBar(progress: Float?, modifier: Modifier = Modifier) {
-    val boundedProgress = (progress ?: 0f).coerceIn(0f, 1f)
-    val fillColor = if (boundedProgress >= 1f) ReadingProgressRead else ReadingProgressInProgress
-    Box(modifier = modifier.background(ReadingProgressTrack)) {
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(boundedProgress)
-                .background(fillColor)
-        )
     }
 }
 

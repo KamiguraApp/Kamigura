@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -58,9 +57,9 @@ import li.mof.kamigura.series.internal.primaryReadActionText
 import li.mof.kamigura.series.internal.readingHoursText
 import li.mof.kamigura.ui.KavitaCoverAspectRatio
 import li.mof.kamigura.ui.ModalSideSheet
-import li.mof.kamigura.ui.theme.ReadingProgressInProgress
-import li.mof.kamigura.ui.theme.ReadingProgressRead
-import li.mof.kamigura.ui.theme.ReadingProgressTrack
+import li.mof.kamigura.series.internal.readingProgress
+import li.mof.kamigura.ui.ReadingProgressBar
+import li.mof.kamigura.ui.readingProgressSemantics
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlin.math.roundToInt
@@ -139,6 +138,7 @@ private fun IssueDetailContent(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
+                val progress = chapter.readingProgress()
                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(Modifier.width(190.dp)) {
                         AsyncImage(
@@ -148,15 +148,11 @@ private fun IssueDetailContent(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(KavitaCoverAspectRatio)
-                                .background(MaterialTheme.colorScheme.surfaceContainerLowest),
+                                .background(MaterialTheme.colorScheme.surfaceContainerLowest)
+                                .readingProgressSemantics(progress),
                             contentScale = ContentScale.Crop
                         )
-                        IssueProgressBar(
-                            progress = chapter.issueReadingProgress(),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(3.dp)
-                        )
+                        ReadingProgressBar(progress)
                     }
                 }
             }
@@ -343,20 +339,6 @@ private fun IssueReadSplitButton(
     }
 }
 
-@Composable
-private fun IssueProgressBar(progress: Float?, modifier: Modifier = Modifier) {
-    val bounded = (progress ?: 0f).coerceIn(0f, 1f)
-    val fillColor = if (bounded >= 1f) ReadingProgressRead else ReadingProgressInProgress
-    Box(modifier.background(ReadingProgressTrack)) {
-        Box(
-            Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(bounded)
-                .background(fillColor)
-        )
-    }
-}
-
 private enum class IssueMenuAction(val label: String) {
     ReadIncognito("Read Incognito"),
     MarkRead("Mark as Read"),
@@ -420,12 +402,6 @@ private fun ChapterDto.issueReleaseDate(): String? {
 
 private fun ChapterDto.issueReadingTime(): String? {
     return readingHoursText(minHoursToRead, maxHoursToRead, avgHoursToRead)
-}
-
-private fun ChapterDto.issueReadingProgress(): Float? {
-    val total = pages ?: return null
-    if (total <= 0) return null
-    return (pagesRead ?: 0).coerceIn(0, total).toFloat() / total.toFloat()
 }
 
 private fun ChapterDto.issueIsRead(): Boolean {
